@@ -1,0 +1,162 @@
+Fix the Android Gradle build failure for project `:onnxruntime-react-native` in the Puente Expo app. The fix must persist across `pnpm install` and EAS local builds.
+
+## Problem (confirmed from build logs)
+
+Command that fails:
+
+```bash
+cd puente
+eas build -p android --profile preview --local
+```
+
+Gradle fails during project evaluation with **two errors**; only the first is the root cause:
+
+### Error 1 — ROOT CAUSE (fix this)
+
+```
+* Where:
+  .../node_modules/onnxruntime-react-native/android/build.gradle line: 250
+* What went wrong:
+  A problem occurred evaluating project ':onnxruntime-react-native'.
+  > Could not get unknown property 'VersionNumber' for object of type
+    org.gradle.api.internal.artifacts.dsl.dependencies.DefaultDependencyHandler.
+```
+
+**Why:** `onnxruntime-react-native@1.24.3` uses `VersionNumber.parse()` inside the `dependencies {}` block. `VersionNumber` is not available in that Gradle context. This breaks with **Gradle 9.3.1** (used by Expo SDK 56 / RN 0.85).
+
+Offending code (approx. lines 250–253 in `node_modules/onnxruntime-react-native/android/build.gradle`):
+
+```gradle
+if (VersionNumber.parse(REACT_NATIVE_VERSION) < VersionNumber.parse("0.71")) {
+  extractLibs "com.facebook.fbjni:fbjni:+:headers"
+  extractLibs "com.facebook.fbjni:fbjni:+"
+}
+```
+
+### Error 2 — CASCADE (should disappear after Error 1 is fixed)
+
+```
+A problem occurred configuring project ':expo'.
+> SoftwareComponent with name 'release' not found.
+```
+
+Do **not** chase this separately unless it still fails after onnxruntime is fixed.
+
+---
+
+## Existing codebase (read before coding)
+
+- App root: `puente/` — Expo SDK 56, React Native **0.85.3**, Gradle **9.3.1**, pnpm.
+- Dependency: `onnxruntime-react-native@^1.24.3` (required by `@automatalabs/react-native-transformers` peer `>= 1.24.3 < 2`).
+- **No newer npm release** currently ships the upstream fix; latest published is **1.24.3**.
+- Upstream fix already merged in microsoft/onnxruntime **PR #27385** (commit `f3a6284`): replace `VersionNumber.parse()` with integer major/minor comparison.
+- EAS config: `puente/eas.json` — profile `preview` builds release APK (`buildType: "apk"`, no dev client).
+- Native android/ folder exists (prebuild). Do not break iOS or unrelated app code.
+
+---
+
+## Task 1 — Patch `onnxruntime-react-native` with pnpm
+
+Use **`pnpm patch`** (not a one-off edit in `node_modules/`). The patch must survive reinstall and EAS local archive builds.
+
+1. Run `pnpm patch onnxruntime-react-native@1.24.3` from `puente/`.
+2. In the temp directory, edit `android/build.gradle` applying the upstream fix from commit `f3a6284`:
+
+**Replace** (approx. line 69):
+
+```gradle
+def REACT_NATIVE_MINOR_VERSION = REACT_NATIVE_VERSION.split("\\.")[1].toInteger()
+```
+
+**With:**
+
+```gradle
+def versionParts = REACT_NATIVE_VERSION.split("\\.")
+if (versionParts.length < 2) {
+  throw new GradleException("Invalid React Native version format: ${REACT_NATIVE_VERSION}. Expected format: major.minor[.patch]")
+}
+def REACT_NATIVE_MAJOR_VERSION = versionParts[0].toInteger()
+def REACT_NATIVE_MINOR_VERSION = versionParts[1].toInteger()
+```
+
+**Replace** (approx. line 85, inside `cmake` block):
+
+```gradle
+if (REACT_NATIVE_MINOR_VERSION >= 71) {
+```
+
+**With:**
+
+```gradle
+if (REACT_NATIVE_MAJOR_VERSION > 0 || REACT_NATIVE_MINOR_VERSION >= 71) {
+```
+
+**Replace** (approx. line 250, inside `dependencies` block):
+
+```gradle
+if (VersionNumber.parse(REACT_NATIVE_VERSION) < VersionNumber.parse("0.71")) {
+```
+
+**With:**
+
+```gradle
+if (REACT_NATIVE_MAJOR_VERSION == 0 && REACT_NATIVE_MINOR_VERSION < 71) {
+```
+
+3. Commit the patch with `pnpm patch-commit <tempDir>`.
+4. Verify `package.json` has a `pnpm.patchedDependencies` entry pointing to `patches/onnxruntime-react-native@1.24.3.patch` (or equivalent).
+5. Run `pnpm install` to confirm the patch applies cleanly.
+
+**Do not downgrade** `onnxruntime-react-native` below 1.24.3 — `@automatalabs/react-native-transformers` requires it.
+
+---
+
+## Task 2 — Verify the Android release build
+
+From `puente/`, confirm Gradle succeeds:
+
+```bash
+cd android && ./gradlew :app:assembleRelease --no-daemon
+```
+
+Or the full EAS command:
+
+```bash
+eas build -p android --profile preview --local
+```
+
+Build must pass the `:onnxruntime-react-native` configuration phase without `VersionNumber` errors.
+
+---
+
+## Task 3 — Document the patch (brief)
+
+Add a short note to `puente/README.md` under a "Android build" or "Troubleshooting" section:
+
+- Why the patch exists (Gradle 9 + onnxruntime-react-native 1.24.3 bug).
+- Link to upstream issue/PR: microsoft/onnxruntime #27281 / #27385.
+- Reminder to remove the patch when a fixed npm version (> 1.24.3) is released.
+
+Keep it to 3–5 lines — no essay.
+
+---
+
+## Constraints
+
+- **Minimal scope:** only patch onnxruntime + README note. Do not refactor the app, change model code, or touch unrelated Gradle files unless strictly required.
+- **No manual node_modules edits** without committing a pnpm patch.
+- Do not remove `@automatalabs/react-native-transformers` or replace ONNX with another stack.
+- Do not change `eas.json` preview profile unless build still fails for unrelated reasons after patch.
+
+---
+
+## Acceptance checklist
+
+- [ ] `pnpm.patchedDependencies` and patch file exist in repo.
+- [ ] Patched `android/build.gradle` has zero references to `VersionNumber`.
+- [ ] `./gradlew :app:assembleRelease` succeeds in `puente/android/`.
+- [ ] `eas build -p android --profile preview --local` passes the Gradle configure phase for `:onnxruntime-react-native`.
+- [ ] Error 2 (`SoftwareComponent 'release' not found` on `:expo`) is gone or documented if it persists independently.
+- [ ] Brief README note added.
+
+Implement and verify end-to-end.
