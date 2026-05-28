@@ -1,0 +1,9 @@
+allowBuilds:
+  msgpackr-extract: true
+  onnxruntime-node: true
+  protobufjs: true
+  sharp: true
+  unrs-resolver: true
+patchedDependencies:
+  '@huggingface/transformers@4.2.0': patches/@huggingface__transformers@4.2.0.patch
+  onnxruntime-react-native@1.24.3: patches/onnxruntime-react-native@1.24.3.patch

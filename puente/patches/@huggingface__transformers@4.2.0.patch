@@ -1,0 +1,206 @@
+diff --git a/dist/transformers.web.js b/dist/transformers.web.js
+index bb7b32717a42475a5f66411a33d5e5964dfda3e2..864895c05d7cf962615190bba5ab6499b3693730 100644
+--- a/dist/transformers.web.js
++++ b/dist/transformers.web.js
+@@ -5584,30 +5584,21 @@ var CONTENT_TYPE_MAP = {
+ };
+ var FileResponse = class _FileResponse {
+   /**
+-   * Creates a new `FileResponse` object.
++   * Creates a new `FileResponse` object backed by expo-file-system on React Native.
+    * @param {string} filePath
+    */
+   constructor(filePath) {
+     this.filePath = filePath;
+     this.headers = new Headers();
+-    this.exists = node_fs_default.existsSync(filePath);
++    const expoFileSystem = require("expo-file-system");
++    const file = new expoFileSystem.File(filePath);
++    this.exists = file.exists;
+     if (this.exists) {
+       this.status = 200;
+       this.statusText = "OK";
+-      let stats = node_fs_default.statSync(filePath);
+-      this.headers.set("content-length", stats.size.toString());
++      this.headers.set("content-length", String(file.size));
+       this.updateContentType();
+-      const stream = node_fs_default.createReadStream(filePath);
+-      this.body = new ReadableStream({
+-        start(controller) {
+-          stream.on("data", (chunk2) => controller.enqueue(chunk2));
+-          stream.on("end", () => controller.close());
+-          stream.on("error", (err) => controller.error(err));
+-        },
+-        cancel() {
+-          stream.destroy();
+-        }
+-      });
++      this.body = file.readableStream();
+     } else {
+       this.status = 404;
+       this.statusText = "Not Found";
+@@ -5642,11 +5633,9 @@ var FileResponse = class _FileResponse {
+    * @throws {Error} If the file cannot be read.
+    */
+   async arrayBuffer() {
+-    const data = await node_fs_default.promises.readFile(this.filePath);
+-    return (
+-      /** @type {ArrayBuffer} */
+-      data.buffer
+-    );
++    const expoFileSystem = require("expo-file-system");
++    const file = new expoFileSystem.File(this.filePath);
++    return file.arrayBuffer();
+   }
+   /**
+    * Reads the contents of the file specified by the filePath property and returns a Promise that
+@@ -5655,11 +5644,9 @@ var FileResponse = class _FileResponse {
+    * @throws {Error} If the file cannot be read.
+    */
+   async blob() {
+-    const data = await node_fs_default.promises.readFile(this.filePath);
+-    return new Blob([
+-      /** @type {any} */
+-      data
+-    ], { type: this.headers.get("content-type") });
++    const expoFileSystem = require("expo-file-system");
++    const file = new expoFileSystem.File(this.filePath);
++    return file;
+   }
+   /**
+    * Reads the contents of the file specified by the filePath property and returns a Promise that
+@@ -5668,7 +5655,9 @@ var FileResponse = class _FileResponse {
+    * @throws {Error} If the file cannot be read.
+    */
+   async text() {
+-    return await node_fs_default.promises.readFile(this.filePath, "utf8");
++    const expoFileSystem = require("expo-file-system");
++    const file = new expoFileSystem.File(this.filePath);
++    return file.text();
+   }
+   /**
+    * Reads the contents of the file specified by the filePath property and returns a Promise that
+@@ -6623,7 +6612,7 @@ async function loadResourceFile(path_or_repo_id, filename, fatal = true, options
+     file: filename
+   });
+   let result;
+-  if (apis.IS_NODE_ENV && return_path) {
++  if ((apis.IS_NODE_ENV || typeof navigator !== "undefined" && navigator.product === "ReactNative") && return_path) {
+   } else {
+     let buffer;
+     if (typeof response !== "string") {
+@@ -6677,7 +6666,7 @@ async function loadResourceFile(path_or_repo_id, filename, fatal = true, options
+   ) {
+     await storeCachedResource(path_or_repo_id, filename, cache2, cacheKey, response, result, options);
+   }
+-  if (apis.IS_NODE_ENV && return_path && options.progress_callback && typeof response !== "string") {
++  if ((apis.IS_NODE_ENV || typeof navigator !== "undefined" && navigator.product === "ReactNative") && return_path && options.progress_callback && typeof response !== "string") {
+     const size = parseInt(response.headers.get("content-length"), 10) || 0;
+     dispatchCallback(options.progress_callback, {
+       status: "progress",
+@@ -6694,7 +6683,7 @@ async function loadResourceFile(path_or_repo_id, filename, fatal = true, options
+     file: filename
+   });
+   if (result) {
+-    if (!apis.IS_NODE_ENV && return_path) {
++    if (!(apis.IS_NODE_ENV || typeof navigator !== "undefined" && navigator.product === "ReactNative") && return_path) {
+       throw new Error("Cannot return path in a browser environment.");
+     }
+     return result;
+@@ -18442,11 +18431,11 @@ function getExternalDataChunkNames(fullName, numChunks) {
+ async function getCoreModelFile(pretrained_model_name_or_path, fileName, options, suffix) {
+   const baseName = `${fileName}${suffix}.onnx`;
+   const fullPath = `${options.subfolder ?? ""}/${baseName}`;
+-  return await getModelFile(pretrained_model_name_or_path, fullPath, true, options, apis.IS_NODE_ENV);
++  return await getModelFile(pretrained_model_name_or_path, fullPath, true, options, (apis.IS_NODE_ENV || typeof navigator !== "undefined" && navigator.product === "ReactNative"));
+ }
+ async function getModelDataFiles(pretrained_model_name_or_path, fileName, suffix, options, use_external_data_format, session_options = {}) {
+   const baseName = `${fileName}${suffix}.onnx`;
+-  const return_path = apis.IS_NODE_ENV;
++  const return_path = (apis.IS_NODE_ENV || typeof navigator !== "undefined" && navigator.product === "ReactNative");
+   let externalDataPromises = [];
+   const num_chunks = resolveExternalDataFormat(use_external_data_format, baseName, fileName);
+   if (num_chunks > 0) {
+diff --git a/src/utils/hub.js b/src/utils/hub.js
+index 6cd7e40642127c2a88bbd8890833b177daa00059..781fac1d7b30e8be1c00022741d3d1f7d6e430bf 100644
+--- a/src/utils/hub.js
++++ b/src/utils/hub.js
+@@ -15,6 +15,13 @@ import { logger } from './logger.js';
+ 
+ export { MAX_EXTERNAL_DATA_CHUNKS } from './hub/constants.js';
+ 
++function supportsNativeModelPaths() {
++    return (
++        apis.IS_NODE_ENV ||
++        (typeof navigator !== 'undefined' && navigator.product === 'ReactNative')
++    );
++}
++
+ /**
+  * @typedef {boolean|number} ExternalData
+  * Specifies whether to load the model using the external data format.
+@@ -350,8 +357,8 @@ export async function loadResourceFile(
+     });
+ 
+     let result;
+-    if (apis.IS_NODE_ENV && return_path) {
+-        // In Node.js with return_path, we skip the buffer read (ONNX runtime
++    if (supportsNativeModelPaths() && return_path) {
++        // In Node.js / React Native with return_path, we skip the buffer read (ONNX runtime
+         // loads from disk directly). A completion progress event is emitted
+         // after the caching block below to ensure progress_total reaches 100%.
+     } else {
+@@ -431,7 +438,7 @@ export async function loadResourceFile(
+     // events are emitted during loading. Emit a final completion event so
+     // that aggregate progress_total tracking reaches 100%. This is placed
+     // after storeCachedResource so it doesn't conflict with caching progress.
+-    if (apis.IS_NODE_ENV && return_path && options.progress_callback && typeof response !== 'string') {
++    if (supportsNativeModelPaths() && return_path && options.progress_callback && typeof response !== 'string') {
+         const size = parseInt(response.headers.get('content-length'), 10) || 0;
+         dispatchCallback(options.progress_callback, {
+             status: 'progress',
+@@ -450,7 +457,7 @@ export async function loadResourceFile(
+     });
+ 
+     if (result) {
+-        if (!apis.IS_NODE_ENV && return_path) {
++        if (!supportsNativeModelPaths() && return_path) {
+             throw new Error('Cannot return path in a browser environment.');
+         }
+         return result;
+diff --git a/src/utils/model-loader.js b/src/utils/model-loader.js
+index 599aefe9dc975c8c6a4a3c64ffd7d7e177e17509..b23965ef32a374ab61e02e1797805c23db93d0ec 100644
+--- a/src/utils/model-loader.js
++++ b/src/utils/model-loader.js
+@@ -1,6 +1,13 @@
+ import { getModelFile, MAX_EXTERNAL_DATA_CHUNKS } from './hub.js';
+ import { apis } from '../env.js';
+ 
++function supportsNativeModelPaths() {
++    return (
++        apis.IS_NODE_ENV ||
++        (typeof navigator !== 'undefined' && navigator.product === 'ReactNative')
++    );
++}
++
+ /**
+  * Resolves an `use_external_data_format` config value to the number of data chunks for a given file.
+  * @param {import('./hub.js').ExternalData|Record<string, import('./hub.js').ExternalData>|null|undefined} config The external data format configuration.
+@@ -45,7 +52,7 @@ export async function getCoreModelFile(pretrained_model_name_or_path, fileName,
+     const baseName = `${fileName}${suffix}.onnx`;
+     const fullPath = `${options.subfolder ?? ''}/${baseName}`;
+ 
+-    return await getModelFile(pretrained_model_name_or_path, fullPath, true, options, apis.IS_NODE_ENV);
++    return await getModelFile(pretrained_model_name_or_path, fullPath, true, options, supportsNativeModelPaths());
+ }
+ 
+ /**
+@@ -68,7 +75,7 @@ export async function getModelDataFiles(
+     session_options = {},
+ ) {
+     const baseName = `${fileName}${suffix}.onnx`;
+-    const return_path = apis.IS_NODE_ENV;
++    const return_path = supportsNativeModelPaths();
+ 
+     /** @type {Promise<string|{path: string, data: Uint8Array}>[]} */
+     let externalDataPromises = [];

@@ -1,0 +1,82 @@
+diff --git a/android/build.gradle b/android/build.gradle
+index 41b43599a9af6ef1c170047d39db1f3baa6ca682..d13e98a9f3487bf2b7aee92b2fee9c0d51d73487 100644
+--- a/android/build.gradle
++++ b/android/build.gradle
+@@ -66,7 +66,12 @@ boolean ortExtensionsEnabled = readPackageJsonField('onnxruntimeExtensionsEnable
+ boolean useQnn = readPackageJsonField('onnxruntimeUseQnn') == "true"
+ 
+ def REACT_NATIVE_VERSION = ['node', '--print', "JSON.parse(require('fs').readFileSync(require.resolve('react-native/package.json'), 'utf-8')).version"].execute(null, rootDir).text.trim()
+-def REACT_NATIVE_MINOR_VERSION = REACT_NATIVE_VERSION.split("\\.")[1].toInteger()
++def versionParts = REACT_NATIVE_VERSION.split("\\.")
++if (versionParts.length < 2) {
++  throw new GradleException("Invalid React Native version format: ${REACT_NATIVE_VERSION}. Expected format: major.minor[.patch]")
++}
++def REACT_NATIVE_MAJOR_VERSION = versionParts[0].toInteger()
++def REACT_NATIVE_MINOR_VERSION = versionParts[1].toInteger()
+ 
+ android {
+ // This is needed by the new AndroidManifestNew.xml
+@@ -82,7 +87,7 @@ android {
+     externalNativeBuild {
+       cmake {
+         cppFlags "-O2 -frtti -fexceptions -Wall -Wno-unused-variable -fstack-protector-all"
+-        if (REACT_NATIVE_MINOR_VERSION >= 71) {
++        if (REACT_NATIVE_MAJOR_VERSION > 0 || REACT_NATIVE_MINOR_VERSION >= 71) {
+           // fabricjni required c++_shared
+           arguments "-DANDROID_STL=c++_shared",
+             "-DNODE_MODULES_DIR=${nodeModules}",
+@@ -247,7 +252,7 @@ dependencies {
+     extractLibs "com.microsoft.onnxruntime:onnxruntime-android:latest.integration@aar"
+   }
+ 
+-  if (VersionNumber.parse(REACT_NATIVE_VERSION) < VersionNumber.parse("0.71")) {
++  if (REACT_NATIVE_MAJOR_VERSION == 0 && REACT_NATIVE_MINOR_VERSION < 71) {
+     extractLibs "com.facebook.fbjni:fbjni:+:headers"
+     extractLibs "com.facebook.fbjni:fbjni:+"
+   }
+diff --git a/android/src/main/java/ai/onnxruntime/reactnative/OnnxruntimeModule.java b/android/src/main/java/ai/onnxruntime/reactnative/OnnxruntimeModule.java
+index c362e6ad71bbe11265efd6beaab614af0632a70f..e8564652fd962c38f6d91bd8f2f461f4b98726a1 100644
+--- a/android/src/main/java/ai/onnxruntime/reactnative/OnnxruntimeModule.java
++++ b/android/src/main/java/ai/onnxruntime/reactnative/OnnxruntimeModule.java
+@@ -48,7 +48,7 @@ public class OnnxruntimeModule extends ReactContextBaseJavaModule {
+       System.loadLibrary("onnxruntimejsi");
+       JavaScriptContextHolder jsContext = getReactApplicationContext().getJavaScriptContextHolder();
+       CallInvokerHolderImpl jsCallInvokerHolder =
+-        (CallInvokerHolderImpl) getReactApplicationContext().getCatalystInstance().getJSCallInvokerHolder();
++        (CallInvokerHolderImpl) getReactApplicationContext().getJSCallInvokerHolder();
+       nativeInstall(jsContext.get(), jsCallInvokerHolder);
+       return true;
+     } catch (Exception e) {
+diff --git a/lib/binding.ts b/lib/binding.ts
+index f5963a02e39c344a4de19d682c1b7c1e20ba8528..737454074ff8747c419851bbe841a518be862b8f 100644
+--- a/lib/binding.ts
++++ b/lib/binding.ts
+@@ -10,17 +10,19 @@ declare global {
+   var OrtApi: OrtApiType; // eslint-disable-line no-var
+ }
+ 
+-if (typeof globalThis.OrtApi === 'undefined') {
++if (typeof globalThis.OrtApi === 'undefined' && Module != null) {
+   Module.install();
+ }
+ 
+ export const OrtApi =
+   globalThis.OrtApi ??
+-  new Proxy(
+-    {},
+-    {
+-      get: () => {
+-        throw new Error('OrtApi is not initialized. Please make sure Onnxruntime installation is successful.');
+-      },
+-    },
+-  );
++  (Module == null
++    ? ({ listSupportedBackends: () => [] } as unknown as OrtApiType)
++    : new Proxy(
++        {},
++        {
++          get: () => {
++            throw new Error('OrtApi is not initialized. Please make sure Onnxruntime installation is successful.');
++          },
++        },
++      ));
