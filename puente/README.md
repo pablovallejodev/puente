@@ -17,11 +17,11 @@ Puente is built with Expo SDK 56 and requires a **development build** — it doe
 
 On the first cold start, Puente downloads the `Xenova/nllb-200-distilled-600M` model (int8 ONNX pair + tokenizer):
 
-| Component | Approx. size |
-|-----------|--------------|
-| `encoder_model_int8.onnx` + `decoder_model_merged_int8.onnx` | ~1.9 GB |
-| Tokenizer + SentencePiece model | ~17 MB |
-| Config files | < 1 MB |
+| Component                                                    | Approx. size |
+| ------------------------------------------------------------ | ------------ |
+| `encoder_model_int8.onnx` + `decoder_model_merged_int8.onnx` | ~1.9 GB      |
+| Tokenizer + SentencePiece model                              | ~17 MB       |
+| Config files                                                 | < 1 MB       |
 
 **Use Wi‑Fi and ensure you have at least 2 GB of free storage.** Subsequent launches skip download when cached files are present.
 
@@ -70,12 +70,12 @@ Model download and ONNX load log with the `[puente]` prefix. On a connected devi
 
 Common failures:
 
-| Symptom | Likely cause |
-|---------|----------------|
+| Symptom                                                | Likely cause                                                                                             |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
 | Download fails right after 100% on large `.onnx` files | Validation used to read entire files into memory; fixed by reading only the first 16 bytes of the header |
-| `OrtApi is not initialized` / `install` of null | Dev build missing `OnnxruntimePackage()` — run `npx expo prebuild --clean` and rebuild |
-| `Remote model fetch is disabled` | Local model paths missing; re-download or check `document/models/` |
-| `Protobuf parsing failed` | Corrupt or truncated ONNX — tap Retry to re-download |
+| `OrtApi is not initialized` / `install` of null        | Dev build missing `OnnxruntimePackage()` — run `npx expo prebuild --clean` and rebuild                   |
+| `Remote model fetch is disabled`                       | Local model paths missing; re-download or check `document/models/`                                       |
+| `Protobuf parsing failed`                              | Corrupt or truncated ONNX — tap Retry to re-download                                                     |
 
 ### Upgrading `onnxruntime-react-native` (when npm > 1.24.3)
 
@@ -88,11 +88,11 @@ When a release includes [PR #28266](https://github.com/microsoft/onnxruntime/pul
 
 ### Required permissions
 
-| Platform | Permission | Purpose |
-|----------|------------|---------|
-| Android / iOS | Microphone | Speech input |
-| Android / iOS | Speech recognition | Transcription |
-| Android | Internet | First-time model download only |
+| Platform      | Permission         | Purpose                        |
+| ------------- | ------------------ | ------------------------------ |
+| Android / iOS | Microphone         | Speech input                   |
+| Android / iOS | Speech recognition | Transcription                  |
+| Android       | Internet           | First-time model download only |
 
 ### Native configuration
 
@@ -105,11 +105,11 @@ Metro is configured via `metro.config.js` to resolve ONNX assets. Babel enables 
 
 ## Platform notes
 
-| Platform | Support |
-|----------|---------|
-| Android | Primary — full speech + translation pipeline |
-| iOS | Primary — speech recognition; auto language detection may fall back to device locale |
-| Web | Fallback message only — native modules unavailable |
+| Platform | Support                                                                              |
+| -------- | ------------------------------------------------------------------------------------ |
+| Android  | Primary — full speech + translation pipeline                                         |
+| iOS      | Primary — speech recognition; auto language detection may fall back to device locale |
+| Web      | Fallback message only — native modules unavailable                                   |
 
 **Android language detection** requires Android 14+ with the on-device Google speech service (`com.google.android.as`). On older Android versions, Puente estimates source language from the device locale.
 
@@ -124,10 +124,10 @@ pnpm exec tsc --noEmit
 
 ## Architecture
 
-| Route | Screen |
-|-------|--------|
-| `/` | Bootstrap — model download + ONNX load |
-| `/home` | Main translation UI |
-| `/languages` | Base language picker |
+| Route        | Screen                                 |
+| ------------ | -------------------------------------- |
+| `/`          | Bootstrap — model download + ONNX load |
+| `/home`      | Main translation UI                    |
+| `/languages` | Base language picker                   |
 
 State is managed with React Context (`AppProvider`) — no external state library. Base language resets from device locale on every app launch; picker changes apply for the current session only.
