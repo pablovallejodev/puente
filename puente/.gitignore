@@ -45,3 +45,5 @@ example
 
 *.apk
 .env
+
+expo-env.d.ts
