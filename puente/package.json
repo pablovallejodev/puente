@@ -10,7 +10,8 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
-    "build:preview:android": "eas build -p android --profile preview --local"
+    "build:eas": "eas build -p android --profile preview",
+    "build:local": "eas build -p android --profile preview --local"
   },
   "dependencies": {
     "@automatalabs/react-native-transformers": "^0.1.6",
