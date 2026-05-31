@@ -1,5 +1,5 @@
 import { Platform } from 'react-native';
-import { Directory, File, Paths } from 'expo-file-system';
+import { Directory, File, FileMode, Paths } from 'expo-file-system';
 import { env, pipeline, type TranslationPipeline } from '@huggingface/transformers';
 
 import {
@@ -41,6 +41,8 @@ export const MODEL_FILES = [
 export type ModelFilePath = (typeof MODEL_FILES)[number]['path'];
 
 const ONNX_PATHS = MODEL_FILES.filter(({ path }) => path.endsWith('.onnx')).map(({ path }) => path);
+
+const ONNX_HEADER_BYTES = 16;
 
 export const ESTIMATED_TOTAL_BYTES = MODEL_FILES.reduce((sum, file) => sum + file.estimatedBytes, 0);
 
@@ -84,21 +86,34 @@ function isOnnxLoadError(message: string): boolean {
   );
 }
 
+async function readFilePrefix(file: File, length: number): Promise<Uint8Array | null> {
+  try {
+    const handle = file.open(FileMode.ReadOnly);
+    try {
+      return handle.readBytes(length);
+    } finally {
+      handle.close();
+    }
+  } catch {
+    return null;
+  }
+}
+
 async function looksLikeOnnxFile(file: File): Promise<boolean> {
   if (!file.exists || file.size === 0) {
     return false;
   }
 
-  try {
-    const header = await file.bytes();
-    const prefix = String.fromCharCode(...header.slice(0, Math.min(16, header.length)));
-    if (prefix.startsWith('<') || prefix.startsWith('{') || prefix.startsWith('version')) {
-      return false;
-    }
-    return true;
-  } catch {
+  const header = await readFilePrefix(file, ONNX_HEADER_BYTES);
+  if (!header || header.length === 0) {
     return false;
   }
+
+  const prefix = String.fromCharCode(...header.slice(0, Math.min(ONNX_HEADER_BYTES, header.length)));
+  if (prefix.startsWith('<') || prefix.startsWith('{') || prefix.startsWith('version')) {
+    return false;
+  }
+  return true;
 }
 
 async function validateModelFile(
@@ -120,7 +135,10 @@ async function validateModelFile(
   return true;
 }
 
-export function validateModelFiles(): { valid: boolean; invalidPaths: ModelFilePath[] } {
+export async function validateModelFiles(): Promise<{
+  valid: boolean;
+  invalidPaths: ModelFilePath[];
+}> {
   const invalidPaths: ModelFilePath[] = [];
 
   for (const { path, minBytes } of MODEL_FILES) {
@@ -128,9 +146,16 @@ export function validateModelFiles(): { valid: boolean; invalidPaths: ModelFileP
     if (!file.exists || file.size < minBytes) {
       console.log('[puente] validateModelFiles:invalid', path, file.exists ? file.size : 'missing');
       invalidPaths.push(path);
-    } else {
-      console.log('[puente] validateModelFiles:ok', path, file.size);
+      continue;
     }
+
+    if (path.endsWith('.onnx') && !(await looksLikeOnnxFile(file))) {
+      console.log('[puente] validateModelFiles:invalid-onnx-header', path, file.size);
+      invalidPaths.push(path);
+      continue;
+    }
+
+    console.log('[puente] validateModelFiles:ok', path, file.size);
   }
 
   return { valid: invalidPaths.length === 0, invalidPaths };
@@ -163,8 +188,9 @@ export function clearModelFiles(paths?: string[]): void {
   }
 }
 
-export function checkModelReady(): boolean {
-  return validateModelFiles().valid;
+export async function checkModelReady(): Promise<boolean> {
+  const { valid } = await validateModelFiles();
+  return valid;
 }
 
 async function prepareModelDirectory(): Promise<void> {
@@ -308,13 +334,13 @@ export async function downloadModel(onProgress: (pct: number) => void): Promise<
   await downloadModelExpoFs(onProgress);
 }
 
-export function loadTranslator(): Promise<TranslationPipeline> {
+export async function loadTranslator(): Promise<TranslationPipeline> {
   if (Platform.OS === 'web') {
-    return Promise.reject(new Error('On-device translation is not supported on web.'));
+    throw new Error('On-device translation is not supported on web.');
   }
 
-  if (!checkModelReady()) {
-    return Promise.reject(new Error('Translation model files are not ready.'));
+  if (!(await checkModelReady())) {
+    throw new Error('Translation model files are not ready.');
   }
 
   if (!translatorPromise) {

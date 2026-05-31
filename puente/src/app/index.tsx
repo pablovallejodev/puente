@@ -45,7 +45,7 @@ export default function LoadingScreen() {
     setStatusText('Checking model files…');
 
     try {
-      if (!checkModelReady()) {
+      if (!(await checkModelReady())) {
         setPhase('downloading');
         setStatusText(
           Platform.OS === 'android'

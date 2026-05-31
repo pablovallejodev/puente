@@ -24,5 +24,6 @@ export default function RootLayout() {
 /*
 npx expo prebuild --clean
 pnpm start --reset-cache
+eas build -p android --profile preview
 eas build -p android --profile preview --local
 */

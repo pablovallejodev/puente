@@ -52,7 +52,39 @@ pnpm start
 npx expo export:embed --platform android --dev false --bundle-output /tmp/index.android.bundle --assets-dest /tmp/assets
 ```
 
-`onnxruntime-react-native@1.24.3` is patched via `pnpm patch` (see `pnpm-workspace.yaml` → `patchedDependencies`) because its Gradle script uses `VersionNumber.parse()`, which breaks on Gradle 9 (Expo SDK 56). Upstream fix: [microsoft/onnxruntime#27281](https://github.com/microsoft/onnxruntime/issues/27281) / [#27385](https://github.com/microsoft/onnxruntime/pull/27385). Remove the patch when npm ships a version newer than 1.24.3 with the fix.
+`onnxruntime-react-native@1.24.3` is patched via `pnpm patch` (see `pnpm-workspace.yaml` → `patchedDependencies`) because its Gradle script uses `VersionNumber.parse()`, which breaks on Gradle 9 (Expo SDK 56). Upstream fix: [microsoft/onnxruntime#27281](https://github.com/microsoft/onnxruntime/issues/27281) / [#27385](https://github.com/microsoft/onnxruntime/pull/27385). Remove the Gradle hunks from the patch when npm ships a version that includes that fix.
+
+`OnnxruntimePackage` is registered in `MainApplication.kt` via the `withOnnxruntime` plugin in `app.config.js` (required on npm **1.24.3**; upstream [PR #28266](https://github.com/microsoft/onnxruntime/pull/28266) adds the same to `onnxruntime-react-native/app.plugin.js` in a future release). After `npx expo prebuild`, confirm:
+
+```bash
+grep -n OnnxruntimePackage android/app/src/main/java/**/MainApplication.kt
+```
+
+### Troubleshooting (Android bootstrap)
+
+Model download and ONNX load log with the `[puente]` prefix. On a connected device:
+
+```bash
+./scripts/android-logcat-puente.sh
+```
+
+Common failures:
+
+| Symptom | Likely cause |
+|---------|----------------|
+| Download fails right after 100% on large `.onnx` files | Validation used to read entire files into memory; fixed by reading only the first 16 bytes of the header |
+| `OrtApi is not initialized` / `install` of null | Dev build missing `OnnxruntimePackage()` — run `npx expo prebuild --clean` and rebuild |
+| `Remote model fetch is disabled` | Local model paths missing; re-download or check `document/models/` |
+| `Protobuf parsing failed` | Corrupt or truncated ONNX — tap Retry to re-download |
+
+### Upgrading `onnxruntime-react-native` (when npm > 1.24.3)
+
+When a release includes [PR #28266](https://github.com/microsoft/onnxruntime/pull/28266) (`react-native.config.js` + `withMainApplication` in the official Expo plugin):
+
+1. `pnpm update onnxruntime-react-native` and confirm `node_modules/onnxruntime-react-native/react-native.config.js` exists.
+2. Remove the custom `withOnnxruntime` plugin from `app.config.js` and delete project-root `react-native.config.js` (keep `@automatalabs/react-native-transformers` in `app.json`).
+3. Trim `patches/onnxruntime-react-native@*.patch` to only what upstream still lacks (bridgeless `getJSCallInvokerHolder`, `binding.ts` `Module != null` guard for `export:embed`).
+4. `npx expo prebuild --clean` and verify a single `add(OnnxruntimePackage())` in `MainApplication.kt`.
 
 ### Required permissions
 
