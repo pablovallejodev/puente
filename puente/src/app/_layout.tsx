@@ -1,23 +1,23 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
 import { Stack } from 'expo-router';
-import { useColorScheme } from 'react-native';
-
-import { AppProvider } from '@/context/app-context';
-import '@/lib/transformers-native-setup';
 
 export default function RootLayout() {
-  const colorScheme = useColorScheme();
+  const pageOptions = {
+    headerShown: false,
+    headerLeft: () => null,
+    unmountOnBlur: true,
+  };
 
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <AppProvider>
-        <Stack screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="index" />
-          <Stack.Screen name="home" />
-          <Stack.Screen name="languages" options={{ presentation: 'modal' }} />
-        </Stack>
-      </AppProvider>
-    </ThemeProvider>
+    <Stack screenOptions={{
+      headerShown: false,
+      gestureEnabled: false,
+      animation: "fade",
+      animationDuration: 300
+    }}>
+      <Stack.Screen name="index" options={pageOptions} />
+      <Stack.Screen name="home" options={pageOptions} />
+      <Stack.Screen name="languages" options={pageOptions} />
+    </Stack>
   );
 }
 
