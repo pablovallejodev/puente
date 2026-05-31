@@ -22,8 +22,17 @@ export default function RootLayout() {
 }
 
 /*
+rm -r ./android && rm -r ./ios
+
+
+npx expo install --check
+npx expo install --fix
+npx expo-doctor --verbose
+
+
 npx expo prebuild --clean
 pnpm start --reset-cache
+
 eas build -p android --profile preview
 eas build -p android --profile preview --local
 */
