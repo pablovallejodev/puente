@@ -60,7 +60,7 @@ export function useSpeechTranscriptor() {
     if (!isMountedRef.current) return;
     setIsListening(false);
 
-    console.log("SPEECH ERROR", event.error);
+    console.log("SPEECH ERROR", event.message, event.code, event.error);
 
     if (event.error !== "aborted" && event.error !== "no-speech") {
       setError(2);
@@ -141,16 +141,12 @@ export function useSpeechTranscriptor() {
       console.log("STARTING LISTENING");
 
       ExpoSpeechRecognitionModule.start({
+        lang: "es-ES",
         maxAlternatives: 1,
         addsPunctuation: true,
         continuous: true,
         interimResults: true,
-        requiresOnDeviceRecognition: true,
-        androidIntentOptions: {
-          EXTRA_ENABLE_LANGUAGE_DETECTION: true,
-          EXTRA_ENABLE_LANGUAGE_SWITCH: "balanced",
-        },
-        androidRecognitionServicePackage: "com.google.android.as",
+        requiresOnDeviceRecognition: false,
       });
 
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
