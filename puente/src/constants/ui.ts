@@ -1,0 +1,2 @@
+export const HEADER_HEIGHT = 64;
+export const STANDARD_HORIZONTAL_PADDING = 16;

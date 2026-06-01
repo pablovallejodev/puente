@@ -1,6 +1,24 @@
 import { Stack } from 'expo-router';
+import { Mulish_500Medium, Mulish_800ExtraBold, Mulish_900Black } from "@expo-google-fonts/mulish";
+import { useEffect } from 'react';
+import * as SplashScreen from 'expo-splash-screen';
+import { useFonts } from "expo-font";
 
 export default function RootLayout() {
+  const [loaded, error] = useFonts({
+    Mulish_500Medium,
+    Mulish_800ExtraBold,
+    Mulish_900Black,
+  });
+
+  useEffect(() => {
+    if (loaded) SplashScreen.hideAsync();
+
+    if (!loaded && !!error) return console.log(`TEXT FONT ERROR ${loaded} ${error}`);
+  }, [loaded]);
+
+  if (!loaded) return null;
+
   const pageOptions = {
     headerShown: false,
     headerLeft: () => null,
@@ -15,7 +33,7 @@ export default function RootLayout() {
       animationDuration: 300
     }}>
       <Stack.Screen name="index" options={pageOptions} />
-      <Stack.Screen name="home" options={pageOptions} />
+      <Stack.Screen name="chat" options={pageOptions} />
       <Stack.Screen name="languages" options={pageOptions} />
     </Stack>
   );
@@ -32,7 +50,9 @@ npx expo-doctor --verbose
 
 npx expo prebuild --clean
 pnpm start --reset-cache
+pnpm start --reset-cache --tunnel
 
+eas build -p android --profile development
 eas build -p android --profile preview
 eas build -p android --profile preview --local
 */
