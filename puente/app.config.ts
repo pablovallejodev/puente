@@ -8,20 +8,15 @@ const config: ExpoConfig = {
   icon: "./assets/icon.png",
   scheme: "puente",
   userInterfaceStyle: "automatic",
-  splash: {
-    image: "./assets/icon-transparent.png",
-    resizeMode: "cover",
-    backgroundColor: "#24998B",
-  },
   ios: {
-    icon: "./assets/expo.icon",
+    icon: "./assets/icon.png",
     infoPlist: {
       NSMicrophoneUsageDescription:
         "Puente needs microphone access to listen for speech and translate it in real time.",
       NSSpeechRecognitionUsageDescription:
         "Puente uses on-device speech recognition to detect what you say.",
     },
-    bundleIdentifier: "com.bubblesit.puente",
+    bundleIdentifier: "com.pablovallejo.puente",
   },
   android: {
     adaptiveIcon: {
@@ -29,11 +24,12 @@ const config: ExpoConfig = {
       backgroundColor: "#E6F4FE",
     },
     permissions: [
-      "android.permission.RECORD_AUDIO",
       "android.permission.INTERNET",
+      "android.permission.RECORD_AUDIO",
+      "android.permission.MODIFY_AUDIO_SETTINGS",
     ],
     predictiveBackGestureEnabled: false,
-    package: "com.bubblesit.puente",
+    package: "com.pablovallejo.puente",
   },
   web: {
     output: "static",
@@ -46,9 +42,16 @@ const config: ExpoConfig = {
       {
         backgroundColor: "#208AEF",
         android: {
-          image: "./assets/images/splash-icon.png",
+          image: "./assets/icon.png",
           imageWidth: 76,
         },
+      },
+    ],
+    [
+      "expo-audio",
+      {
+        microphonePermission:
+          "Deepfriend needs access to your microphone for the call. We only will record when you press the talk button and we never save the audio, never.",
       },
     ],
     [
@@ -64,6 +67,10 @@ const config: ExpoConfig = {
         ],
       },
     ],
+    "expo-localization",
+    "expo-font",
+    "expo-router",
+    "expo-secure-store",
   ],
   experiments: {
     typedRoutes: true,
