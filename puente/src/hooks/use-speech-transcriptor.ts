@@ -6,7 +6,7 @@ import {
 } from "expo-speech-recognition";
 import { AudioModule, setAudioModeAsync } from "expo-audio";
 
-export function useSpeechTranscriptor() {
+export function useSpeechTranscriptor(inputLanguage: string) {
   const [hasPermissions, setHasPermissions] = useState<boolean>(false);
   const [checkingPermissions, setCheckingPermissions] = useState<boolean>(true);
 
@@ -141,7 +141,7 @@ export function useSpeechTranscriptor() {
       console.log("STARTING LISTENING");
 
       ExpoSpeechRecognitionModule.start({
-        lang: "es-ES",
+        lang: inputLanguage,
         maxAlternatives: 1,
         addsPunctuation: true,
         continuous: true,

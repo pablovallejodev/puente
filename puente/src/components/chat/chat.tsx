@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   BackHandler,
   FlatList,
@@ -13,13 +13,19 @@ import { useKeepAwake } from 'expo-keep-awake';
 import { ChatHeadComponent } from '../basics/headers';
 import { StatusBarHiddenComponent } from '@/utils/statusbar';
 import { useSpeechTranscriptor } from '@/hooks/use-speech-transcriptor';
+import { useTranslator } from '@/hooks/use-translator';
 
 export default function ChatComponent() {
+  const [inputLanguage, setInputLanguage] = useState<string>("es-ES");
+  const [outputLanguage, setOutputLanguage] = useState<string>("en-US");
+
   useKeepAwake();
   const {
     transcript,
     detectedLanguage,
-  } = useSpeechTranscriptor();
+  } = useSpeechTranscriptor(inputLanguage);
+
+  const { translated } = useTranslator(transcript, inputLanguage, outputLanguage);
 
   const router = useRouter();
   const listRef = useRef<FlatList>(null);
@@ -48,10 +54,16 @@ export default function ChatComponent() {
         titleText={`Real time chat translation`}
       />
       <Text style={styles.languageText}>
-        {detectedLanguage}
+        {inputLanguage}
       </Text>
       <Text style={styles.transcriptedText}>
         {transcript}
+      </Text>
+      <Text style={styles.languageText}>
+        {outputLanguage}
+      </Text>
+      <Text style={styles.transcriptedText}>
+        {translated}
       </Text>
     </SafeAreaView>
   );
