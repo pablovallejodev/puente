@@ -17,8 +17,8 @@ export default function IndexComponent() {
   }, []);
 
   useEffect(() => {
-    if (status) router.push(`/chat`)
-  }, [status]);
+    if (status) router.replace('/menu');
+  }, [status, router]);
 
   return (
     <SafeAreaView style={styles.safeArea}>
