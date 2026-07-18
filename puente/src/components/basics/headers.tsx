@@ -28,19 +28,25 @@ export const ChatHeadComponent = React.memo<{
 });
 
 export const StandardHeadComponent = React.memo<{
-  urlTo: Href,
+  urlTo?: Href,
+  onBack?: () => void,
   titleText: string,
   loading: boolean,
   textWhite?: boolean,
 }>(({
   urlTo,
+  onBack,
   titleText,
   loading,
   textWhite,
 }) => {
   const goToUrl = () => {
     if (loading) return;
-    router.push(urlTo);
+    if (onBack) {
+      onBack();
+      return;
+    }
+    if (urlTo) router.push(urlTo);
   };
 
   return (
