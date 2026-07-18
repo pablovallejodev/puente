@@ -36,6 +36,7 @@ const config: ExpoConfig = {
     favicon: "./assets/images/favicon.png",
   },
   plugins: [
+    "./plugins/with-large-heap",
     "expo-router",
     [
       "expo-splash-screen",

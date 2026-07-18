@@ -1,0 +1,18 @@
+diff --git a/android/build.gradle b/android/build.gradle
+index 41b43599a9af6ef1c170047d39db1f3baa6ca682..3ad898ba1d1564832dab74bcd830cf925b75579c 100644
+--- a/android/build.gradle
++++ b/android/build.gradle
+@@ -247,10 +247,6 @@ dependencies {
+     extractLibs "com.microsoft.onnxruntime:onnxruntime-android:latest.integration@aar"
+   }
+ 
+-  if (VersionNumber.parse(REACT_NATIVE_VERSION) < VersionNumber.parse("0.71")) {
+-    extractLibs "com.facebook.fbjni:fbjni:+:headers"
+-    extractLibs "com.facebook.fbjni:fbjni:+"
+-  }
+ 
+   // By default it will just include onnxruntime full aar package
+   if (ortExtensionsEnabled) {
+diff --git a/unimodule.json b/unimodule.json
+deleted file mode 100644
+index c2bd3c0f071c0cd1ee9ccc88c7491906aed289d4..0000000000000000000000000000000000000000
