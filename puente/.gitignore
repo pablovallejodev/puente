@@ -47,5 +47,3 @@ example
 .env
 
 expo-env.d.ts
-
-assets/models/*
