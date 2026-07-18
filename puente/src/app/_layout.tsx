@@ -4,6 +4,8 @@ import { useEffect } from 'react';
 import * as SplashScreen from 'expo-splash-screen';
 import { useFonts } from "expo-font";
 
+import { ClassicSessionProvider } from '@/contexts/classic-session-context';
+
 export default function RootLayout() {
   const [loaded, error] = useFonts({
     Mulish_500Medium,
@@ -26,18 +28,22 @@ export default function RootLayout() {
   };
 
   return (
-    <Stack screenOptions={{
-      headerShown: false,
-      gestureEnabled: false,
-      animation: "fade",
-      animationDuration: 300
-    }}>
-      <Stack.Screen name="index" options={pageOptions} />
-      <Stack.Screen name="chat" options={pageOptions} />
-      <Stack.Screen name="languages" options={pageOptions} />
-    </Stack>
+    <ClassicSessionProvider>
+      <Stack screenOptions={{
+        headerShown: false,
+        gestureEnabled: false,
+        animation: "fade",
+        animationDuration: 300
+      }}>
+        <Stack.Screen name="index" options={pageOptions} />
+        <Stack.Screen name="menu" options={pageOptions} />
+        <Stack.Screen name="classic" options={pageOptions} />
+        <Stack.Screen name="languages" options={pageOptions} />
+      </Stack>
+    </ClassicSessionProvider>
   );
 }
+
 
 /*
 rm -r ./android && rm -r ./ios
