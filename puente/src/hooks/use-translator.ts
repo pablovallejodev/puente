@@ -23,6 +23,14 @@ export type TranslatorDiagnostics = TranslatorErrorInfo & {
   elapsedMs?: number;
 };
 
+export type TranslationTarget = {
+  messageId: string;
+  text: string;
+  isFinal: boolean;
+};
+
+let finalTranslateChain: Promise<void> = Promise.resolve();
+
 function localeToFloresOrThrow(
   locale: string,
   role: "input" | "output",
@@ -67,25 +75,42 @@ function toDiagnostics(
   };
 }
 
+function translationKey(
+  messageId: string,
+  text: string,
+  inputLanguage: string,
+  outputLanguage: string,
+  isFinal: boolean,
+): string {
+  return `${messageId}:${text.trim()}:${inputLanguage}:${outputLanguage}:${isFinal ? "f" : "p"}`;
+}
+
 export function useTranslator(
-  transcript: string,
-  inputLanguage: string = "en-US",
-  outputLanguage: string = "es-ES",
+  target: TranslationTarget | null,
+  inputLanguage: string,
+  outputLanguage: string,
+  onTranslation: (
+    messageId: string,
+    translated: string,
+    isTranslating: boolean,
+  ) => void,
 ) {
-  const [translated, setTranslated] = useState("");
   const [status, setStatus] = useState<TranslatorStatus>("loading");
-  const [isTranslating, setIsTranslating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [diagnostics, setDiagnostics] = useState<TranslatorDiagnostics | null>(
     null,
   );
+  const [retryToken, setRetryToken] = useState(0);
 
   const requestIdRef = useRef(0);
   const engineRef = useRef<NllbEngine | null>(null);
   const engineReadyRef = useRef(false);
-  const lastTranslatedInputRef = useRef("");
-  const [loadAttempts, setLoadAttempts] = useState(0);
-  const translateRetriesRef = useRef(0);
+  const lastKeyRef = useRef("");
+  const loadAttemptsRef = useRef(0);
+  const pendingTargetRef = useRef<TranslationTarget | null>(null);
+  const onTranslationRef = useRef(onTranslation);
+
+  onTranslationRef.current = onTranslation;
 
   const loadModel = useCallback(async (forceRetry = false) => {
     setStatus("loading");
@@ -94,7 +119,7 @@ export function useTranslator(
 
     if (forceRetry) {
       resetEngine();
-      setLoadAttempts(0);
+      loadAttemptsRef.current = 0;
     }
 
     try {
@@ -105,8 +130,8 @@ export function useTranslator(
     } catch (err) {
       engineReadyRef.current = false;
       engineRef.current = null;
-      setLoadAttempts((n) => n + 1);
-      const diag = toDiagnostics(err, loadAttempts + 1);
+      loadAttemptsRef.current += 1;
+      const diag = toDiagnostics(err, loadAttemptsRef.current);
       setDiagnostics(diag);
       setError(
         isTranslatorError(err)
@@ -120,7 +145,7 @@ export function useTranslator(
   useEffect(() => {
     let cancelled = false;
 
-    loadModel().finally(() => {
+    void loadModel().finally(() => {
       if (cancelled) return;
     });
 
@@ -130,16 +155,31 @@ export function useTranslator(
   }, [loadModel]);
 
   useEffect(() => {
+    if (!target?.messageId || !target.text.trim()) return;
+    pendingTargetRef.current = target;
+  }, [target]);
+
+  useEffect(() => {
     if (!engineReadyRef.current || !engineRef.current) return;
 
-    const trimmed = transcript.trim();
-    if (!trimmed) {
-      setTranslated("");
-      lastTranslatedInputRef.current = "";
-      return;
-    }
+    const current = target ?? pendingTargetRef.current;
+    if (!current?.messageId) return;
 
-    if (trimmed === lastTranslatedInputRef.current) {
+    const trimmed = current.text.trim();
+    if (!trimmed) return;
+
+    const key = translationKey(
+      current.messageId,
+      trimmed,
+      inputLanguage,
+      outputLanguage,
+      current.isFinal,
+    );
+
+    if (key !== lastKeyRef.current) {
+      lastKeyRef.current = key;
+      onTranslationRef.current(current.messageId, "", true);
+    } else if (retryToken === 0) {
       return;
     }
 
@@ -154,89 +194,114 @@ export function useTranslator(
       setDiagnostics(diag);
       setError(isTranslatorError(err) ? err.toDisplayString() : diag.message);
       setStatus("error");
+      onTranslationRef.current(current.messageId, "", false);
       return;
     }
 
-    const timer = setTimeout(async () => {
-      if (requestIdRef.current !== requestId) return;
+    const timer = setTimeout(() => {
+      void (async () => {
+        if (requestIdRef.current !== requestId) return;
 
-      const started = Date.now();
-      setIsTranslating(true);
-      setError(null);
-      setDiagnostics(null);
+        const started = Date.now();
+        onTranslationRef.current(current.messageId, "", true);
 
-      const run = async (attempt: number): Promise<void> => {
-        try {
-          const result = await engineRef.current!.translate(
-            trimmed,
-            srcLang,
-            tgtLang,
-          );
+        const runTranslate = async (): Promise<void> => {
           if (requestIdRef.current !== requestId) return;
 
-          setTranslated(result);
-          lastTranslatedInputRef.current = trimmed;
-          translateRetriesRef.current = 0;
-          setStatus("ready");
-        } catch (err) {
-          if (requestIdRef.current !== requestId) return;
+          const run = async (attempt: number): Promise<void> => {
+            try {
+              const result = await engineRef.current!.translate(
+                trimmed,
+                srcLang,
+                tgtLang,
+              );
+              if (requestIdRef.current !== requestId) return;
 
-          const diag = toDiagnostics(err, attempt, Date.now() - started);
-          setDiagnostics(diag);
+              lastKeyRef.current = key;
+              onTranslationRef.current(current.messageId, result, false);
+              setError(null);
+              setDiagnostics(null);
+              setStatus("ready");
+            } catch (err) {
+              if (requestIdRef.current !== requestId) return;
 
-          if (
-            isTranslatorError(err) &&
-            err.recoverable &&
-            attempt < MAX_TRANSLATE_RETRIES
-          ) {
-            translateRetriesRef.current = attempt + 1;
-            await run(attempt + 1);
-            return;
-          }
+              const diag = toDiagnostics(err, attempt, Date.now() - started);
+              setDiagnostics(diag);
 
-          setError(
-            isTranslatorError(err)
-              ? err.toDisplayString()
-              : `[TRANSLATE_FAILED] ${diag.message}`,
-          );
-          setStatus("ready");
+              if (
+                isTranslatorError(err) &&
+                err.recoverable &&
+                attempt < MAX_TRANSLATE_RETRIES
+              ) {
+                await run(attempt + 1);
+                return;
+              }
+
+              setError(
+                isTranslatorError(err)
+                  ? err.toDisplayString()
+                  : `[TRANSLATE_FAILED] ${diag.message}`,
+              );
+              onTranslationRef.current(current.messageId, "", false);
+              setStatus("ready");
+            }
+          };
+
+          await run(0);
+        };
+
+        if (current.isFinal) {
+          finalTranslateChain = finalTranslateChain
+            .then(runTranslate)
+            .catch(() => undefined);
+          await finalTranslateChain;
+        } else {
+          await runTranslate();
         }
-      };
 
-      await run(0);
-      setIsTranslating(false);
+        if (requestIdRef.current === requestId) {
+          // noop — isTranslating cleared in onTranslation callback
+        }
+      })();
     }, DEBOUNCE_MS);
 
     return () => clearTimeout(timer);
-  }, [transcript, inputLanguage, outputLanguage]);
+  }, [
+    target,
+    inputLanguage,
+    outputLanguage,
+    status,
+    retryToken,
+  ]);
 
   const retry = useCallback(() => {
     const canRetryEngine =
       diagnostics?.recoverable !== false &&
-      loadAttempts < MAX_ENGINE_LOAD_ATTEMPTS;
+      loadAttemptsRef.current < MAX_ENGINE_LOAD_ATTEMPTS;
+
     if (status === "error" && canRetryEngine) {
       void loadModel(true);
       return;
     }
+
     if (engineReadyRef.current) {
-      lastTranslatedInputRef.current = "";
-      translateRetriesRef.current = 0;
+      lastKeyRef.current = "";
       setError(null);
       setDiagnostics(null);
       setStatus("ready");
+      setRetryToken((n) => n + 1);
     }
-  }, [loadModel, status, diagnostics, loadAttempts]);
+  }, [loadModel, status, diagnostics]);
 
   return {
-    translated,
     status,
-    isTranslating,
+    isTranslating: false,
     error,
     diagnostics,
     ready: status === "ready" && engineReadyRef.current,
     retry,
     canRetryLoad:
       diagnostics?.recoverable !== false &&
-      loadAttempts < MAX_ENGINE_LOAD_ATTEMPTS,
+      loadAttemptsRef.current < MAX_ENGINE_LOAD_ATTEMPTS,
   };
 }

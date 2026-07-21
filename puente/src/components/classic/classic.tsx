@@ -7,95 +7,111 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useKeepAwake } from "expo-keep-awake";
+import { useFocusEffect } from "expo-router";
+import {
+  activateKeepAwakeAsync,
+  deactivateKeepAwake,
+} from "expo-keep-awake";
 
 import { StandardHeadComponent } from "@/components/basics/headers";
 import { ChatMessageItem } from "@/components/classic/chat-message-item";
 import { LanguageSlotButton } from "@/components/classic/language-slot-button";
 import { useClassicSession } from "@/contexts/classic-session-context";
 import { useChatMessages } from "@/hooks/use-chat-messages";
+import { useNetworkConnected } from "@/hooks/use-network-connected";
 import { useSpeechTranscriptor } from "@/hooks/use-speech-transcriptor";
-import { useTranslator } from "@/hooks/use-translator";
+import {
+  useTranslator,
+  type TranslationTarget,
+} from "@/hooks/use-translator";
 import { STANDARD_HORIZONTAL_PADDING } from "@/constants/ui";
 import { StatusBarHiddenComponent } from "@/utils/statusbar";
 
 export default function ClassicComponent() {
-  useKeepAwake();
+  const [isFocused, setIsFocused] = useState(true);
 
-  const {
-    inputLanguage,
-    outputLanguage,
-    getDownloadState,
-    downloadSttModel,
-    checkLocale,
-  } = useClassicSession();
+  useFocusEffect(
+    useCallback(() => {
+      setIsFocused(true);
+      void activateKeepAwakeAsync("classic-session");
+      return () => {
+        setIsFocused(false);
+        deactivateKeepAwake("classic-session");
+      };
+    }, []),
+  );
+
+  const { inputLanguage, outputLanguage, getDownloadState, checkLocale } =
+    useClassicSession();
 
   const { messages, onTranscriptUpdate, onTranslationUpdate } =
     useChatMessages();
 
   const flatListRef = useRef<FlatList>(null);
-  const [activeTranscript, setActiveTranscript] = useState("");
+  const [translationTarget, setTranslationTarget] =
+    useState<TranslationTarget | null>(null);
 
+  const networkConnected = useNetworkConnected();
+  const networkKnown = networkConnected !== null;
   const inputDownload = getDownloadState(inputLanguage.speechLocale);
-  const outputDownload = getDownloadState(outputLanguage.speechLocale);
-  const useOnDevice = inputDownload.status === "installed";
+  const offlineReady = inputDownload.status === "installed";
+  const useOnDevice = networkConnected === false && offlineReady;
+  const offlineBlocked = networkConnected === false && !offlineReady;
+  const speechEnabled = isFocused && networkKnown && !offlineBlocked;
 
   const handleInterim = useCallback(
     (text: string, isFinal: boolean) => {
-      onTranscriptUpdate(text, isFinal);
-      if (text.trim()) {
-        setActiveTranscript(text);
-      }
+      const messageId = onTranscriptUpdate(text, isFinal);
+      if (!messageId || !text.trim()) return;
+
+      setTranslationTarget({ messageId, text, isFinal });
     },
     [onTranscriptUpdate],
   );
 
-  useSpeechTranscriptor(inputLanguage.speechLocale, {
-    requiresOnDeviceRecognition: useOnDevice,
-    onInterimTranscript: handleInterim,
-    enabled: true,
-  });
+  const handleTranslation = useCallback(
+    (messageId: string, translated: string, isTranslating: boolean) => {
+      onTranslationUpdate(messageId, translated, isTranslating);
+    },
+    [onTranslationUpdate],
+  );
 
-  const {
-    translated,
-    status,
-    isTranslating,
-    error,
-    diagnostics,
-    ready,
-    retry,
-    canRetryLoad,
-  } = useTranslator(
-    activeTranscript,
+  const { status, error, diagnostics, ready, retry, canRetryLoad } =
+    useTranslator(
+      translationTarget,
+      inputLanguage.speechLocale,
+      outputLanguage.speechLocale,
+      handleTranslation,
+    );
+
+  const { error: speechError, checkingPermissions } = useSpeechTranscriptor(
     inputLanguage.speechLocale,
-    outputLanguage.speechLocale,
+    {
+      requiresOnDeviceRecognition: useOnDevice,
+      onInterimTranscript: handleInterim,
+      enabled: speechEnabled,
+    },
   );
 
   useEffect(() => {
-    onTranslationUpdate(translated, isTranslating);
-  }, [translated, isTranslating, onTranslationUpdate]);
-
-  useEffect(() => {
     void checkLocale(inputLanguage.speechLocale);
-    void checkLocale(outputLanguage.speechLocale);
-  }, [
-    inputLanguage.speechLocale,
-    outputLanguage.speechLocale,
-    checkLocale,
-  ]);
+  }, [inputLanguage.speechLocale, checkLocale]);
 
   useEffect(() => {
     if (messages.length === 0) return;
     flatListRef.current?.scrollToEnd({ animated: true });
   }, [messages]);
 
-  const statusLabel =
-    status === "loading"
+  const statusLabel = offlineBlocked
+    ? "Sin conexión — descarga el idioma de entrada en Idiomas"
+    : status === "loading"
       ? "Cargando motor de traducción…"
-      : isTranslating
-        ? "Traduciendo…"
+      : checkingPermissions
+        ? "Comprobando micrófono…"
         : ready
-          ? "Listo"
+          ? networkConnected
+            ? "Listo · reconocimiento online"
+            : "Listo · reconocimiento local"
           : "Error";
 
   return (
@@ -144,20 +160,17 @@ export default function ClassicComponent() {
         </View>
       ) : null}
 
+      {speechError ? (
+        <View style={styles.errorBox}>
+          <Text style={styles.errorText}>{speechError.message}</Text>
+          <Text style={styles.errorMeta}>{speechError.code}</Text>
+        </View>
+      ) : null}
+
       <View style={styles.bottomPanel}>
-        <LanguageSlotButton
-          slot="input"
-          language={inputLanguage}
-          downloadState={inputDownload}
-          onDownload={() => downloadSttModel(inputLanguage.speechLocale)}
-        />
+        <LanguageSlotButton slot="input" language={inputLanguage} />
         <Text style={styles.arrowDown}>↓</Text>
-        <LanguageSlotButton
-          slot="output"
-          language={outputLanguage}
-          downloadState={outputDownload}
-          onDownload={() => downloadSttModel(outputLanguage.speechLocale)}
-        />
+        <LanguageSlotButton slot="output" language={outputLanguage} />
       </View>
     </SafeAreaView>
   );
@@ -174,6 +187,7 @@ const styles = StyleSheet.create({
     color: "#666666",
     textAlign: "center",
     paddingVertical: 4,
+    paddingHorizontal: STANDARD_HORIZONTAL_PADDING,
   },
   list: {
     flex: 1,

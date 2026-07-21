@@ -26,6 +26,7 @@ type ClassicSessionContextValue = {
   downloadSttModel: (locale: string) => Promise<void>;
   refreshInstalledLocales: () => Promise<string[]>;
   checkLocale: (locale: string) => Promise<void>;
+  isLocaleDownloadable: (locale: string) => boolean;
 };
 
 const ClassicSessionContext = createContext<ClassicSessionContextValue | null>(
@@ -45,6 +46,7 @@ export function ClassicSessionProvider({ children }: { children: ReactNode }) {
     downloadSttModel,
     refreshInstalledLocales,
     checkLocale,
+    isLocaleDownloadable,
   } = useOfflineSttDownload();
 
   const value = useMemo<ClassicSessionContextValue>(
@@ -57,6 +59,7 @@ export function ClassicSessionProvider({ children }: { children: ReactNode }) {
       downloadSttModel,
       refreshInstalledLocales,
       checkLocale,
+      isLocaleDownloadable,
     }),
     [
       inputLanguage,
@@ -65,6 +68,7 @@ export function ClassicSessionProvider({ children }: { children: ReactNode }) {
       downloadSttModel,
       refreshInstalledLocales,
       checkLocale,
+      isLocaleDownloadable,
     ],
   );
 

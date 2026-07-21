@@ -1,10 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Platform } from "react-native";
 import * as Haptics from "expo-haptics";
 import {
   ExpoSpeechRecognitionModule,
   useSpeechRecognitionEvent,
 } from "expo-speech-recognition";
 import { AudioModule, setAudioModeAsync } from "expo-audio";
+
+const ANDROID_AS_PACKAGE = "com.google.android.as";
+const CONTINUOUS_RECOGNITION = true;
+const RESTART_DELAY_MS = 300;
+const ERROR_BACKOFF_MS = 1000;
+
+export type SpeechError = {
+  code: string;
+  message: string;
+} | null;
 
 export type SpeechTranscriptorOptions = {
   requiresOnDeviceRecognition?: boolean;
@@ -27,14 +38,17 @@ export function useSpeechTranscriptor(
   const [detectedLanguage, setDetectedLanguage] = useState<string>("");
   const [transcript, setTranscript] = useState<string>("");
   const [isListening, setIsListening] = useState<boolean>(false);
-  const [error, setError] = useState<number>(0);
+  const [error, setError] = useState<SpeechError>(null);
 
   const isMountedRef = useRef<boolean>(true);
   const permissionsGrantedRef = useRef<boolean>(false);
   const inputLanguageRef = useRef(inputLanguage);
   const requiresOnDeviceRef = useRef(requiresOnDeviceRecognition);
   const onInterimRef = useRef(onInterimTranscript);
-  const configInitializedRef = useRef(false);
+  const sessionGenRef = useRef(0);
+  const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const startingRef = useRef(false);
+  const stoppingRef = useRef(false);
   const prevLanguageRef = useRef(inputLanguage);
   const prevOnDeviceRef = useRef(requiresOnDeviceRecognition);
 
@@ -42,23 +56,88 @@ export function useSpeechTranscriptor(
   requiresOnDeviceRef.current = requiresOnDeviceRecognition;
   onInterimRef.current = onInterimTranscript;
 
-  useSpeechRecognitionEvent("start", async () => {
+  const clearRestartTimer = useCallback(() => {
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
+  }, []);
+
+  const startListeningInternal = useCallback(async () => {
+    if (
+      !enabled ||
+      !permissionsGrantedRef.current ||
+      stoppingRef.current ||
+      startingRef.current
+    ) {
+      return;
+    }
+
+    startingRef.current = true;
+
+    try {
+      setTranscript("");
+
+      const startOptions: Parameters<
+        typeof ExpoSpeechRecognitionModule.start
+      >[0] = {
+        lang: inputLanguageRef.current,
+        maxAlternatives: 1,
+        addsPunctuation: true,
+        continuous: CONTINUOUS_RECOGNITION,
+        interimResults: true,
+        requiresOnDeviceRecognition: requiresOnDeviceRef.current,
+      };
+
+      if (requiresOnDeviceRef.current && Platform.OS === "android") {
+        startOptions.androidRecognitionServicePackage = ANDROID_AS_PACKAGE;
+      }
+
+      ExpoSpeechRecognitionModule.start(startOptions);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch (err) {
+      setIsListening(false);
+      const message = err instanceof Error ? err.message : String(err);
+      setError({ code: "start_failed", message });
+    } finally {
+      startingRef.current = false;
+    }
+  }, [enabled]);
+
+  // Re-bind scheduleRestart now that startListeningInternal exists
+  const scheduleRestartWithStart = useCallback(
+    (delayMs: number) => {
+      clearRestartTimer();
+      const gen = sessionGenRef.current;
+      restartTimerRef.current = setTimeout(() => {
+        if (!isMountedRef.current || gen !== sessionGenRef.current) return;
+        if (!enabled || !permissionsGrantedRef.current || stoppingRef.current) {
+          return;
+        }
+        void startListeningInternal();
+      }, delayMs);
+    },
+    [clearRestartTimer, enabled, startListeningInternal],
+  );
+
+  useSpeechRecognitionEvent("start", () => {
     if (!isMountedRef.current) return;
     setIsListening(true);
+    setError(null);
   });
 
-  useSpeechRecognitionEvent("end", async () => {
+  useSpeechRecognitionEvent("end", () => {
     if (!isMountedRef.current) return;
     setIsListening(false);
 
+    if (stoppingRef.current) return;
+
     if (permissionsGrantedRef.current && enabled) {
-      setTimeout(() => {
-        if (isMountedRef.current) void startListeningInternal();
-      }, 300);
+      scheduleRestartWithStart(RESTART_DELAY_MS);
     }
   });
 
-  useSpeechRecognitionEvent("result", async (event) => {
+  useSpeechRecognitionEvent("result", (event) => {
     if (!isMountedRef.current) return;
 
     if (event.results && event.results.length > 0) {
@@ -78,15 +157,19 @@ export function useSpeechTranscriptor(
     }
   });
 
-  useSpeechRecognitionEvent("error", async (event) => {
+  useSpeechRecognitionEvent("error", (event) => {
     if (!isMountedRef.current) return;
     setIsListening(false);
 
     if (event.error !== "aborted" && event.error !== "no-speech") {
-      setError(2);
-      setTimeout(() => {
-        if (isMountedRef.current) setError(0);
-      }, 4500);
+      setError({
+        code: event.error,
+        message: event.message ?? event.error,
+      });
+
+      if (permissionsGrantedRef.current && enabled && !stoppingRef.current) {
+        scheduleRestartWithStart(ERROR_BACKOFF_MS);
+      }
     }
   });
 
@@ -94,42 +177,23 @@ export function useSpeechTranscriptor(
     setDetectedLanguage(event.detectedLanguage);
   });
 
-  const startListeningInternal = useCallback(async () => {
-    if (!enabled || !permissionsGrantedRef.current) return;
-
-    try {
-      setTranscript("");
-
-      ExpoSpeechRecognitionModule.start({
-        lang: inputLanguageRef.current,
-        maxAlternatives: 1,
-        addsPunctuation: true,
-        continuous: true,
-        interimResults: true,
-        requiresOnDeviceRecognition: requiresOnDeviceRef.current,
-      });
-
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    } catch {
-      setIsListening(false);
-      setError(2);
-      setTimeout(() => {
-        if (isMountedRef.current) setError(0);
-      }, 4500);
-    }
-  }, [enabled]);
-
   const stopListening = useCallback(() => {
+    clearRestartTimer();
+    stoppingRef.current = true;
+    sessionGenRef.current += 1;
+
     try {
       ExpoSpeechRecognitionModule.stop();
-      setIsListening(false);
     } catch {
-      setIsListening(false);
+      // ignore
     }
-  }, []);
+
+    setIsListening(false);
+  }, [clearRestartTimer]);
 
   const restartListening = useCallback(async () => {
     stopListening();
+    stoppingRef.current = false;
     await new Promise((r) => setTimeout(r, 200));
     await startListeningInternal();
   }, [startListeningInternal, stopListening]);
@@ -137,14 +201,6 @@ export function useSpeechTranscriptor(
   const requestPermissions = useCallback(async () => {
     try {
       setCheckingPermissions(true);
-
-      const audioStatus = await AudioModule.requestRecordingPermissionsAsync();
-      if (!audioStatus.granted) {
-        setHasPermissions(false);
-        setCheckingPermissions(false);
-        permissionsGrantedRef.current = false;
-        return;
-      }
 
       const speechStatus =
         await ExpoSpeechRecognitionModule.requestPermissionsAsync();
@@ -173,26 +229,41 @@ export function useSpeechTranscriptor(
       permissionsGrantedRef.current = true;
 
       if (enabled) await startListeningInternal();
-    } catch {
+    } catch (err) {
       setHasPermissions(false);
       setCheckingPermissions(false);
       permissionsGrantedRef.current = false;
+      const message = err instanceof Error ? err.message : String(err);
+      setError({ code: "permission_failed", message });
     }
   }, [enabled, startListeningInternal]);
 
   useEffect(() => {
     isMountedRef.current = true;
-    if (enabled) void requestPermissions();
+
+    if (!enabled) {
+      stopListening();
+      void setAudioModeAsync({
+        playsInSilentMode: true,
+        allowsRecording: false,
+      });
+      return () => {
+        isMountedRef.current = false;
+      };
+    }
+
+    stoppingRef.current = false;
+    void requestPermissions();
 
     return () => {
       isMountedRef.current = false;
-      try {
-        ExpoSpeechRecognitionModule.stop();
-      } catch {
-        // ignore cleanup errors
-      }
+      stopListening();
+      void setAudioModeAsync({
+        playsInSilentMode: true,
+        allowsRecording: false,
+      });
     };
-  }, [enabled, requestPermissions]);
+  }, [enabled, requestPermissions, stopListening]);
 
   useEffect(() => {
     if (!permissionsGrantedRef.current || !enabled) return;
@@ -204,15 +275,15 @@ export function useSpeechTranscriptor(
     prevLanguageRef.current = inputLanguage;
     prevOnDeviceRef.current = requiresOnDeviceRecognition;
 
-    if (!configInitializedRef.current) {
-      configInitializedRef.current = true;
-      return;
-    }
-
     if (languageChanged || onDeviceChanged) {
       void restartListening();
     }
-  }, [inputLanguage, requiresOnDeviceRecognition, enabled, restartListening]);
+  }, [
+    inputLanguage,
+    requiresOnDeviceRecognition,
+    enabled,
+    restartListening,
+  ]);
 
   return {
     isListening,

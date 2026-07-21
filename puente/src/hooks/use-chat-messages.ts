@@ -14,72 +14,82 @@ function createId(): string {
 
 export function useChatMessages() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const messagesRef = useRef<ChatMessage[]>([]);
   const activeIdRef = useRef<string | null>(null);
 
-  const onTranscriptUpdate = useCallback((text: string, isFinal: boolean) => {
-    if (!text.trim() && !isFinal) return;
+  const syncMessages = useCallback((next: ChatMessage[]) => {
+    messagesRef.current = next;
+    setMessages(next);
+  }, []);
 
-    setMessages((prev) => {
-      let activeId = activeIdRef.current;
-      let next = [...prev];
+  const onTranscriptUpdate = useCallback(
+    (text: string, isFinal: boolean): string => {
+      if (!text.trim() && !isFinal) return activeIdRef.current ?? "";
 
-      const activeMessage = activeId
-        ? next.find((m) => m.id === activeId && !m.isFinal)
+      const prev = messagesRef.current;
+      let messageId = activeIdRef.current;
+      const activeMessage = messageId
+        ? prev.find((m) => m.id === messageId && !m.isFinal)
         : undefined;
 
       if (!activeMessage) {
-        activeId = createId();
-        activeIdRef.current = activeId;
-        next.push({
-          id: activeId,
-          original: text,
-          translated: "",
-          isFinal: false,
-          isTranslating: true,
-        });
+        messageId = createId();
+        activeIdRef.current = messageId;
+        syncMessages([
+          ...prev,
+          {
+            id: messageId,
+            original: text,
+            translated: "",
+            isFinal: false,
+            isTranslating: true,
+          },
+        ]);
       } else {
-        next = next.map((m) =>
-          m.id === activeId ? { ...m, original: text, isTranslating: true } : m,
+        syncMessages(
+          prev.map((m) =>
+            m.id === messageId
+              ? { ...m, original: text, isTranslating: true }
+              : m,
+          ),
         );
       }
 
-      if (isFinal && activeId) {
-        next = next.map((m) =>
-          m.id === activeId
-            ? { ...m, isFinal: true, isTranslating: true }
-            : m,
+      if (isFinal && messageId) {
+        syncMessages(
+          messagesRef.current.map((m) =>
+            m.id === messageId
+              ? { ...m, isFinal: true, isTranslating: true }
+              : m,
+          ),
         );
         activeIdRef.current = null;
       }
 
-      return next;
-    });
-  }, []);
+      return messageId ?? "";
+    },
+    [syncMessages],
+  );
 
   const onTranslationUpdate = useCallback(
-    (text: string, isTranslating: boolean) => {
-      setMessages((prev) => {
-        const activeId = activeIdRef.current;
-        const targetId =
-          activeId ??
-          [...prev].reverse().find((m) => !m.isFinal || m.isTranslating)?.id;
+    (messageId: string, text: string, isTranslating: boolean) => {
+      if (!messageId) return;
 
-        if (!targetId) return prev;
-
-        return prev.map((m) =>
-          m.id === targetId
+      syncMessages(
+        messagesRef.current.map((m) =>
+          m.id === messageId
             ? { ...m, translated: text, isTranslating }
             : m,
-        );
-      });
+        ),
+      );
     },
-    [],
+    [syncMessages],
   );
 
   const resetMessages = useCallback(() => {
-    setMessages([]);
+    syncMessages([]);
     activeIdRef.current = null;
-  }, []);
+  }, [syncMessages]);
 
   return {
     messages,

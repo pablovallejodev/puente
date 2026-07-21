@@ -4,17 +4,15 @@ export type ClassicLanguage = {
   speechLocale: string;
   floresCode: string;
   flagEmoji: string;
-  sttModelSizeLabel: string;
 };
 
 export const CLASSIC_LANGUAGES: ClassicLanguage[] = [
   {
     id: "en",
     label: "English",
-    speechLocale: "en-US",
+    speechLocale: "en-GB",
     floresCode: "eng_Latn",
     flagEmoji: "🇬🇧",
-    sttModelSizeLabel: "~15 MB",
   },
   {
     id: "es",
@@ -22,7 +20,6 @@ export const CLASSIC_LANGUAGES: ClassicLanguage[] = [
     speechLocale: "es-ES",
     floresCode: "spa_Latn",
     flagEmoji: "🇪🇸",
-    sttModelSizeLabel: "~15 MB",
   },
   {
     id: "ca",
@@ -30,7 +27,6 @@ export const CLASSIC_LANGUAGES: ClassicLanguage[] = [
     speechLocale: "ca-ES",
     floresCode: "cat_Latn",
     flagEmoji: "🏴",
-    sttModelSizeLabel: "~15 MB",
   },
   {
     id: "eu",
@@ -38,7 +34,6 @@ export const CLASSIC_LANGUAGES: ClassicLanguage[] = [
     speechLocale: "eu-ES",
     floresCode: "eus_Latn",
     flagEmoji: "🏴",
-    sttModelSizeLabel: "~15 MB",
   },
   {
     id: "it",
@@ -46,7 +41,6 @@ export const CLASSIC_LANGUAGES: ClassicLanguage[] = [
     speechLocale: "it-IT",
     floresCode: "ita_Latn",
     flagEmoji: "🇮🇹",
-    sttModelSizeLabel: "~15 MB",
   },
   {
     id: "de",
@@ -54,7 +48,6 @@ export const CLASSIC_LANGUAGES: ClassicLanguage[] = [
     speechLocale: "de-DE",
     floresCode: "deu_Latn",
     flagEmoji: "🇩🇪",
-    sttModelSizeLabel: "~15 MB",
   },
   {
     id: "fr",
@@ -62,7 +55,6 @@ export const CLASSIC_LANGUAGES: ClassicLanguage[] = [
     speechLocale: "fr-FR",
     floresCode: "fra_Latn",
     flagEmoji: "🇫🇷",
-    sttModelSizeLabel: "~15 MB",
   },
 ];
 
@@ -72,9 +64,9 @@ export const DEFAULT_OUTPUT_LANGUAGE = CLASSIC_LANGUAGES[1];
 export function findClassicLanguageByLocale(
   locale: string,
 ): ClassicLanguage | undefined {
-  const normalized = locale.trim().replace(/_/g, "-").toLowerCase();
+  const normalized = normalizeLocale(locale);
   return CLASSIC_LANGUAGES.find(
-    (lang) => lang.speechLocale.toLowerCase() === normalized,
+    (lang) => normalizeLocale(lang.speechLocale) === normalized,
   );
 }
 
@@ -82,4 +74,8 @@ export function findClassicLanguageById(
   id: string,
 ): ClassicLanguage | undefined {
   return CLASSIC_LANGUAGES.find((lang) => lang.id === id);
+}
+
+function normalizeLocale(locale: string): string {
+  return locale.trim().replace(/_/g, "-").toLowerCase();
 }

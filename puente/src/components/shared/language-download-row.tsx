@@ -1,6 +1,5 @@
 import {
   ActivityIndicator,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -14,24 +13,23 @@ type LanguageDownloadRowProps = {
   language: ClassicLanguage;
   downloadState: SttDownloadState;
   selected?: boolean;
+  showDownload?: boolean;
   onSelect: () => void;
   onDownload: () => void;
-  compact?: boolean;
 };
 
-function downloadLabel(state: SttDownloadState): string {
+function statusLabel(state: SttDownloadState): string | null {
   switch (state.status) {
     case "installed":
       return "✓";
-    case "downloading":
-    case "scheduled":
-      return `${state.progress}%`;
     case "checking":
       return "…";
+    case "scheduled":
+      return "Programado";
     case "error":
-      return "!";
+      return state.error ?? "Error";
     default:
-      return "";
+      return null;
   }
 }
 
@@ -39,22 +37,21 @@ export function LanguageDownloadRow({
   language,
   downloadState,
   selected = false,
+  showDownload = false,
   onSelect,
   onDownload,
-  compact = false,
 }: LanguageDownloadRowProps) {
-  const isDownloading =
+  const isBusy =
     downloadState.status === "downloading" ||
     downloadState.status === "scheduled" ||
     downloadState.status === "checking";
   const isInstalled = downloadState.status === "installed";
-  const showDownloadButton = Platform.OS === "android" && !isInstalled;
+  const label = statusLabel(downloadState);
 
   return (
     <Pressable
       style={({ pressed }) => [
         styles.row,
-        compact && styles.rowCompact,
         selected && styles.rowSelected,
         pressed && styles.rowPressed,
       ]}
@@ -63,27 +60,27 @@ export function LanguageDownloadRow({
       <Text style={styles.flag}>{language.flagEmoji}</Text>
       <View style={styles.labelColumn}>
         <Text style={styles.label}>{language.label}</Text>
-        {!compact && (
-          <Text style={styles.locale}>{language.speechLocale}</Text>
-        )}
+        <Text style={styles.locale}>{language.speechLocale}</Text>
+        {downloadState.status === "error" && downloadState.error ? (
+          <Text style={styles.error}>{downloadState.error}</Text>
+        ) : null}
       </View>
 
-      <View style={styles.downloadColumn}>
-        <Text style={styles.size}>{language.sttModelSizeLabel}</Text>
-        {showDownloadButton ? (
+      <View style={styles.actionColumn}>
+        {showDownload && !isInstalled ? (
           <Pressable
             style={({ pressed }) => [
               styles.downloadButton,
               pressed && styles.downloadButtonPressed,
-              isDownloading && styles.downloadButtonDisabled,
+              isBusy && styles.downloadButtonDisabled,
             ]}
             onPress={() => {
-              if (!isDownloading) onDownload();
+              if (!isBusy) onDownload();
             }}
-            disabled={isDownloading}
+            disabled={isBusy}
             hitSlop={8}
           >
-            {isDownloading ? (
+            {isBusy ? (
               <ActivityIndicator size="small" color="#000" />
             ) : (
               <Text style={styles.downloadIcon}>↓</Text>
@@ -92,8 +89,8 @@ export function LanguageDownloadRow({
         ) : isInstalled ? (
           <Text style={styles.installedMark}>✓</Text>
         ) : null}
-        {isDownloading || isInstalled ? (
-          <Text style={styles.progress}>{downloadLabel(downloadState)}</Text>
+        {label && !showDownload ? (
+          <Text style={styles.status}>{label}</Text>
         ) : null}
       </View>
     </Pressable>
@@ -109,14 +106,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: "#E5E5E5",
     backgroundColor: "#FFFFFF",
-  },
-  rowCompact: {
-    paddingVertical: 10,
-    borderBottomWidth: 0,
-    borderWidth: 1,
-    borderColor: "#E5E5E5",
-    borderRadius: 8,
-    marginBottom: 8,
   },
   rowSelected: {
     backgroundColor: "#F5F5F5",
@@ -144,15 +133,18 @@ const styles = StyleSheet.create({
     color: "#666666",
     marginTop: 2,
   },
-  downloadColumn: {
+  error: {
+    fontFamily: "Mulish_500Medium",
+    fontSize: 11,
+    color: "#CC0000",
+    marginTop: 4,
+  },
+  actionColumn: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-  },
-  size: {
-    fontFamily: "Mulish_500Medium",
-    fontSize: 11,
-    color: "#666666",
+    minWidth: 40,
+    justifyContent: "flex-end",
   },
   downloadButton: {
     width: 32,
@@ -174,16 +166,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#000000",
   },
-  progress: {
-    fontFamily: "Mulish_500Medium",
-    fontSize: 11,
-    color: "#666666",
-    minWidth: 28,
-    textAlign: "right",
-  },
   installedMark: {
     fontFamily: "Mulish_800ExtraBold",
     fontSize: 14,
     color: "#000000",
+  },
+  status: {
+    fontFamily: "Mulish_500Medium",
+    fontSize: 11,
+    color: "#666666",
   },
 });

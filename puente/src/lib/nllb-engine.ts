@@ -26,7 +26,7 @@ const DECODER_ASSET = require("@/assets/models/decoder_model_merged_quantized.on
 
 export const MODEL_VERSION = "nllb-200-distilled-600M-q8";
 
-const MODEL_DIR = `${FileSystem.documentDirectory ?? ""}nllb/`;
+const MODEL_DIR = `${FileSystem.documentDirectory ?? ""}nllb/${MODEL_VERSION}/`;
 const ENCODER_PATH = `${MODEL_DIR}encoder_model_quantized.onnx`;
 const DECODER_PATH = `${MODEL_DIR}decoder_model_merged_quantized.onnx`;
 
@@ -132,15 +132,11 @@ async function copyAssetToPath(
         ? asset.filesize
         : undefined;
     const destInfo = await FileSystem.getInfoAsync(destPath);
-    if (
-      destInfo.exists &&
-      expectedSize !== undefined &&
-      destInfo.size === expectedSize
-    ) {
+    if (destInfo.exists && expectedSize !== undefined && destInfo.size === expectedSize) {
       return destPath;
     }
     if (destInfo.exists && expectedSize === undefined) {
-      return destPath;
+      await FileSystem.deleteAsync(destPath, { idempotent: true });
     }
 
     await ensureDirectory(MODEL_DIR);
@@ -213,6 +209,16 @@ async function prepareModelFiles(): Promise<{ encoder: string; decoder: string }
     encoder: toOrtPath(encoder),
     decoder: toOrtPath(decoder),
   };
+}
+
+function releaseSession(session: InferenceSession): void {
+  try {
+    if (typeof session.release === "function") {
+      session.release();
+    }
+  } catch {
+    /* best effort */
+  }
 }
 
 export class NllbEngine {
@@ -291,13 +297,7 @@ export class NllbEngine {
         SESSION_OPTIONS,
       );
     } catch (err) {
-      try {
-        if ("dispose" in encoderSession) {
-          (encoderSession as { dispose(): void }).dispose();
-        }
-      } catch {
-        /* best effort */
-      }
+      releaseSession(encoderSession);
       throw wrapUnknownError(err, "session.decoder", "SESSION_DECODER_FAILED", true);
     }
 
@@ -329,29 +329,22 @@ export class NllbEngine {
   }
 
   dispose(): void {
-    try {
-      if ("dispose" in this.encoderSession) {
-        (this.encoderSession as { dispose(): void }).dispose();
-      }
-    } catch {
-      /* best effort */
-    }
-    try {
-      if ("dispose" in this.decoderSession) {
-        (this.decoderSession as { dispose(): void }).dispose();
-      }
-    } catch {
-      /* best effort */
-    }
+    releaseSession(this.encoderSession);
+    releaseSession(this.decoderSession);
   }
 }
 
 let enginePromise: Promise<NllbEngine> | null = null;
 let engineLoadAttempts = 0;
+let cachedEngine: NllbEngine | null = null;
 
 export const MAX_ENGINE_LOAD_ATTEMPTS = 2;
 
 export function resetEngine(): void {
+  if (cachedEngine) {
+    cachedEngine.dispose();
+    cachedEngine = null;
+  }
   enginePromise = null;
 }
 
@@ -373,13 +366,19 @@ export async function loadEngine(forceRetry = false): Promise<NllbEngine> {
     }
 
     engineLoadAttempts += 1;
-    enginePromise = NllbEngine.create().catch((err) => {
-      enginePromise = null;
-      if (isTranslatorError(err)) throw err;
-      throw wrapUnknownError(err, "session.encoder", "ENGINE_LOAD_FAILED", true, {
-        attempt: engineLoadAttempts,
+    enginePromise = NllbEngine.create()
+      .then((engine) => {
+        cachedEngine = engine;
+        return engine;
+      })
+      .catch((err) => {
+        enginePromise = null;
+        cachedEngine = null;
+        if (isTranslatorError(err)) throw err;
+        throw wrapUnknownError(err, "session.encoder", "ENGINE_LOAD_FAILED", true, {
+          attempt: engineLoadAttempts,
+        });
       });
-    });
   }
 
   return enginePromise;

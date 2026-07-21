@@ -12,9 +12,9 @@ const config: ExpoConfig = {
     icon: "./assets/icon.png",
     infoPlist: {
       NSMicrophoneUsageDescription:
-        "Puente needs microphone access to listen for speech and translate it in real time.",
+        "Puente uses the microphone continuously while Classic is open to listen and translate your speech in real time. Audio is processed on device and is not saved.",
       NSSpeechRecognitionUsageDescription:
-        "Puente uses on-device speech recognition to detect what you say.",
+        "Puente uses speech recognition to transcribe what you say. With an internet connection recognition runs online; offline it uses on-device models when available.",
     },
     bundleIdentifier: "com.pablovallejo.puente",
   },
@@ -52,16 +52,16 @@ const config: ExpoConfig = {
       "expo-audio",
       {
         microphonePermission:
-          "Deepfriend needs access to your microphone for the call. We only will record when you press the talk button and we never save the audio, never.",
+          "Puente uses the microphone continuously while Classic is open to listen and translate your speech in real time. Audio is processed on device and is not saved.",
       },
     ],
     [
       "expo-speech-recognition",
       {
         microphonePermission:
-          "Puente needs microphone access to listen for speech and translate it in real time.",
+          "Puente uses the microphone continuously while Classic is open to listen and translate your speech in real time. Audio is processed on device and is not saved.",
         speechRecognitionPermission:
-          "Puente uses on-device speech recognition to detect what you say.",
+          "Puente uses speech recognition to transcribe what you say. With an internet connection recognition runs online; offline it uses on-device models when available.",
         androidSpeechServicePackages: [
           "com.google.android.as",
           "com.google.android.googlequicksearchbox",

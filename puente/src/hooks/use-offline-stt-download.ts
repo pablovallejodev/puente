@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Platform } from "react-native";
+import { AppState, Platform } from "react-native";
 import { ExpoSpeechRecognitionModule } from "expo-speech-recognition";
+
+import {
+  isLocaleInstalled,
+  isLocaleSupported,
+} from "@/lib/stt-locale";
 
 const ANDROID_AS_PACKAGE = "com.google.android.as";
 const POLL_INTERVAL_MS = 1500;
-const EXPECTED_DOWNLOAD_MS = 30_000;
+const MAX_POLL_MS = 5 * 60_000;
 
 export type SttDownloadStatus =
   | "idle"
@@ -17,43 +22,38 @@ export type SttDownloadStatus =
 
 export type SttDownloadState = {
   status: SttDownloadStatus;
-  progress: number;
+  error?: string;
 };
 
-const DEFAULT_STATE: SttDownloadState = {
-  status: "idle",
-  progress: 0,
+const DEFAULT_STATE: SttDownloadState = { status: "idle" };
+
+type LocaleSnapshot = {
+  supportedLocales: string[];
+  installedLocales: string[];
 };
 
-function normalizeLocale(locale: string): string {
-  return locale.trim().replace(/_/g, "-").toLowerCase();
+function logStt(op: string, locale: string, detail?: string): void {
+  const suffix = detail ? `: ${detail}` : "";
+  console.warn(`[stt:${Platform.OS}] ${op} ${locale}${suffix}`);
 }
 
-function localeMatches(installed: string, target: string): boolean {
-  const a = normalizeLocale(installed);
-  const b = normalizeLocale(target);
-  if (a === b) return true;
-  const [aLang] = a.split("-");
-  const [bLang] = b.split("-");
-  return aLang === bLang;
-}
-
-function isLocaleInstalled(
-  installedLocales: string[],
-  locale: string,
-): boolean {
-  return installedLocales.some((installed) =>
-    localeMatches(installed, locale),
-  );
+function androidSupportsDownload(): boolean {
+  return Platform.OS === "android" && Platform.Version >= 33;
 }
 
 export function useOfflineSttDownload() {
   const [states, setStates] = useState<Record<string, SttDownloadState>>({});
-  const [installedLocales, setInstalledLocales] = useState<string[]>([]);
+  const [snapshot, setSnapshot] = useState<LocaleSnapshot>({
+    supportedLocales: [],
+    installedLocales: [],
+  });
+
   const pollTimersRef = useRef<Map<string, ReturnType<typeof setInterval>>>(
     new Map(),
   );
-  const downloadStartRef = useRef<Map<string, number>>(new Map());
+  const pollStartedRef = useRef<Map<string, number>>(new Map());
+  const fetchPromiseRef = useRef<Promise<LocaleSnapshot> | null>(null);
+  const pollingRef = useRef(false);
 
   const setLocaleState = useCallback(
     (locale: string, patch: Partial<SttDownloadState>) => {
@@ -65,42 +65,65 @@ export function useOfflineSttDownload() {
     [],
   );
 
-  const fetchInstalledLocales = useCallback(async (): Promise<string[]> => {
-    if (Platform.OS === "ios") {
-      const onDevice = ExpoSpeechRecognitionModule.supportsOnDeviceRecognition();
-      return onDevice ? ["ios-on-device"] : [];
-    }
+  const fetchLocales = useCallback(async (): Promise<LocaleSnapshot> => {
+    if (fetchPromiseRef.current) return fetchPromiseRef.current;
 
-    if (Platform.OS !== "android") {
-      return [];
-    }
+    fetchPromiseRef.current = (async () => {
+      if (Platform.OS === "ios") {
+        const onDevice =
+          ExpoSpeechRecognitionModule.supportsOnDeviceRecognition();
+        return {
+          supportedLocales: onDevice ? ["ios-on-device"] : [],
+          installedLocales: onDevice ? ["ios-on-device"] : [],
+        };
+      }
 
-    try {
-      const result = await ExpoSpeechRecognitionModule.getSupportedLocales({
-        androidRecognitionServicePackage: ANDROID_AS_PACKAGE,
-      });
-      return result.installedLocales ?? [];
-    } catch {
-      return [];
-    }
+      if (Platform.OS !== "android") {
+        return { supportedLocales: [], installedLocales: [] };
+      }
+
+      try {
+        const result = await ExpoSpeechRecognitionModule.getSupportedLocales({
+          androidRecognitionServicePackage: ANDROID_AS_PACKAGE,
+        });
+        return {
+          supportedLocales: result.locales ?? [],
+          installedLocales: result.installedLocales ?? [],
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        logStt("fetchLocales", "*", message);
+        throw new Error(message);
+      } finally {
+        fetchPromiseRef.current = null;
+      }
+    })();
+
+    return fetchPromiseRef.current;
   }, []);
 
-  const refreshInstalledLocales = useCallback(async () => {
-    const installed = await fetchInstalledLocales();
-    setInstalledLocales(installed);
+  const refreshInstalledLocales = useCallback(async (): Promise<string[]> => {
+    try {
+      const next = await fetchLocales();
+      setSnapshot(next);
 
-    setStates((prev) => {
-      const next = { ...prev };
-      for (const lang of Object.keys(next)) {
-        if (isLocaleInstalled(installed, lang)) {
-          next[lang] = { status: "installed", progress: 100 };
+      setStates((prev) => {
+        const updated = { ...prev };
+        for (const lang of Object.keys(updated)) {
+          if (isLocaleInstalled(next.installedLocales, lang)) {
+            updated[lang] = { status: "installed" };
+          }
         }
-      }
-      return next;
-    });
+        return updated;
+      });
 
-    return installed;
-  }, [fetchInstalledLocales]);
+      return next.installedLocales;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logStt("refresh", "*", message);
+      return snapshot.installedLocales;
+    }
+  }, [fetchLocales, snapshot.installedLocales]);
 
   const stopPolling = useCallback((locale: string) => {
     const timer = pollTimersRef.current.get(locale);
@@ -108,63 +131,95 @@ export function useOfflineSttDownload() {
       clearInterval(timer);
       pollTimersRef.current.delete(locale);
     }
+    pollStartedRef.current.delete(locale);
   }, []);
 
   const startPolling = useCallback(
     (locale: string) => {
       stopPolling(locale);
-      downloadStartRef.current.set(locale, Date.now());
+      pollStartedRef.current.set(locale, Date.now());
 
-      const timer = setInterval(async () => {
-        const installed = await fetchInstalledLocales();
-        setInstalledLocales(installed);
+      const timer = setInterval(() => {
+        if (pollingRef.current) return;
+        pollingRef.current = true;
 
-        if (isLocaleInstalled(installed, locale)) {
-          stopPolling(locale);
-          setLocaleState(locale, { status: "installed", progress: 100 });
-          return;
-        }
+        void (async () => {
+          try {
+            const started = pollStartedRef.current.get(locale) ?? Date.now();
+            if (Date.now() - started > MAX_POLL_MS) {
+              stopPolling(locale);
+              setLocaleState(locale, {
+                status: "error",
+                error: "Tiempo de espera agotado",
+              });
+              logStt("poll-timeout", locale);
+              return;
+            }
 
-        const started = downloadStartRef.current.get(locale) ?? Date.now();
-        const elapsed = Date.now() - started;
-        const estimated = Math.min(
-          90,
-          Math.round((elapsed / EXPECTED_DOWNLOAD_MS) * 90),
-        );
-        setLocaleState(locale, {
-          status: "downloading",
-          progress: Math.max(5, estimated),
-        });
+            const next = await fetchLocales();
+            setSnapshot(next);
+
+            if (isLocaleInstalled(next.installedLocales, locale)) {
+              stopPolling(locale);
+              setLocaleState(locale, { status: "installed" });
+              return;
+            }
+
+            setLocaleState(locale, { status: "downloading" });
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            stopPolling(locale);
+            setLocaleState(locale, { status: "error", error: message });
+            logStt("poll-error", locale, message);
+          } finally {
+            pollingRef.current = false;
+          }
+        })();
       }, POLL_INTERVAL_MS);
 
       pollTimersRef.current.set(locale, timer);
     },
-    [fetchInstalledLocales, setLocaleState, stopPolling],
+    [fetchLocales, setLocaleState, stopPolling],
+  );
+
+  const isLocaleDownloadable = useCallback(
+    (locale: string): boolean => {
+      if (!androidSupportsDownload()) return false;
+      return isLocaleSupported(snapshot.supportedLocales, locale);
+    },
+    [snapshot.supportedLocales],
   );
 
   const checkLocale = useCallback(
     async (locale: string) => {
-      setLocaleState(locale, { status: "checking", progress: 0 });
-      const installed = await fetchInstalledLocales();
-      setInstalledLocales(installed);
+      setLocaleState(locale, { status: "checking" });
+      try {
+        const next = await fetchLocales();
+        setSnapshot(next);
 
-      if (Platform.OS === "ios") {
-        const onDevice =
-          ExpoSpeechRecognitionModule.supportsOnDeviceRecognition();
-        setLocaleState(locale, {
-          status: onDevice ? "installed" : "not_installed",
-          progress: onDevice ? 100 : 0,
-        });
-        return;
-      }
+        if (Platform.OS === "ios") {
+          const onDevice =
+            ExpoSpeechRecognitionModule.supportsOnDeviceRecognition();
+          setLocaleState(locale, {
+            status: onDevice ? "installed" : "not_installed",
+          });
+          return;
+        }
 
-      if (isLocaleInstalled(installed, locale)) {
-        setLocaleState(locale, { status: "installed", progress: 100 });
-      } else {
-        setLocaleState(locale, { status: "not_installed", progress: 0 });
+        if (isLocaleInstalled(next.installedLocales, locale)) {
+          setLocaleState(locale, { status: "installed" });
+        } else if (isLocaleSupported(next.supportedLocales, locale)) {
+          setLocaleState(locale, { status: "not_installed" });
+        } else {
+          setLocaleState(locale, { status: "not_installed" });
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        setLocaleState(locale, { status: "error", error: message });
+        logStt("check", locale, message);
       }
     },
-    [fetchInstalledLocales, setLocaleState],
+    [fetchLocales, setLocaleState],
   );
 
   const downloadSttModel = useCallback(
@@ -172,27 +227,29 @@ export function useOfflineSttDownload() {
       const current = states[locale];
       if (
         current?.status === "downloading" ||
+        current?.status === "scheduled" ||
         current?.status === "installed"
       ) {
         return;
       }
 
-      if (Platform.OS === "ios") {
-        const onDevice =
-          ExpoSpeechRecognitionModule.supportsOnDeviceRecognition();
+      if (!androidSupportsDownload()) {
         setLocaleState(locale, {
-          status: onDevice ? "installed" : "not_installed",
-          progress: onDevice ? 100 : 0,
+          status: "error",
+          error: "Descarga no disponible en este dispositivo",
         });
         return;
       }
 
-      if (Platform.OS !== "android") {
-        setLocaleState(locale, { status: "error", progress: 0 });
+      if (!isLocaleSupported(snapshot.supportedLocales, locale)) {
+        setLocaleState(locale, {
+          status: "error",
+          error: "Idioma no disponible para descarga",
+        });
         return;
       }
 
-      setLocaleState(locale, { status: "downloading", progress: 5 });
+      setLocaleState(locale, { status: "downloading" });
       startPolling(locale);
 
       try {
@@ -204,26 +261,28 @@ export function useOfflineSttDownload() {
         if (result.status === "download_success") {
           stopPolling(locale);
           await refreshInstalledLocales();
-          setLocaleState(locale, { status: "installed", progress: 100 });
+          setLocaleState(locale, { status: "installed" });
           return;
         }
 
-        if (result.status === "download_canceled") {
-          stopPolling(locale);
-          setLocaleState(locale, { status: "error", progress: 0 });
+        if (result.status === "download_scheduled") {
+          setLocaleState(locale, { status: "scheduled" });
           return;
         }
 
-        // opened_dialog on Android 13 — keep polling until user completes
-        setLocaleState(locale, { status: "downloading", progress: 15 });
-      } catch {
+        // opened_dialog on Android 13 — keep polling
+        setLocaleState(locale, { status: "downloading" });
+      } catch (err) {
         stopPolling(locale);
-        setLocaleState(locale, { status: "error", progress: 0 });
+        const message = err instanceof Error ? err.message : String(err);
+        setLocaleState(locale, { status: "error", error: message });
+        logStt("download", locale, message);
       }
     },
     [
       refreshInstalledLocales,
       setLocaleState,
+      snapshot.supportedLocales,
       startPolling,
       states,
       stopPolling,
@@ -235,22 +294,27 @@ export function useOfflineSttDownload() {
       if (Platform.OS === "ios") {
         const onDevice =
           ExpoSpeechRecognitionModule.supportsOnDeviceRecognition();
-        if (onDevice) return { status: "installed", progress: 100 };
+        if (onDevice) return { status: "installed" };
       }
 
-      if (isLocaleInstalled(installedLocales, locale)) {
-        return { status: "installed", progress: 100 };
+      if (isLocaleInstalled(snapshot.installedLocales, locale)) {
+        return { status: "installed" };
       }
 
-      return states[locale] ?? { status: "idle", progress: 0 };
+      return states[locale] ?? { status: "idle" };
     },
-    [installedLocales, states],
+    [snapshot.installedLocales, states],
   );
 
   useEffect(() => {
     void refreshInstalledLocales();
 
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") void refreshInstalledLocales();
+    });
+
     return () => {
+      sub.remove();
       for (const timer of pollTimersRef.current.values()) {
         clearInterval(timer);
       }
@@ -263,5 +327,6 @@ export function useOfflineSttDownload() {
     downloadSttModel,
     refreshInstalledLocales,
     checkLocale,
+    isLocaleDownloadable,
   };
 }

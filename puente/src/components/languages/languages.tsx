@@ -26,17 +26,16 @@ export default function LanguagesComponent() {
     setOutputLanguage,
     getDownloadState,
     downloadSttModel,
-    checkLocale,
+    refreshInstalledLocales,
+    isLocaleDownloadable,
   } = useClassicSession();
 
   const selectedLanguage =
     slot === "input" ? inputLanguage : outputLanguage;
 
   useEffect(() => {
-    for (const lang of CLASSIC_LANGUAGES) {
-      void checkLocale(lang.speechLocale);
-    }
-  }, [checkLocale]);
+    void refreshInstalledLocales();
+  }, [refreshInstalledLocales]);
 
   const handleSelect = (language: ClassicLanguage) => {
     if (slot === "input") {
@@ -59,15 +58,24 @@ export default function LanguagesComponent() {
       <FlatList
         data={CLASSIC_LANGUAGES}
         keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <LanguageDownloadRow
-            language={item}
-            downloadState={getDownloadState(item.speechLocale)}
-            selected={selectedLanguage.id === item.id}
-            onSelect={() => handleSelect(item)}
-            onDownload={() => downloadSttModel(item.speechLocale)}
-          />
-        )}
+        renderItem={({ item }) => {
+          const downloadState = getDownloadState(item.speechLocale);
+          const showDownload =
+            slot === "input" &&
+            isLocaleDownloadable(item.speechLocale) &&
+            downloadState.status !== "installed";
+
+          return (
+            <LanguageDownloadRow
+              language={item}
+              downloadState={downloadState}
+              selected={selectedLanguage.id === item.id}
+              showDownload={showDownload}
+              onSelect={() => handleSelect(item)}
+              onDownload={() => downloadSttModel(item.speechLocale)}
+            />
+          );
+        }}
         contentContainerStyle={styles.listContent}
       />
     </SafeAreaView>

@@ -1,23 +1,14 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 
-import { LanguageDownloadRow } from "@/components/shared/language-download-row";
 import type { ClassicLanguage } from "@/constants/classic-languages";
-import type { SttDownloadState } from "@/hooks/use-offline-stt-download";
 
 type LanguageSlotButtonProps = {
   slot: "input" | "output";
   language: ClassicLanguage;
-  downloadState: SttDownloadState;
-  onDownload: () => void;
 };
 
-export function LanguageSlotButton({
-  slot,
-  language,
-  downloadState,
-  onDownload,
-}: LanguageSlotButtonProps) {
+export function LanguageSlotButton({ slot, language }: LanguageSlotButtonProps) {
   const router = useRouter();
 
   const goToLanguages = () => {
@@ -28,36 +19,45 @@ export function LanguageSlotButton({
   };
 
   return (
-    <View style={styles.wrapper}>
-      <Pressable onPress={goToLanguages}>
-        <View style={styles.header}>
-          <Text style={styles.slotLabel}>
-            {slot === "input" ? "Idioma input" : "Idioma base"}
-          </Text>
-          <Text style={styles.chevron}>▼</Text>
-        </View>
-      </Pressable>
-      <LanguageDownloadRow
-        language={language}
-        downloadState={downloadState}
-        onSelect={goToLanguages}
-        onDownload={onDownload}
-        compact
-      />
-    </View>
+    <Pressable
+      style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+      onPress={goToLanguages}
+    >
+      <Text style={styles.flag}>{language.flagEmoji}</Text>
+      <View style={styles.labelColumn}>
+        <Text style={styles.slotLabel}>
+          {slot === "input" ? "Idioma input" : "Idioma base"}
+        </Text>
+        <Text style={styles.label}>{language.label}</Text>
+      </View>
+      <Text style={styles.chevron}>▼</Text>
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  wrapper: {
-    marginBottom: 4,
-  },
-  header: {
+  row: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 4,
-    paddingHorizontal: 4,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: "#E5E5E5",
+    borderRadius: 8,
+    marginBottom: 8,
+    backgroundColor: "#FFFFFF",
+  },
+  rowPressed: {
+    opacity: 0.85,
+  },
+  flag: {
+    fontSize: 22,
+    width: 32,
+    textAlign: "center",
+  },
+  labelColumn: {
+    flex: 1,
+    marginLeft: 8,
   },
   slotLabel: {
     fontFamily: "Mulish_500Medium",
@@ -66,9 +66,16 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     letterSpacing: 0.5,
   },
+  label: {
+    fontFamily: "Mulish_800ExtraBold",
+    fontSize: 16,
+    color: "#000000",
+    marginTop: 2,
+  },
   chevron: {
     fontFamily: "Mulish_500Medium",
     fontSize: 10,
     color: "#666666",
+    marginLeft: 8,
   },
 });
