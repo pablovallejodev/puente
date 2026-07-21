@@ -6,11 +6,11 @@ import {
   View,
 } from "react-native";
 
-import type { ClassicLanguage } from "@/constants/classic-languages";
+import type { TraductorLanguage } from "@/constants/traductor-languages";
 import type { SttDownloadState } from "@/hooks/use-offline-stt-download";
 
 type LanguageDownloadRowProps = {
-  language: ClassicLanguage;
+  language: TraductorLanguage;
   downloadState: SttDownloadState;
   selected?: boolean;
   showDownload?: boolean;

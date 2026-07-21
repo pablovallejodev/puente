@@ -7,21 +7,21 @@ import {
 } from "react";
 
 import {
-  CLASSIC_LANGUAGES,
+  TRADUCTOR_LANGUAGES,
   DEFAULT_INPUT_LANGUAGE,
   DEFAULT_OUTPUT_LANGUAGE,
-  type ClassicLanguage,
-} from "@/constants/classic-languages";
+  type TraductorLanguage,
+} from "@/constants/traductor-languages";
 import {
   useOfflineSttDownload,
   type SttDownloadState,
 } from "@/hooks/use-offline-stt-download";
 
-type ClassicSessionContextValue = {
-  inputLanguage: ClassicLanguage;
-  outputLanguage: ClassicLanguage;
-  setInputLanguage: (lang: ClassicLanguage) => void;
-  setOutputLanguage: (lang: ClassicLanguage) => void;
+type TraductorSessionContextValue = {
+  inputLanguage: TraductorLanguage;
+  outputLanguage: TraductorLanguage;
+  setInputLanguage: (lang: TraductorLanguage) => void;
+  setOutputLanguage: (lang: TraductorLanguage) => void;
   getDownloadState: (locale: string) => SttDownloadState;
   downloadSttModel: (locale: string) => Promise<void>;
   refreshInstalledLocales: () => Promise<string[]>;
@@ -29,15 +29,15 @@ type ClassicSessionContextValue = {
   isLocaleDownloadable: (locale: string) => boolean;
 };
 
-const ClassicSessionContext = createContext<ClassicSessionContextValue | null>(
+const TraductorSessionContext = createContext<TraductorSessionContextValue | null>(
   null,
 );
 
-export function ClassicSessionProvider({ children }: { children: ReactNode }) {
-  const [inputLanguage, setInputLanguage] = useState<ClassicLanguage>(
+export function TraductorSessionProvider({ children }: { children: ReactNode }) {
+  const [inputLanguage, setInputLanguage] = useState<TraductorLanguage>(
     DEFAULT_INPUT_LANGUAGE,
   );
-  const [outputLanguage, setOutputLanguage] = useState<ClassicLanguage>(
+  const [outputLanguage, setOutputLanguage] = useState<TraductorLanguage>(
     DEFAULT_OUTPUT_LANGUAGE,
   );
 
@@ -49,7 +49,7 @@ export function ClassicSessionProvider({ children }: { children: ReactNode }) {
     isLocaleDownloadable,
   } = useOfflineSttDownload();
 
-  const value = useMemo<ClassicSessionContextValue>(
+  const value = useMemo<TraductorSessionContextValue>(
     () => ({
       inputLanguage,
       outputLanguage,
@@ -73,18 +73,18 @@ export function ClassicSessionProvider({ children }: { children: ReactNode }) {
   );
 
   return (
-    <ClassicSessionContext.Provider value={value}>
+    <TraductorSessionContext.Provider value={value}>
       {children}
-    </ClassicSessionContext.Provider>
+    </TraductorSessionContext.Provider>
   );
 }
 
-export function useClassicSession(): ClassicSessionContextValue {
-  const ctx = useContext(ClassicSessionContext);
+export function useTraductorSession(): TraductorSessionContextValue {
+  const ctx = useContext(TraductorSessionContext);
   if (!ctx) {
-    throw new Error("useClassicSession must be used within ClassicSessionProvider");
+    throw new Error("useTraductorSession must be used within TraductorSessionProvider");
   }
   return ctx;
 }
 
-export { CLASSIC_LANGUAGES };
+export { TRADUCTOR_LANGUAGES };

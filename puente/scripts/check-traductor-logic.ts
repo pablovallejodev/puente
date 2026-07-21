@@ -81,4 +81,4 @@ testTranslationKeys();
 testMessageIsolation();
 testStaleRequestGuard();
 
-console.log("check:classic-logic ok");
+console.log("check:traductor-logic ok");

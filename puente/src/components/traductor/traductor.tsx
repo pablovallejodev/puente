@@ -13,10 +13,10 @@ import {
   deactivateKeepAwake,
 } from "expo-keep-awake";
 
-import { StandardHeadComponent } from "@/components/basics/headers";
-import { ChatMessageItem } from "@/components/classic/chat-message-item";
-import { LanguageSlotButton } from "@/components/classic/language-slot-button";
-import { useClassicSession } from "@/contexts/classic-session-context";
+import { ChatHeadComponent } from "@/components/basics/headers";
+import { ChatMessageItem } from "@/components/traductor/chat-message-item";
+import { LanguageSlotButton } from "@/components/traductor/language-slot-button";
+import { useTraductorSession } from "@/contexts/traductor-session-context";
 import { useChatMessages } from "@/hooks/use-chat-messages";
 import { useNetworkConnected } from "@/hooks/use-network-connected";
 import { useSpeechTranscriptor } from "@/hooks/use-speech-transcriptor";
@@ -27,22 +27,22 @@ import {
 import { STANDARD_HORIZONTAL_PADDING } from "@/constants/ui";
 import { StatusBarHiddenComponent } from "@/utils/statusbar";
 
-export default function ClassicComponent() {
+export default function TraductorComponent() {
   const [isFocused, setIsFocused] = useState(true);
 
   useFocusEffect(
     useCallback(() => {
       setIsFocused(true);
-      void activateKeepAwakeAsync("classic-session");
+      void activateKeepAwakeAsync("traductor-session");
       return () => {
         setIsFocused(false);
-        deactivateKeepAwake("classic-session");
+        deactivateKeepAwake("traductor-session");
       };
     }, []),
   );
 
   const { inputLanguage, outputLanguage, getDownloadState, checkLocale } =
-    useClassicSession();
+    useTraductorSession();
 
   const { messages, onTranscriptUpdate, onTranslationUpdate } =
     useChatMessages();
@@ -117,11 +117,7 @@ export default function ClassicComponent() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBarHiddenComponent />
-      <StandardHeadComponent
-        urlTo="/menu"
-        titleText="Puente Classic"
-        loading={false}
-      />
+      <ChatHeadComponent titleText="Traductor" />
 
       <Text style={styles.statusText}>{statusLabel}</Text>
 

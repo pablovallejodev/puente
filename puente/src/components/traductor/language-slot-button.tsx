@@ -1,11 +1,11 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 
-import type { ClassicLanguage } from "@/constants/classic-languages";
+import type { TraductorLanguage } from "@/constants/traductor-languages";
 
 type LanguageSlotButtonProps = {
   slot: "input" | "output";
-  language: ClassicLanguage;
+  language: TraductorLanguage;
 };
 
 export function LanguageSlotButton({ slot, language }: LanguageSlotButtonProps) {

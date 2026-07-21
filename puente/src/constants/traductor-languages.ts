@@ -1,4 +1,4 @@
-export type ClassicLanguage = {
+export type TraductorLanguage = {
   id: string;
   label: string;
   speechLocale: string;
@@ -6,7 +6,7 @@ export type ClassicLanguage = {
   flagEmoji: string;
 };
 
-export const CLASSIC_LANGUAGES: ClassicLanguage[] = [
+export const TRADUCTOR_LANGUAGES: TraductorLanguage[] = [
   {
     id: "en",
     label: "English",
@@ -58,22 +58,22 @@ export const CLASSIC_LANGUAGES: ClassicLanguage[] = [
   },
 ];
 
-export const DEFAULT_INPUT_LANGUAGE = CLASSIC_LANGUAGES[0];
-export const DEFAULT_OUTPUT_LANGUAGE = CLASSIC_LANGUAGES[1];
+export const DEFAULT_INPUT_LANGUAGE = TRADUCTOR_LANGUAGES[0];
+export const DEFAULT_OUTPUT_LANGUAGE = TRADUCTOR_LANGUAGES[1];
 
-export function findClassicLanguageByLocale(
+export function findTraductorLanguageByLocale(
   locale: string,
-): ClassicLanguage | undefined {
+): TraductorLanguage | undefined {
   const normalized = normalizeLocale(locale);
-  return CLASSIC_LANGUAGES.find(
+  return TRADUCTOR_LANGUAGES.find(
     (lang) => normalizeLocale(lang.speechLocale) === normalized,
   );
 }
 
-export function findClassicLanguageById(
+export function findTraductorLanguageById(
   id: string,
-): ClassicLanguage | undefined {
-  return CLASSIC_LANGUAGES.find((lang) => lang.id === id);
+): TraductorLanguage | undefined {
+  return TRADUCTOR_LANGUAGES.find((lang) => lang.id === id);
 }
 
 function normalizeLocale(locale: string): string {

@@ -17,7 +17,7 @@ export default function IndexComponent() {
   }, []);
 
   useEffect(() => {
-    if (status) router.replace('/menu');
+    if (status) router.replace('/traductor');
   }, [status, router]);
 
   return (

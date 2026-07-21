@@ -4,7 +4,7 @@ import { useEffect } from 'react';
 import * as SplashScreen from 'expo-splash-screen';
 import { useFonts } from "expo-font";
 
-import { ClassicSessionProvider } from '@/contexts/classic-session-context';
+import { TraductorSessionProvider } from '@/contexts/traductor-session-context';
 
 export default function RootLayout() {
   const [loaded, error] = useFonts({
@@ -28,7 +28,7 @@ export default function RootLayout() {
   };
 
   return (
-    <ClassicSessionProvider>
+    <TraductorSessionProvider>
       <Stack screenOptions={{
         headerShown: false,
         gestureEnabled: false,
@@ -36,11 +36,10 @@ export default function RootLayout() {
         animationDuration: 300
       }}>
         <Stack.Screen name="index" options={pageOptions} />
-        <Stack.Screen name="menu" options={pageOptions} />
-        <Stack.Screen name="classic" options={pageOptions} />
+        <Stack.Screen name="traductor" options={pageOptions} />
         <Stack.Screen name="languages" options={pageOptions} />
       </Stack>
-    </ClassicSessionProvider>
+    </TraductorSessionProvider>
   );
 }
 

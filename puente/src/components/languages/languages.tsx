@@ -6,10 +6,10 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { StandardHeadComponent } from "@/components/basics/headers";
 import { LanguageDownloadRow } from "@/components/shared/language-download-row";
 import {
-  CLASSIC_LANGUAGES,
-  useClassicSession,
-} from "@/contexts/classic-session-context";
-import type { ClassicLanguage } from "@/constants/classic-languages";
+  TRADUCTOR_LANGUAGES,
+  useTraductorSession,
+} from "@/contexts/traductor-session-context";
+import type { TraductorLanguage } from "@/constants/traductor-languages";
 import { StatusBarHiddenComponent } from "@/utils/statusbar";
 
 type SlotParam = "input" | "output";
@@ -28,7 +28,7 @@ export default function LanguagesComponent() {
     downloadSttModel,
     refreshInstalledLocales,
     isLocaleDownloadable,
-  } = useClassicSession();
+  } = useTraductorSession();
 
   const selectedLanguage =
     slot === "input" ? inputLanguage : outputLanguage;
@@ -37,7 +37,7 @@ export default function LanguagesComponent() {
     void refreshInstalledLocales();
   }, [refreshInstalledLocales]);
 
-  const handleSelect = (language: ClassicLanguage) => {
+  const handleSelect = (language: TraductorLanguage) => {
     if (slot === "input") {
       setInputLanguage(language);
     } else {
@@ -56,7 +56,7 @@ export default function LanguagesComponent() {
       />
 
       <FlatList
-        data={CLASSIC_LANGUAGES}
+        data={TRADUCTOR_LANGUAGES}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => {
           const downloadState = getDownloadState(item.speechLocale);

@@ -11,7 +11,7 @@
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
     "check:nllb": "tsx scripts/check-nllb.ts",
-    "check:classic": "tsx scripts/check-classic-logic.ts",
+    "check:traductor": "tsx scripts/check-traductor-logic.ts",
     "build:eas": "eas build -p android --profile preview",
     "build:local": "eas build -p android --profile preview --local"
   },

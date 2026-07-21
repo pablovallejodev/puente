@@ -12,7 +12,7 @@ const config: ExpoConfig = {
     icon: "./assets/icon.png",
     infoPlist: {
       NSMicrophoneUsageDescription:
-        "Puente uses the microphone continuously while Classic is open to listen and translate your speech in real time. Audio is processed on device and is not saved.",
+        "Puente uses the microphone continuously while Traductor is open to listen and translate your speech in real time. Audio is processed on device and is not saved.",
       NSSpeechRecognitionUsageDescription:
         "Puente uses speech recognition to transcribe what you say. With an internet connection recognition runs online; offline it uses on-device models when available.",
     },
@@ -52,14 +52,14 @@ const config: ExpoConfig = {
       "expo-audio",
       {
         microphonePermission:
-          "Puente uses the microphone continuously while Classic is open to listen and translate your speech in real time. Audio is processed on device and is not saved.",
+          "Puente uses the microphone continuously while Traductor is open to listen and translate your speech in real time. Audio is processed on device and is not saved.",
       },
     ],
     [
       "expo-speech-recognition",
       {
         microphonePermission:
-          "Puente uses the microphone continuously while Classic is open to listen and translate your speech in real time. Audio is processed on device and is not saved.",
+          "Puente uses the microphone continuously while Traductor is open to listen and translate your speech in real time. Audio is processed on device and is not saved.",
         speechRecognitionPermission:
           "Puente uses speech recognition to transcribe what you say. With an internet connection recognition runs online; offline it uses on-device models when available.",
         androidSpeechServicePackages: [
