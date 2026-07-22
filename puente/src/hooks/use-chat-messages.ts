@@ -6,6 +6,7 @@ export type ChatMessage = {
   translated: string;
   isFinal: boolean;
   isTranslating: boolean;
+  sourceLanguageId: string;
 };
 
 function createId(): string {
@@ -23,7 +24,7 @@ export function useChatMessages() {
   }, []);
 
   const onTranscriptUpdate = useCallback(
-    (text: string, isFinal: boolean): string => {
+    (text: string, isFinal: boolean, sourceLanguageId: string): string => {
       if (!text.trim() && !isFinal) return activeIdRef.current ?? "";
 
       const prev = messagesRef.current;
@@ -43,13 +44,14 @@ export function useChatMessages() {
             translated: "",
             isFinal: false,
             isTranslating: true,
+            sourceLanguageId,
           },
         ]);
       } else {
         syncMessages(
           prev.map((m) =>
             m.id === messageId
-              ? { ...m, original: text, isTranslating: true }
+              ? { ...m, original: text, isTranslating: true, sourceLanguageId }
               : m,
           ),
         );

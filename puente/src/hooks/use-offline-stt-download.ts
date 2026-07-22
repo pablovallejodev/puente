@@ -6,6 +6,7 @@ import {
   isLocaleInstalled,
   isLocaleSupported,
 } from "@/lib/stt-locale";
+import { type SttErrorCode } from "@/lib/stt-errors";
 
 const ANDROID_AS_PACKAGE = "com.google.android.as";
 const POLL_INTERVAL_MS = 1500;
@@ -23,6 +24,7 @@ export type SttDownloadStatus =
 export type SttDownloadState = {
   status: SttDownloadStatus;
   error?: string;
+  code?: SttErrorCode;
 };
 
 const DEFAULT_STATE: SttDownloadState = { status: "idle" };
@@ -35,6 +37,16 @@ type LocaleSnapshot = {
 function logStt(op: string, locale: string, detail?: string): void {
   const suffix = detail ? `: ${detail}` : "";
   console.warn(`[stt:${Platform.OS}] ${op} ${locale}${suffix}`);
+}
+
+function setErrorState(
+  setLocaleState: (locale: string, patch: Partial<SttDownloadState>) => void,
+  locale: string,
+  code: SttErrorCode,
+  message: string,
+): void {
+  setLocaleState(locale, { status: "error", error: message, code });
+  logStt("error", locale, `${code}: ${message}`);
 }
 
 function androidSupportsDownload(): boolean {
@@ -148,11 +160,12 @@ export function useOfflineSttDownload() {
             const started = pollStartedRef.current.get(locale) ?? Date.now();
             if (Date.now() - started > MAX_POLL_MS) {
               stopPolling(locale);
-              setLocaleState(locale, {
-                status: "error",
-                error: "Tiempo de espera agotado",
-              });
-              logStt("poll-timeout", locale);
+              setErrorState(
+                setLocaleState,
+                locale,
+                "STT_POLL_TIMEOUT",
+                "Tiempo de espera agotado",
+              );
               return;
             }
 
@@ -169,8 +182,12 @@ export function useOfflineSttDownload() {
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             stopPolling(locale);
-            setLocaleState(locale, { status: "error", error: message });
-            logStt("poll-error", locale, message);
+            setErrorState(
+              setLocaleState,
+              locale,
+              "STT_FETCH_LOCALES_FAILED",
+              message,
+            );
           } finally {
             pollingRef.current = false;
           }
@@ -215,8 +232,7 @@ export function useOfflineSttDownload() {
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        setLocaleState(locale, { status: "error", error: message });
-        logStt("check", locale, message);
+        setErrorState(setLocaleState, locale, "STT_CHECK_FAILED", message);
       }
     },
     [fetchLocales, setLocaleState],
@@ -234,18 +250,22 @@ export function useOfflineSttDownload() {
       }
 
       if (!androidSupportsDownload()) {
-        setLocaleState(locale, {
-          status: "error",
-          error: "Descarga no disponible en este dispositivo",
-        });
+        setErrorState(
+          setLocaleState,
+          locale,
+          "STT_DOWNLOAD_UNAVAILABLE",
+          "Descarga no disponible en este dispositivo",
+        );
         return;
       }
 
       if (!isLocaleSupported(snapshot.supportedLocales, locale)) {
-        setLocaleState(locale, {
-          status: "error",
-          error: "Idioma no disponible para descarga",
-        });
+        setErrorState(
+          setLocaleState,
+          locale,
+          "STT_LOCALE_NOT_SUPPORTED",
+          "Idioma no disponible para descarga",
+        );
         return;
       }
 
@@ -275,8 +295,12 @@ export function useOfflineSttDownload() {
       } catch (err) {
         stopPolling(locale);
         const message = err instanceof Error ? err.message : String(err);
-        setLocaleState(locale, { status: "error", error: message });
-        logStt("download", locale, message);
+        setErrorState(
+          setLocaleState,
+          locale,
+          "STT_DOWNLOAD_TRIGGER_FAILED",
+          message,
+        );
       }
     },
     [

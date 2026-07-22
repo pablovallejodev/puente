@@ -3,9 +3,10 @@ import { Platform } from "react-native";
 import * as Haptics from "expo-haptics";
 import {
   ExpoSpeechRecognitionModule,
+  RecognizerIntentEnableLanguageSwitch,
   useSpeechRecognitionEvent,
 } from "expo-speech-recognition";
-import { AudioModule, setAudioModeAsync } from "expo-audio";
+import { setAudioModeAsync } from "expo-audio";
 
 const ANDROID_AS_PACKAGE = "com.google.android.as";
 const CONTINUOUS_RECOGNITION = true;
@@ -19,12 +20,16 @@ export type SpeechError = {
 
 export type SpeechTranscriptorOptions = {
   requiresOnDeviceRecognition?: boolean;
-  onInterimTranscript?: (text: string, isFinal: boolean) => void;
+  onInterimTranscript?: (
+    text: string,
+    isFinal: boolean,
+    detectedLocale?: string,
+  ) => void;
   enabled?: boolean;
 };
 
 export function useSpeechTranscriptor(
-  inputLanguage: string,
+  inputLocales: string[],
   options: SpeechTranscriptorOptions = {},
 ) {
   const {
@@ -33,26 +38,28 @@ export function useSpeechTranscriptor(
     enabled = true,
   } = options;
 
+  const localesKey = inputLocales.join("|");
+
   const [hasPermissions, setHasPermissions] = useState<boolean>(false);
   const [checkingPermissions, setCheckingPermissions] = useState<boolean>(true);
-  const [detectedLanguage, setDetectedLanguage] = useState<string>("");
   const [transcript, setTranscript] = useState<string>("");
   const [isListening, setIsListening] = useState<boolean>(false);
   const [error, setError] = useState<SpeechError>(null);
 
   const isMountedRef = useRef<boolean>(true);
   const permissionsGrantedRef = useRef<boolean>(false);
-  const inputLanguageRef = useRef(inputLanguage);
+  const inputLocalesRef = useRef(inputLocales);
+  const detectedLocaleRef = useRef<string>("");
   const requiresOnDeviceRef = useRef(requiresOnDeviceRecognition);
   const onInterimRef = useRef(onInterimTranscript);
   const sessionGenRef = useRef(0);
   const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startingRef = useRef(false);
   const stoppingRef = useRef(false);
-  const prevLanguageRef = useRef(inputLanguage);
+  const prevLocalesKeyRef = useRef(localesKey);
   const prevOnDeviceRef = useRef(requiresOnDeviceRecognition);
 
-  inputLanguageRef.current = inputLanguage;
+  inputLocalesRef.current = inputLocales;
   requiresOnDeviceRef.current = requiresOnDeviceRecognition;
   onInterimRef.current = onInterimTranscript;
 
@@ -78,10 +85,23 @@ export function useSpeechTranscriptor(
     try {
       setTranscript("");
 
+      const locales = inputLocalesRef.current;
+      const primaryLocale = locales[0] ?? "en-US";
+      const multiLang = locales.length > 1;
+      const canDetectMulti =
+        multiLang &&
+        Platform.OS === "android" &&
+        Platform.Version >= 34 &&
+        requiresOnDeviceRef.current;
+
+      if (__DEV__ && multiLang && !canDetectMulti) {
+        console.info("[stt] multi_fallback_primary", { locales });
+      }
+
       const startOptions: Parameters<
         typeof ExpoSpeechRecognitionModule.start
       >[0] = {
-        lang: inputLanguageRef.current,
+        lang: primaryLocale,
         maxAlternatives: 1,
         addsPunctuation: true,
         continuous: CONTINUOUS_RECOGNITION,
@@ -89,7 +109,16 @@ export function useSpeechTranscriptor(
         requiresOnDeviceRecognition: requiresOnDeviceRef.current,
       };
 
-      if (requiresOnDeviceRef.current && Platform.OS === "android") {
+      if (canDetectMulti) {
+        startOptions.androidRecognitionServicePackage = ANDROID_AS_PACKAGE;
+        startOptions.androidIntentOptions = {
+          EXTRA_ENABLE_LANGUAGE_DETECTION: true,
+          EXTRA_ENABLE_LANGUAGE_SWITCH:
+            RecognizerIntentEnableLanguageSwitch.LANGUAGE_SWITCH_BALANCED,
+          EXTRA_LANGUAGE_DETECTION_ALLOWED_LANGUAGES: locales,
+          EXTRA_LANGUAGE_SWITCH_ALLOWED_LANGUAGES: locales,
+        };
+      } else if (requiresOnDeviceRef.current && Platform.OS === "android") {
         startOptions.androidRecognitionServicePackage = ANDROID_AS_PACKAGE;
       }
 
@@ -104,7 +133,6 @@ export function useSpeechTranscriptor(
     }
   }, [enabled]);
 
-  // Re-bind scheduleRestart now that startListeningInternal exists
   const scheduleRestartWithStart = useCallback(
     (delayMs: number) => {
       clearRestartTimer();
@@ -149,10 +177,14 @@ export function useSpeechTranscriptor(
 
       const goodTranscript = `${trimmed[0].toUpperCase()}${trimmed.slice(1)}`;
       setTranscript(goodTranscript);
-      onInterimRef.current?.(goodTranscript, event.isFinal);
+
+      const locale =
+        detectedLocaleRef.current || inputLocalesRef.current[0] || "";
+      onInterimRef.current?.(goodTranscript, event.isFinal, locale);
 
       if (event.isFinal) {
         setTranscript("");
+        detectedLocaleRef.current = "";
       }
     }
   });
@@ -174,7 +206,8 @@ export function useSpeechTranscriptor(
   });
 
   useSpeechRecognitionEvent("languagedetection", (event) => {
-    setDetectedLanguage(event.detectedLanguage);
+    if (!event.detectedLanguage) return;
+    detectedLocaleRef.current = event.detectedLanguage;
   });
 
   const stopListening = useCallback(() => {
@@ -268,18 +301,18 @@ export function useSpeechTranscriptor(
   useEffect(() => {
     if (!permissionsGrantedRef.current || !enabled) return;
 
-    const languageChanged = prevLanguageRef.current !== inputLanguage;
+    const localesChanged = prevLocalesKeyRef.current !== localesKey;
     const onDeviceChanged =
       prevOnDeviceRef.current !== requiresOnDeviceRecognition;
 
-    prevLanguageRef.current = inputLanguage;
+    prevLocalesKeyRef.current = localesKey;
     prevOnDeviceRef.current = requiresOnDeviceRecognition;
 
-    if (languageChanged || onDeviceChanged) {
+    if (localesChanged || onDeviceChanged) {
       void restartListening();
     }
   }, [
-    inputLanguage,
+    localesKey,
     requiresOnDeviceRecognition,
     enabled,
     restartListening,
@@ -288,7 +321,6 @@ export function useSpeechTranscriptor(
   return {
     isListening,
     transcript,
-    detectedLanguage,
     error,
     hasPermissions,
     checkingPermissions,

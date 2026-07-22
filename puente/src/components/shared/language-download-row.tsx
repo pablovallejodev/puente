@@ -62,7 +62,12 @@ export function LanguageDownloadRow({
         <Text style={styles.label}>{language.label}</Text>
         <Text style={styles.locale}>{language.speechLocale}</Text>
         {downloadState.status === "error" && downloadState.error ? (
-          <Text style={styles.error}>{downloadState.error}</Text>
+          <>
+            <Text style={styles.error}>{downloadState.error}</Text>
+            {downloadState.code ? (
+              <Text style={styles.errorCode}>{downloadState.code}</Text>
+            ) : null}
+          </>
         ) : null}
       </View>
 
@@ -138,6 +143,12 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: "#CC0000",
     marginTop: 4,
+  },
+  errorCode: {
+    fontFamily: "Mulish_500Medium",
+    fontSize: 10,
+    color: "#666666",
+    marginTop: 2,
   },
   actionColumn: {
     flexDirection: "row",

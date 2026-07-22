@@ -1,5 +1,6 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useMemo,
   useState,
@@ -8,8 +9,9 @@ import {
 
 import {
   TRADUCTOR_LANGUAGES,
-  DEFAULT_INPUT_LANGUAGE,
+  DEFAULT_INPUT_LANGUAGES,
   DEFAULT_OUTPUT_LANGUAGE,
+  MAX_INPUT_LANGUAGES,
   type TraductorLanguage,
 } from "@/constants/traductor-languages";
 import {
@@ -18,9 +20,11 @@ import {
 } from "@/hooks/use-offline-stt-download";
 
 type TraductorSessionContextValue = {
-  inputLanguage: TraductorLanguage;
+  inputLanguages: TraductorLanguage[];
+  primaryInputLanguage: TraductorLanguage;
   outputLanguage: TraductorLanguage;
-  setInputLanguage: (lang: TraductorLanguage) => void;
+  addInputLanguage: (lang: TraductorLanguage) => void;
+  removeInputLanguage: (id: string) => void;
   setOutputLanguage: (lang: TraductorLanguage) => void;
   getDownloadState: (locale: string) => SttDownloadState;
   downloadSttModel: (locale: string) => Promise<void>;
@@ -34,12 +38,29 @@ const TraductorSessionContext = createContext<TraductorSessionContextValue | nul
 );
 
 export function TraductorSessionProvider({ children }: { children: ReactNode }) {
-  const [inputLanguage, setInputLanguage] = useState<TraductorLanguage>(
-    DEFAULT_INPUT_LANGUAGE,
+  const [inputLanguages, setInputLanguages] = useState<TraductorLanguage[]>(
+    DEFAULT_INPUT_LANGUAGES,
   );
   const [outputLanguage, setOutputLanguage] = useState<TraductorLanguage>(
     DEFAULT_OUTPUT_LANGUAGE,
   );
+
+  const primaryInputLanguage = inputLanguages[0];
+
+  const addInputLanguage = useCallback((lang: TraductorLanguage) => {
+    setInputLanguages((prev) => {
+      if (prev.length >= MAX_INPUT_LANGUAGES) return prev;
+      if (prev.some((l) => l.id === lang.id)) return prev;
+      return [...prev, lang];
+    });
+  }, []);
+
+  const removeInputLanguage = useCallback((id: string) => {
+    setInputLanguages((prev) => {
+      if (prev.length <= 1) return prev;
+      return prev.filter((l) => l.id !== id);
+    });
+  }, []);
 
   const {
     getDownloadState,
@@ -51,9 +72,11 @@ export function TraductorSessionProvider({ children }: { children: ReactNode }) 
 
   const value = useMemo<TraductorSessionContextValue>(
     () => ({
-      inputLanguage,
+      inputLanguages,
+      primaryInputLanguage,
       outputLanguage,
-      setInputLanguage,
+      addInputLanguage,
+      removeInputLanguage,
       setOutputLanguage,
       getDownloadState,
       downloadSttModel,
@@ -62,8 +85,11 @@ export function TraductorSessionProvider({ children }: { children: ReactNode }) 
       isLocaleDownloadable,
     }),
     [
-      inputLanguage,
+      inputLanguages,
+      primaryInputLanguage,
       outputLanguage,
+      addInputLanguage,
+      removeInputLanguage,
       getDownloadState,
       downloadSttModel,
       refreshInstalledLocales,

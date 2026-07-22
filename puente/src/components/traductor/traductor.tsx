@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   FlatList,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -15,7 +16,12 @@ import {
 
 import { ChatHeadComponent } from "@/components/basics/headers";
 import { ChatMessageItem } from "@/components/traductor/chat-message-item";
+import { InputLanguagesRow } from "@/components/traductor/input-languages-row";
 import { LanguageSlotButton } from "@/components/traductor/language-slot-button";
+import {
+  inputSpeechLocalesKey,
+  resolveInputLanguageFromDetection,
+} from "@/constants/traductor-languages";
 import { useTraductorSession } from "@/contexts/traductor-session-context";
 import { useChatMessages } from "@/hooks/use-chat-messages";
 import { useNetworkConnected } from "@/hooks/use-network-connected";
@@ -24,6 +30,8 @@ import {
   useTranslator,
   type TranslationTarget,
 } from "@/hooks/use-translator";
+import { formatSttError, sttError } from "@/lib/stt-errors";
+import { getMissingInputLocales } from "@/lib/traductor-offline";
 import { STANDARD_HORIZONTAL_PADDING } from "@/constants/ui";
 import { StatusBarHiddenComponent } from "@/utils/statusbar";
 
@@ -41,8 +49,14 @@ export default function TraductorComponent() {
     }, []),
   );
 
-  const { inputLanguage, outputLanguage, getDownloadState, checkLocale } =
-    useTraductorSession();
+  const {
+    inputLanguages,
+    primaryInputLanguage,
+    outputLanguage,
+    removeInputLanguage,
+    getDownloadState,
+    checkLocale,
+  } = useTraductorSession();
 
   const { messages, onTranscriptUpdate, onTranslationUpdate } =
     useChatMessages();
@@ -53,20 +67,80 @@ export default function TraductorComponent() {
 
   const networkConnected = useNetworkConnected();
   const networkKnown = networkConnected !== null;
-  const inputDownload = getDownloadState(inputLanguage.speechLocale);
-  const offlineReady = inputDownload.status === "installed";
-  const useOnDevice = networkConnected === false && offlineReady;
-  const offlineBlocked = networkConnected === false && !offlineReady;
+  const inputLocales = useMemo(
+    () => inputLanguages.map((l) => l.speechLocale),
+    [inputLanguages],
+  );
+  const missingInputLocales = useMemo(
+    () => getMissingInputLocales(inputLocales, getDownloadState),
+    [inputLocales, getDownloadState],
+  );
+  const allOfflineReady = missingInputLocales.length === 0;
+  const multiInput = inputLanguages.length > 1;
+  const canDetectMulti =
+    multiInput &&
+    Platform.OS === "android" &&
+    Platform.Version >= 34 &&
+    allOfflineReady;
+
+  const useOnDevice =
+    (networkConnected === false && allOfflineReady) ||
+    (multiInput && allOfflineReady);
+
+  const offlineBlocked = networkConnected === false && !allOfflineReady;
+  const offlineBlockError = offlineBlocked
+    ? sttError(
+        "STT_OFFLINE_MODELS_MISSING",
+        `Faltan modelos: ${missingInputLocales.join(", ")}`,
+      )
+    : null;
+
   const speechEnabled = isFocused && networkKnown && !offlineBlocked;
 
+  useEffect(() => {
+    if (offlineBlockError) {
+      console.warn("[traductor] STT_OFFLINE_MODELS_MISSING", {
+        missing: missingInputLocales,
+        inputLocales,
+      });
+    }
+  }, [offlineBlockError, missingInputLocales, inputLocales]);
+
   const handleInterim = useCallback(
-    (text: string, isFinal: boolean) => {
-      const messageId = onTranscriptUpdate(text, isFinal);
+    (text: string, isFinal: boolean, detectedLocale?: string) => {
+      const resolved = resolveInputLanguageFromDetection(
+        detectedLocale ?? primaryInputLanguage.speechLocale,
+        inputLanguages,
+      );
+
+      if (
+        __DEV__ &&
+        detectedLocale &&
+        resolved.id === primaryInputLanguage.id &&
+        detectedLocale !== primaryInputLanguage.speechLocale
+      ) {
+        console.info("[stt] detection_unresolved", {
+          detected: detectedLocale,
+          allowed: inputLocales,
+        });
+      }
+
+      const messageId = onTranscriptUpdate(text, isFinal, resolved.id);
       if (!messageId || !text.trim()) return;
 
-      setTranslationTarget({ messageId, text, isFinal });
+      setTranslationTarget({
+        messageId,
+        text,
+        isFinal,
+        inputLocale: resolved.speechLocale,
+      });
     },
-    [onTranscriptUpdate],
+    [
+      onTranscriptUpdate,
+      inputLanguages,
+      primaryInputLanguage,
+      inputLocales,
+    ],
   );
 
   const handleTranslation = useCallback(
@@ -77,15 +151,10 @@ export default function TraductorComponent() {
   );
 
   const { status, error, diagnostics, ready, retry, canRetryLoad } =
-    useTranslator(
-      translationTarget,
-      inputLanguage.speechLocale,
-      outputLanguage.speechLocale,
-      handleTranslation,
-    );
+    useTranslator(translationTarget, outputLanguage.speechLocale, handleTranslation);
 
   const { error: speechError, checkingPermissions } = useSpeechTranscriptor(
-    inputLanguage.speechLocale,
+    inputLocales,
     {
       requiresOnDeviceRecognition: useOnDevice,
       onInterimTranscript: handleInterim,
@@ -94,8 +163,10 @@ export default function TraductorComponent() {
   );
 
   useEffect(() => {
-    void checkLocale(inputLanguage.speechLocale);
-  }, [inputLanguage.speechLocale, checkLocale]);
+    for (const lang of inputLanguages) {
+      void checkLocale(lang.speechLocale);
+    }
+  }, [inputSpeechLocalesKey(inputLanguages), checkLocale]);
 
   useEffect(() => {
     if (messages.length === 0) return;
@@ -103,15 +174,21 @@ export default function TraductorComponent() {
   }, [messages]);
 
   const statusLabel = offlineBlocked
-    ? "Sin conexión — descarga el idioma de entrada en Idiomas"
+    ? "Sin conexión — descarga todos los idiomas de entrada en Idiomas"
     : status === "loading"
       ? "Cargando motor de traducción…"
       : checkingPermissions
         ? "Comprobando micrófono…"
         : ready
-          ? networkConnected
-            ? "Listo · reconocimiento online"
-            : "Listo · reconocimiento local"
+          ? canDetectMulti
+            ? "Listo · detección multilingüe"
+            : multiInput && Platform.OS === "ios"
+              ? "Listo · primer idioma como entrada (iOS)"
+              : multiInput && !canDetectMulti
+                ? "Listo · primer idioma como entrada"
+                : networkConnected
+                  ? "Listo · reconocimiento online"
+                  : "Listo · reconocimiento local"
           : "Error";
 
   return (
@@ -156,6 +233,15 @@ export default function TraductorComponent() {
         </View>
       ) : null}
 
+      {offlineBlockError ? (
+        <View style={styles.errorBox}>
+          <Text style={styles.errorText}>{offlineBlockError.message}</Text>
+          <Text style={styles.errorMeta}>
+            {formatSttError(offlineBlockError)}
+          </Text>
+        </View>
+      ) : null}
+
       {speechError ? (
         <View style={styles.errorBox}>
           <Text style={styles.errorText}>{speechError.message}</Text>
@@ -164,7 +250,10 @@ export default function TraductorComponent() {
       ) : null}
 
       <View style={styles.bottomPanel}>
-        <LanguageSlotButton slot="input" language={inputLanguage} />
+        <InputLanguagesRow
+          languages={inputLanguages}
+          onRemove={removeInputLanguage}
+        />
         <Text style={styles.arrowDown}>↓</Text>
         <LanguageSlotButton slot="output" language={outputLanguage} />
       </View>

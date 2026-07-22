@@ -1,5 +1,6 @@
 import { StyleSheet, Text, View } from "react-native";
 
+import { findTraductorLanguageById } from "@/constants/traductor-languages";
 import type { ChatMessage } from "@/hooks/use-chat-messages";
 
 type ChatMessageItemProps = {
@@ -11,9 +12,14 @@ export function ChatMessageItem({ message }: ChatMessageItemProps) {
     return null;
   }
 
+  const sourceLang = findTraductorLanguageById(message.sourceLanguageId);
+
   return (
     <View style={styles.container}>
-      <Text style={styles.original}>{message.original || "…"}</Text>
+      <Text style={styles.original}>
+        {sourceLang ? `${sourceLang.flagEmoji} ` : ""}
+        {message.original || "…"}
+      </Text>
       <Text style={styles.translated}>
         {message.isTranslating && !message.translated
           ? "…"

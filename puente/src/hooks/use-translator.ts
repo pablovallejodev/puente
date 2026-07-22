@@ -27,6 +27,7 @@ export type TranslationTarget = {
   messageId: string;
   text: string;
   isFinal: boolean;
+  inputLocale: string;
 };
 
 let finalTranslateChain: Promise<void> = Promise.resolve();
@@ -78,16 +79,15 @@ function toDiagnostics(
 function translationKey(
   messageId: string,
   text: string,
-  inputLanguage: string,
+  inputLocale: string,
   outputLanguage: string,
   isFinal: boolean,
 ): string {
-  return `${messageId}:${text.trim()}:${inputLanguage}:${outputLanguage}:${isFinal ? "f" : "p"}`;
+  return `${messageId}:${text.trim()}:${inputLocale}:${outputLanguage}:${isFinal ? "f" : "p"}`;
 }
 
 export function useTranslator(
   target: TranslationTarget | null,
-  inputLanguage: string,
   outputLanguage: string,
   onTranslation: (
     messageId: string,
@@ -168,10 +168,13 @@ export function useTranslator(
     const trimmed = current.text.trim();
     if (!trimmed) return;
 
+    const inputLocale = current.inputLocale;
+    if (!inputLocale) return;
+
     const key = translationKey(
       current.messageId,
       trimmed,
-      inputLanguage,
+      inputLocale,
       outputLanguage,
       current.isFinal,
     );
@@ -187,7 +190,7 @@ export function useTranslator(
     let srcLang: string;
     let tgtLang: string;
     try {
-      srcLang = localeToFloresOrThrow(inputLanguage, "input");
+      srcLang = localeToFloresOrThrow(inputLocale, "input");
       tgtLang = localeToFloresOrThrow(outputLanguage, "output");
     } catch (err) {
       const diag = toDiagnostics(err);
@@ -268,7 +271,6 @@ export function useTranslator(
     return () => clearTimeout(timer);
   }, [
     target,
-    inputLanguage,
     outputLanguage,
     status,
     retryToken,
