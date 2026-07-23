@@ -13,8 +13,10 @@ export function isLocaleInstalledState(state: SttDownloadState): boolean {
 export function getInputSttMode(
   inputLanguages: TraductorLanguage[],
   getDownloadState: (locale: string) => SttDownloadState,
+  onDeviceAvailable = true,
 ): InputSttMode {
   if (inputLanguages.length === 0) return "internet";
+  if (!onDeviceAvailable) return "internet";
   const allInstalled = inputLanguages.every((lang) =>
     isLocaleInstalledState(getDownloadState(lang.speechLocale)),
   );
@@ -26,10 +28,12 @@ export function applyInputLanguageSelection(
   lang: TraductorLanguage,
   installed: boolean,
   getDownloadState: (locale: string) => SttDownloadState,
+  onDeviceAvailable = true,
 ): TraductorLanguage[] {
-  const mode = getInputSttMode(prev, getDownloadState);
+  const trulyInstalled = installed && onDeviceAvailable;
+  const mode = getInputSttMode(prev, getDownloadState, onDeviceAvailable);
 
-  if (installed) {
+  if (trulyInstalled) {
     if (mode === "internet") {
       return [lang];
     }
@@ -44,10 +48,15 @@ export function applyInputLanguageSelection(
 export function sanitizeInputLanguages(
   langs: TraductorLanguage[],
   getDownloadState: (locale: string) => SttDownloadState,
+  onDeviceAvailable = true,
 ): TraductorLanguage[] {
   if (langs.length === 0) return langs;
 
-  const mode = getInputSttMode(langs, getDownloadState);
+  if (!onDeviceAvailable) {
+    return langs.length === 1 ? langs : [langs[0]];
+  }
+
+  const mode = getInputSttMode(langs, getDownloadState, onDeviceAvailable);
   if (mode === "internet") {
     return langs.length === 1 ? langs : [langs[0]];
   }
@@ -63,8 +72,11 @@ export function removeDownloadedInputLanguage(
   prev: TraductorLanguage[],
   id: string,
   getDownloadState: (locale: string) => SttDownloadState,
+  onDeviceAvailable = true,
 ): TraductorLanguage[] {
   if (prev.length <= 1) return prev;
-  if (getInputSttMode(prev, getDownloadState) !== "downloaded") return prev;
+  if (getInputSttMode(prev, getDownloadState, onDeviceAvailable) !== "downloaded") {
+    return prev;
+  }
   return prev.filter((lang) => lang.id !== id);
 }

@@ -37,6 +37,12 @@ import { StatusBarHiddenComponent } from "@/utils/statusbar";
 const INTERNET_BANNER_TEXT =
   "Estás utilizando Internet. Si quieres utilizar más de un idioma, descárgalo.";
 
+const INTERNET_BANNER_NO_ON_DEVICE_TEXT =
+  "Estás utilizando Internet. El reconocimiento local no está disponible en este dispositivo.";
+
+const ON_DEVICE_UNAVAILABLE_TEXT =
+  "Reconocimiento local no disponible en este dispositivo. En GrapheneOS puede requerir Android System Intelligence.";
+
 export default function TraductorComponent() {
   const [isFocused, setIsFocused] = useState(true);
 
@@ -56,8 +62,8 @@ export default function TraductorComponent() {
     primaryInputLanguage,
     outputLanguage,
     inputSttMode,
+    onDeviceSttAvailable,
     removeInputLanguage,
-    getDownloadState,
     checkLocale,
   } = useTraductorSession();
 
@@ -82,12 +88,19 @@ export default function TraductorComponent() {
     multiInput &&
     Platform.OS === "android" &&
     Platform.Version >= 34 &&
-    isDownloadedMode;
+    isDownloadedMode &&
+    onDeviceSttAvailable;
 
-  const useOnDevice = isDownloadedMode;
+  // Never pass true to native start unless framework on-device STT exists.
+  const useOnDevice = isDownloadedMode && onDeviceSttAvailable;
   const offlineBlocked = networkConnected === false && isInternetMode;
   const showInternetBanner =
     isInternetMode && networkConnected === true && networkKnown;
+  const showOnDeviceUnavailableAlone =
+    Platform.OS === "android" &&
+    !onDeviceSttAvailable &&
+    isFocused &&
+    !showInternetBanner;
 
   const offlineBlockError = offlineBlocked
     ? sttError(
@@ -250,7 +263,14 @@ export default function TraductorComponent() {
 
       <View style={styles.bottomPanel}>
         {showInternetBanner ? (
-          <Text style={styles.internetBanner}>{INTERNET_BANNER_TEXT}</Text>
+          <Text style={styles.internetBanner}>
+            {onDeviceSttAvailable
+              ? INTERNET_BANNER_TEXT
+              : INTERNET_BANNER_NO_ON_DEVICE_TEXT}
+          </Text>
+        ) : null}
+        {showOnDeviceUnavailableAlone ? (
+          <Text style={styles.onDeviceHint}>{ON_DEVICE_UNAVAILABLE_TEXT}</Text>
         ) : null}
         <InputLanguagesRow
           languages={inputLanguages}
@@ -344,6 +364,14 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginBottom: 10,
     lineHeight: 18,
+  },
+  onDeviceHint: {
+    fontFamily: "Mulish_500Medium",
+    fontSize: 11,
+    color: "#666666",
+    textAlign: "center",
+    marginBottom: 10,
+    lineHeight: 16,
   },
   arrowDown: {
     fontFamily: "Mulish_500Medium",

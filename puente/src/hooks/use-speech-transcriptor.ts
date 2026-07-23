@@ -11,6 +11,7 @@ import { setAudioModeAsync } from "expo-audio";
 import {
   ANDROID_AS_PACKAGE,
   getOnDeviceSttPackageSync,
+  isOnDeviceSttSupported,
 } from "@/lib/android-stt-service";
 const CONTINUOUS_RECOGNITION = true;
 const RESTART_DELAY_MS = 300;
@@ -87,6 +88,20 @@ export function useSpeechTranscriptor(
 
     try {
       setTranscript("");
+
+      if (
+        requiresOnDeviceRef.current &&
+        Platform.OS === "android" &&
+        !isOnDeviceSttSupported()
+      ) {
+        setIsListening(false);
+        setError({
+          code: "on-device-unavailable",
+          message:
+            "Reconocimiento local no disponible en este dispositivo. Usa modo Internet.",
+        });
+        return;
+      }
 
       const locales = inputLocalesRef.current;
       const primaryLocale = locales[0] ?? "en-US";

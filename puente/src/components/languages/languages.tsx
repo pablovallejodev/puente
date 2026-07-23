@@ -33,6 +33,7 @@ export default function LanguagesComponent() {
   const {
     inputLanguages,
     outputLanguage,
+    onDeviceSttAvailable,
     selectInputLanguage,
     setOutputLanguage,
     getDownloadState,
@@ -49,7 +50,10 @@ export default function LanguagesComponent() {
     const internet: TraductorLanguage[] = [];
 
     for (const lang of TRADUCTOR_LANGUAGES) {
-      if (isLocaleInstalledState(getDownloadState(lang.speechLocale))) {
+      if (
+        onDeviceSttAvailable &&
+        isLocaleInstalledState(getDownloadState(lang.speechLocale))
+      ) {
         downloaded.push(lang);
       } else {
         internet.push(lang);
@@ -61,10 +65,14 @@ export default function LanguagesComponent() {
       result.push({ title: "Descargados", data: downloaded, showDownload: false });
     }
     if (internet.length > 0) {
-      result.push({ title: "Internet", data: internet, showDownload: true });
+      result.push({
+        title: onDeviceSttAvailable ? "Internet" : "Internet (solo online)",
+        data: internet,
+        showDownload: onDeviceSttAvailable,
+      });
     }
     return result;
-  }, [slot, getDownloadState]);
+  }, [slot, getDownloadState, onDeviceSttAvailable]);
 
   useEffect(() => {
     void refreshInstalledLocales();
@@ -90,6 +98,13 @@ export default function LanguagesComponent() {
         loading={false}
       />
 
+      {slot === "input" && !onDeviceSttAvailable ? (
+        <Text style={styles.unavailableHint}>
+          Reconocimiento local no disponible en este dispositivo. Puedes
+          seleccionar un idioma para usar con Internet.
+        </Text>
+      ) : null}
+
       <SectionList
         sections={sections}
         keyExtractor={(item) => item.id}
@@ -105,6 +120,7 @@ export default function LanguagesComponent() {
             slot === "input" &&
             section.showDownload &&
             androidSupportsDownloadUi() &&
+            onDeviceSttAvailable &&
             downloadState.status !== "installed";
           const selected =
             slot === "output"
@@ -135,6 +151,15 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingBottom: 24,
+  },
+  unavailableHint: {
+    fontFamily: "Mulish_500Medium",
+    fontSize: 12,
+    color: "#666666",
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 4,
+    lineHeight: 18,
   },
   sectionHeader: {
     paddingHorizontal: 16,

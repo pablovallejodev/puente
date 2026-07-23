@@ -51,7 +51,13 @@ export function useChatMessages() {
         syncMessages(
           prev.map((m) =>
             m.id === messageId
-              ? { ...m, original: text, isTranslating: true, sourceLanguageId }
+              ? {
+                  ...m,
+                  original: text,
+                  isTranslating: true,
+                  // Freeze source language once set for an in-progress utterance.
+                  sourceLanguageId: m.sourceLanguageId || sourceLanguageId,
+                }
               : m,
           ),
         );
@@ -74,15 +80,31 @@ export function useChatMessages() {
   );
 
   const onTranslationUpdate = useCallback(
-    (messageId: string, text: string, isTranslating: boolean) => {
+    (
+      messageId: string,
+      text: string,
+      isTranslating: boolean,
+      options?: { force?: boolean },
+    ) => {
       if (!messageId) return;
 
       syncMessages(
-        messagesRef.current.map((m) =>
-          m.id === messageId
-            ? { ...m, translated: text, isTranslating }
-            : m,
-        ),
+        messagesRef.current.map((m) => {
+          if (m.id !== messageId) return m;
+
+          // Never overwrite a completed final translation unless forced.
+          if (
+            !options?.force &&
+            m.isFinal &&
+            m.translated &&
+            !m.isTranslating &&
+            text
+          ) {
+            return m;
+          }
+
+          return { ...m, translated: text, isTranslating };
+        }),
       );
     },
     [syncMessages],

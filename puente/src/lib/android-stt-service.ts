@@ -8,11 +8,15 @@ export const ANDROID_GOOGLE_APP_PACKAGE =
 export type AndroidLocaleSnapshot = {
   supportedLocales: string[];
   installedLocales: string[];
+  /** Package that provided this snapshot. Only `.as` can back offline mode. */
   servicePackage: string | null;
+  /** True when framework reports on-device recognition is actually creatable. */
+  onDeviceAvailable: boolean;
 };
 
 let onDevicePackage: string | null | undefined;
 let onlinePackage: string | null | undefined;
+let onDeviceAvailableCache: boolean | undefined;
 
 async function probePackage(pkg: string): Promise<{
   ok: boolean;
@@ -33,9 +37,29 @@ async function probePackage(pkg: string): Promise<{
   }
 }
 
+/** Framework-level check — false on GrapheneOS / devices without on-device service. */
+export function isOnDeviceSttSupported(): boolean {
+  if (Platform.OS === "ios") {
+    return ExpoSpeechRecognitionModule.supportsOnDeviceRecognition();
+  }
+  if (Platform.OS !== "android") return false;
+  if (onDeviceAvailableCache !== undefined) return onDeviceAvailableCache;
+  try {
+    onDeviceAvailableCache =
+      ExpoSpeechRecognitionModule.supportsOnDeviceRecognition();
+  } catch {
+    onDeviceAvailableCache = false;
+  }
+  return onDeviceAvailableCache;
+}
+
 export async function getOnDeviceSttPackage(): Promise<string | null> {
   if (onDevicePackage !== undefined) return onDevicePackage;
   if (Platform.OS !== "android") {
+    onDevicePackage = null;
+    return null;
+  }
+  if (!isOnDeviceSttSupported()) {
     onDevicePackage = null;
     return null;
   }
@@ -65,16 +89,26 @@ export async function getOnlineSttPackage(): Promise<string | null> {
   return null;
 }
 
+/**
+ * Prefer `.as` for offline model lists. Fall back to Google app only for
+ * online locale probing — that fallback must never enable downloaded mode.
+ */
 export async function fetchAndroidLocaleSnapshot(): Promise<AndroidLocaleSnapshot> {
-  const asProbe = await probePackage(ANDROID_AS_PACKAGE);
-  if (asProbe.ok) {
-    onDevicePackage = ANDROID_AS_PACKAGE;
-    return {
-      supportedLocales: asProbe.supportedLocales,
-      installedLocales: asProbe.installedLocales,
-      servicePackage: ANDROID_AS_PACKAGE,
-    };
+  const onDeviceAvailable = isOnDeviceSttSupported();
+
+  if (onDeviceAvailable) {
+    const asProbe = await probePackage(ANDROID_AS_PACKAGE);
+    if (asProbe.ok) {
+      onDevicePackage = ANDROID_AS_PACKAGE;
+      return {
+        supportedLocales: asProbe.supportedLocales,
+        installedLocales: asProbe.installedLocales,
+        servicePackage: ANDROID_AS_PACKAGE,
+        onDeviceAvailable: true,
+      };
+    }
   }
+
   onDevicePackage = null;
 
   const onlineProbe = await probePackage(ANDROID_GOOGLE_APP_PACKAGE);
@@ -82,8 +116,10 @@ export async function fetchAndroidLocaleSnapshot(): Promise<AndroidLocaleSnapsho
     onlinePackage = ANDROID_GOOGLE_APP_PACKAGE;
     return {
       supportedLocales: onlineProbe.supportedLocales,
-      installedLocales: onlineProbe.installedLocales,
+      // Never treat Google-app locales as offline-installed.
+      installedLocales: [],
       servicePackage: ANDROID_GOOGLE_APP_PACKAGE,
+      onDeviceAvailable: false,
     };
   }
 
@@ -93,4 +129,5 @@ export async function fetchAndroidLocaleSnapshot(): Promise<AndroidLocaleSnapsho
 export function resetAndroidSttPackageCache(): void {
   onDevicePackage = undefined;
   onlinePackage = undefined;
+  onDeviceAvailableCache = undefined;
 }

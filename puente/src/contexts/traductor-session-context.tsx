@@ -32,6 +32,7 @@ type TraductorSessionContextValue = {
   primaryInputLanguage: TraductorLanguage;
   outputLanguage: TraductorLanguage;
   inputSttMode: InputSttMode;
+  onDeviceSttAvailable: boolean;
   selectInputLanguage: (lang: TraductorLanguage) => void;
   removeInputLanguage: (id: string) => void;
   setOutputLanguage: (lang: TraductorLanguage) => void;
@@ -60,37 +61,56 @@ export function TraductorSessionProvider({ children }: { children: ReactNode }) 
     refreshInstalledLocales,
     checkLocale,
     isLocaleDownloadable,
+    onDeviceSttAvailable,
   } = useOfflineSttDownload();
 
   const primaryInputLanguage = inputLanguages[0];
 
   const inputSttMode = useMemo(
-    () => getInputSttMode(inputLanguages, getDownloadState),
-    [inputLanguages, getDownloadState],
+    () =>
+      getInputSttMode(inputLanguages, getDownloadState, onDeviceSttAvailable),
+    [inputLanguages, getDownloadState, onDeviceSttAvailable],
   );
 
   const selectInputLanguage = useCallback(
     (lang: TraductorLanguage) => {
-      const installed = isLocaleInstalledState(getDownloadState(lang.speechLocale));
+      const installed =
+        isLocaleInstalledState(getDownloadState(lang.speechLocale)) &&
+        onDeviceSttAvailable;
       setInputLanguages((prev) =>
-        applyInputLanguageSelection(prev, lang, installed, getDownloadState),
+        applyInputLanguageSelection(
+          prev,
+          lang,
+          installed,
+          getDownloadState,
+          onDeviceSttAvailable,
+        ),
       );
     },
-    [getDownloadState],
+    [getDownloadState, onDeviceSttAvailable],
   );
 
   const removeInputLanguage = useCallback(
     (id: string) => {
       setInputLanguages((prev) =>
-        removeDownloadedInputLanguage(prev, id, getDownloadState),
+        removeDownloadedInputLanguage(
+          prev,
+          id,
+          getDownloadState,
+          onDeviceSttAvailable,
+        ),
       );
     },
-    [getDownloadState],
+    [getDownloadState, onDeviceSttAvailable],
   );
 
   useEffect(() => {
     setInputLanguages((prev) => {
-      const next = sanitizeInputLanguages(prev, getDownloadState);
+      const next = sanitizeInputLanguages(
+        prev,
+        getDownloadState,
+        onDeviceSttAvailable,
+      );
       if (
         next.length === prev.length &&
         next.every((lang, index) => lang.id === prev[index]?.id)
@@ -99,7 +119,7 @@ export function TraductorSessionProvider({ children }: { children: ReactNode }) 
       }
       return next;
     });
-  }, [getDownloadState]);
+  }, [getDownloadState, onDeviceSttAvailable]);
 
   const value = useMemo<TraductorSessionContextValue>(
     () => ({
@@ -107,6 +127,7 @@ export function TraductorSessionProvider({ children }: { children: ReactNode }) 
       primaryInputLanguage,
       outputLanguage,
       inputSttMode,
+      onDeviceSttAvailable,
       selectInputLanguage,
       removeInputLanguage,
       setOutputLanguage,
@@ -121,6 +142,7 @@ export function TraductorSessionProvider({ children }: { children: ReactNode }) 
       primaryInputLanguage,
       outputLanguage,
       inputSttMode,
+      onDeviceSttAvailable,
       selectInputLanguage,
       removeInputLanguage,
       getDownloadState,

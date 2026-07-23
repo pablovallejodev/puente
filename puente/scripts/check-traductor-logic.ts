@@ -92,6 +92,57 @@ function testStaleRequestGuard(): void {
   assert.equal(translated, "fresh");
 }
 
+function testPerMessageGeneration(): void {
+  const gens = new Map<string, number>();
+  const bump = (id: string) => {
+    const next = (gens.get(id) ?? 0) + 1;
+    gens.set(id, next);
+    return next;
+  };
+  const isCurrent = (id: string, gen: number) => gens.get(id) === gen;
+
+  const g1 = bump("m1");
+  const g2 = bump("m2");
+  const g1b = bump("m1");
+
+  assert.equal(isCurrent("m1", g1), false);
+  assert.equal(isCurrent("m1", g1b), true);
+  assert.equal(isCurrent("m2", g2), true);
+}
+
+function testFinalTranslationFreeze(): void {
+  type Msg = {
+    id: string;
+    isFinal: boolean;
+    isTranslating: boolean;
+    translated: string;
+  };
+
+  const apply = (
+    m: Msg,
+    text: string,
+    isTranslating: boolean,
+    force = false,
+  ): Msg => {
+    if (!force && m.isFinal && m.translated && !m.isTranslating && text) {
+      return m;
+    }
+    return { ...m, translated: text, isTranslating };
+  };
+
+  const finalMsg: Msg = {
+    id: "m1",
+    isFinal: true,
+    isTranslating: false,
+    translated: "Hello",
+  };
+  const frozen = apply(finalMsg, "Bonjour", false);
+  assert.equal(frozen.translated, "Hello");
+
+  const forced = apply(finalMsg, "Bonjour", false, true);
+  assert.equal(forced.translated, "Bonjour");
+}
+
 function testInputSpeechLocalesKey(): void {
   const langs: TraductorLanguage[] = [
     TRADUCTOR_LANGUAGES[0],
@@ -133,10 +184,14 @@ function testInputSttMode(): void {
     getInputSttMode([TRADUCTOR_LANGUAGES[1]], getState),
     "downloaded",
   );
+  // GrapheneOS / no on-device: never enter downloaded mode.
+  assert.equal(
+    getInputSttMode([TRADUCTOR_LANGUAGES[1]], getState, false),
+    "internet",
+  );
 }
 
 function testApplyInputLanguageSelection(): void {
-  const getNone = mockDownloadState([]);
   const getEs = mockDownloadState(["es-ES"]);
   const getBoth = mockDownloadState(["en-US", "es-ES"]);
 
@@ -173,6 +228,20 @@ function testApplyInputLanguageSelection(): void {
     langs.map((lang) => lang.id),
     ["ca"],
   );
+
+  // Selecting "installed" language when on-device is unavailable → internet mode.
+  langs = applyInputLanguageSelection(
+    [...DEFAULT_INPUT_LANGUAGES],
+    TRADUCTOR_LANGUAGES[1],
+    true,
+    getEs,
+    false,
+  );
+  assert.deepEqual(
+    langs.map((lang) => lang.id),
+    ["es"],
+  );
+  assert.equal(getInputSttMode(langs, getEs, false), "internet");
 }
 
 function testSanitizeInputLanguages(): void {
@@ -184,6 +253,16 @@ function testSanitizeInputLanguages(): void {
   assert.deepEqual(
     sanitized.map((lang) => lang.id),
     ["en"],
+  );
+
+  const noOnDevice = sanitizeInputLanguages(
+    [TRADUCTOR_LANGUAGES[1], TRADUCTOR_LANGUAGES[0]],
+    getMixed,
+    false,
+  );
+  assert.deepEqual(
+    noOnDevice.map((lang) => lang.id),
+    ["es"],
   );
 }
 
@@ -236,6 +315,15 @@ function testFormatSttError(): void {
     formatSttError(err),
     "[STT_OFFLINE_MODELS_MISSING] Faltan modelos: es-ES",
   );
+
+  const onDeviceErr = sttError(
+    "STT_ON_DEVICE_UNAVAILABLE",
+    "Reconocimiento local no disponible",
+  );
+  assert.equal(
+    formatSttError(onDeviceErr),
+    "[STT_ON_DEVICE_UNAVAILABLE] Reconocimiento local no disponible",
+  );
 }
 
 function testSourceLanguageFreeze(): void {
@@ -261,6 +349,8 @@ testLocaleMatching();
 testTranslationKeys();
 testMessageIsolation();
 testStaleRequestGuard();
+testPerMessageGeneration();
+testFinalTranslationFreeze();
 testInputSpeechLocalesKey();
 testResolveInputLanguageFromDetection();
 testInputSttMode();

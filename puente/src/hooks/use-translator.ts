@@ -102,15 +102,30 @@ export function useTranslator(
   );
   const [retryToken, setRetryToken] = useState(0);
 
-  const requestIdRef = useRef(0);
   const engineRef = useRef<NllbEngine | null>(null);
   const engineReadyRef = useRef(false);
-  const lastKeyRef = useRef("");
   const loadAttemptsRef = useRef(0);
-  const pendingTargetRef = useRef<TranslationTarget | null>(null);
   const onTranslationRef = useRef(onTranslation);
+  /** Per-message generation — stale completions for older gens are discarded. */
+  const messageGenRef = useRef<Map<string, number>>(new Map());
+  /** Last completed key per messageId — avoids re-running identical work. */
+  const lastKeyByMessageRef = useRef<Map<string, string>>(new Map());
+  /** Only used to retry the engine-load case for the latest target. */
+  const latestTargetRef = useRef<TranslationTarget | null>(null);
 
   onTranslationRef.current = onTranslation;
+
+  const bumpGeneration = useCallback((messageId: string): number => {
+    const next = (messageGenRef.current.get(messageId) ?? 0) + 1;
+    messageGenRef.current.set(messageId, next);
+    return next;
+  }, []);
+
+  const isCurrentGeneration = useCallback(
+    (messageId: string, generation: number): boolean =>
+      messageGenRef.current.get(messageId) === generation,
+    [],
+  );
 
   const loadModel = useCallback(async (forceRetry = false) => {
     setStatus("loading");
@@ -155,14 +170,17 @@ export function useTranslator(
   }, [loadModel]);
 
   useEffect(() => {
-    if (!target?.messageId || !target.text.trim()) return;
-    pendingTargetRef.current = target;
+    if (target?.messageId && target.text.trim()) {
+      latestTargetRef.current = target;
+    }
   }, [target]);
 
   useEffect(() => {
     if (!engineReadyRef.current || !engineRef.current) return;
 
-    const current = target ?? pendingTargetRef.current;
+    // Only translate the explicit current target — never a stale pending from
+    // a previous message when languages/status change.
+    const current = target;
     if (!current?.messageId) return;
 
     const trimmed = current.text.trim();
@@ -171,45 +189,46 @@ export function useTranslator(
     const inputLocale = current.inputLocale;
     if (!inputLocale) return;
 
+    const messageId = current.messageId;
     const key = translationKey(
-      current.messageId,
+      messageId,
       trimmed,
       inputLocale,
       outputLanguage,
       current.isFinal,
     );
 
-    if (key !== lastKeyRef.current) {
-      lastKeyRef.current = key;
-      onTranslationRef.current(current.messageId, "", true);
-    } else if (retryToken === 0) {
-      return;
-    }
+    const lastKey = lastKeyByMessageRef.current.get(messageId);
+    if (key === lastKey && retryToken === 0) return;
 
-    const requestId = ++requestIdRef.current;
+    const generation = bumpGeneration(messageId);
+    lastKeyByMessageRef.current.set(messageId, key);
+    onTranslationRef.current(messageId, "", true);
+
     let srcLang: string;
     let tgtLang: string;
     try {
       srcLang = localeToFloresOrThrow(inputLocale, "input");
       tgtLang = localeToFloresOrThrow(outputLanguage, "output");
     } catch (err) {
+      if (!isCurrentGeneration(messageId, generation)) return;
       const diag = toDiagnostics(err);
       setDiagnostics(diag);
       setError(isTranslatorError(err) ? err.toDisplayString() : diag.message);
       setStatus("error");
-      onTranslationRef.current(current.messageId, "", false);
+      onTranslationRef.current(messageId, "", false);
       return;
     }
 
     const timer = setTimeout(() => {
       void (async () => {
-        if (requestIdRef.current !== requestId) return;
+        if (!isCurrentGeneration(messageId, generation)) return;
 
         const started = Date.now();
-        onTranslationRef.current(current.messageId, "", true);
+        onTranslationRef.current(messageId, "", true);
 
         const runTranslate = async (): Promise<void> => {
-          if (requestIdRef.current !== requestId) return;
+          if (!isCurrentGeneration(messageId, generation)) return;
 
           const run = async (attempt: number): Promise<void> => {
             try {
@@ -218,15 +237,14 @@ export function useTranslator(
                 srcLang,
                 tgtLang,
               );
-              if (requestIdRef.current !== requestId) return;
+              if (!isCurrentGeneration(messageId, generation)) return;
 
-              lastKeyRef.current = key;
-              onTranslationRef.current(current.messageId, result, false);
+              onTranslationRef.current(messageId, result, false);
               setError(null);
               setDiagnostics(null);
               setStatus("ready");
             } catch (err) {
-              if (requestIdRef.current !== requestId) return;
+              if (!isCurrentGeneration(messageId, generation)) return;
 
               const diag = toDiagnostics(err, attempt, Date.now() - started);
               setDiagnostics(diag);
@@ -245,7 +263,7 @@ export function useTranslator(
                   ? err.toDisplayString()
                   : `[TRANSLATE_FAILED] ${diag.message}`,
               );
-              onTranslationRef.current(current.messageId, "", false);
+              onTranslationRef.current(messageId, "", false);
               setStatus("ready");
             }
           };
@@ -261,10 +279,6 @@ export function useTranslator(
         } else {
           await runTranslate();
         }
-
-        if (requestIdRef.current === requestId) {
-          // noop — isTranslating cleared in onTranslation callback
-        }
       })();
     }, DEBOUNCE_MS);
 
@@ -274,6 +288,8 @@ export function useTranslator(
     outputLanguage,
     status,
     retryToken,
+    bumpGeneration,
+    isCurrentGeneration,
   ]);
 
   const retry = useCallback(() => {
@@ -287,7 +303,10 @@ export function useTranslator(
     }
 
     if (engineReadyRef.current) {
-      lastKeyRef.current = "";
+      const latest = latestTargetRef.current;
+      if (latest?.messageId) {
+        lastKeyByMessageRef.current.delete(latest.messageId);
+      }
       setError(null);
       setDiagnostics(null);
       setStatus("ready");
