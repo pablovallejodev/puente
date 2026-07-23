@@ -31,9 +31,11 @@ import {
   type TranslationTarget,
 } from "@/hooks/use-translator";
 import { formatSttError, sttError } from "@/lib/stt-errors";
-import { getMissingInputLocales } from "@/lib/traductor-offline";
 import { STANDARD_HORIZONTAL_PADDING } from "@/constants/ui";
 import { StatusBarHiddenComponent } from "@/utils/statusbar";
+
+const INTERNET_BANNER_TEXT =
+  "Estás utilizando Internet. Si quieres utilizar más de un idioma, descárgalo.";
 
 export default function TraductorComponent() {
   const [isFocused, setIsFocused] = useState(true);
@@ -53,6 +55,7 @@ export default function TraductorComponent() {
     inputLanguages,
     primaryInputLanguage,
     outputLanguage,
+    inputSttMode,
     removeInputLanguage,
     getDownloadState,
     checkLocale,
@@ -71,27 +74,25 @@ export default function TraductorComponent() {
     () => inputLanguages.map((l) => l.speechLocale),
     [inputLanguages],
   );
-  const missingInputLocales = useMemo(
-    () => getMissingInputLocales(inputLocales, getDownloadState),
-    [inputLocales, getDownloadState],
-  );
-  const allOfflineReady = missingInputLocales.length === 0;
+
+  const isInternetMode = inputSttMode === "internet";
+  const isDownloadedMode = inputSttMode === "downloaded";
   const multiInput = inputLanguages.length > 1;
   const canDetectMulti =
     multiInput &&
     Platform.OS === "android" &&
     Platform.Version >= 34 &&
-    allOfflineReady;
+    isDownloadedMode;
 
-  const useOnDevice =
-    (networkConnected === false && allOfflineReady) ||
-    (multiInput && allOfflineReady);
+  const useOnDevice = isDownloadedMode;
+  const offlineBlocked = networkConnected === false && isInternetMode;
+  const showInternetBanner =
+    isInternetMode && networkConnected === true && networkKnown;
 
-  const offlineBlocked = networkConnected === false && !allOfflineReady;
   const offlineBlockError = offlineBlocked
     ? sttError(
         "STT_OFFLINE_MODELS_MISSING",
-        `Faltan modelos: ${missingInputLocales.join(", ")}`,
+        "Sin conexión — descarga el idioma en Idiomas para usar offline",
       )
     : null;
 
@@ -100,11 +101,11 @@ export default function TraductorComponent() {
   useEffect(() => {
     if (offlineBlockError) {
       console.warn("[traductor] STT_OFFLINE_MODELS_MISSING", {
-        missing: missingInputLocales,
         inputLocales,
+        inputSttMode,
       });
     }
-  }, [offlineBlockError, missingInputLocales, inputLocales]);
+  }, [offlineBlockError, inputLocales, inputSttMode]);
 
   const handleInterim = useCallback(
     (text: string, isFinal: boolean, detectedLocale?: string) => {
@@ -174,21 +175,19 @@ export default function TraductorComponent() {
   }, [messages]);
 
   const statusLabel = offlineBlocked
-    ? "Sin conexión — descarga todos los idiomas de entrada en Idiomas"
+    ? "Sin conexión — descarga el idioma en Idiomas para usar offline"
     : status === "loading"
       ? "Cargando motor de traducción…"
       : checkingPermissions
         ? "Comprobando micrófono…"
         : ready
           ? canDetectMulti
-            ? "Listo · detección multilingüe"
-            : multiInput && Platform.OS === "ios"
-              ? "Listo · primer idioma como entrada (iOS)"
-              : multiInput && !canDetectMulti
-                ? "Listo · primer idioma como entrada"
-                : networkConnected
-                  ? "Listo · reconocimiento online"
-                  : "Listo · reconocimiento local"
+            ? "Listo · reconocimiento local · multilingüe"
+            : isDownloadedMode && multiInput && Platform.OS !== "android"
+              ? "Listo · reconocimiento local (solo primer idioma)"
+              : isDownloadedMode
+                ? "Listo · reconocimiento local"
+                : "Listo · reconocimiento online"
           : "Error";
 
   return (
@@ -250,8 +249,12 @@ export default function TraductorComponent() {
       ) : null}
 
       <View style={styles.bottomPanel}>
+        {showInternetBanner ? (
+          <Text style={styles.internetBanner}>{INTERNET_BANNER_TEXT}</Text>
+        ) : null}
         <InputLanguagesRow
           languages={inputLanguages}
+          inputSttMode={inputSttMode}
           onRemove={removeInputLanguage}
         />
         <Text style={styles.arrowDown}>↓</Text>
@@ -333,6 +336,14 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 8,
     backgroundColor: "#FFFFFF",
+  },
+  internetBanner: {
+    fontFamily: "Mulish_500Medium",
+    fontSize: 12,
+    color: "#000000",
+    textAlign: "center",
+    marginBottom: 10,
+    lineHeight: 18,
   },
   arrowDown: {
     fontFamily: "Mulish_500Medium",

@@ -8,7 +8,10 @@ import {
 } from "expo-speech-recognition";
 import { setAudioModeAsync } from "expo-audio";
 
-const ANDROID_AS_PACKAGE = "com.google.android.as";
+import {
+  ANDROID_AS_PACKAGE,
+  getOnDeviceSttPackageSync,
+} from "@/lib/android-stt-service";
 const CONTINUOUS_RECOGNITION = true;
 const RESTART_DELAY_MS = 300;
 const ERROR_BACKOFF_MS = 1000;
@@ -109,8 +112,11 @@ export function useSpeechTranscriptor(
         requiresOnDeviceRecognition: requiresOnDeviceRef.current,
       };
 
+      const onDevicePackage =
+        getOnDeviceSttPackageSync() ?? ANDROID_AS_PACKAGE;
+
       if (canDetectMulti) {
-        startOptions.androidRecognitionServicePackage = ANDROID_AS_PACKAGE;
+        startOptions.androidRecognitionServicePackage = onDevicePackage;
         startOptions.androidIntentOptions = {
           EXTRA_ENABLE_LANGUAGE_DETECTION: true,
           EXTRA_ENABLE_LANGUAGE_SWITCH:
@@ -119,7 +125,7 @@ export function useSpeechTranscriptor(
           EXTRA_LANGUAGE_SWITCH_ALLOWED_LANGUAGES: locales,
         };
       } else if (requiresOnDeviceRef.current && Platform.OS === "android") {
-        startOptions.androidRecognitionServicePackage = ANDROID_AS_PACKAGE;
+        startOptions.androidRecognitionServicePackage = onDevicePackage;
       }
 
       ExpoSpeechRecognitionModule.start(startOptions);

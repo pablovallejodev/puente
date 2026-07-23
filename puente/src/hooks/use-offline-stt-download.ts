@@ -2,13 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState, Platform } from "react-native";
 import { ExpoSpeechRecognitionModule } from "expo-speech-recognition";
 
+import { fetchAndroidLocaleSnapshot } from "@/lib/android-stt-service";
 import {
   isLocaleInstalled,
   isLocaleSupported,
 } from "@/lib/stt-locale";
 import { type SttErrorCode } from "@/lib/stt-errors";
 
-const ANDROID_AS_PACKAGE = "com.google.android.as";
 const POLL_INTERVAL_MS = 1500;
 const MAX_POLL_MS = 5 * 60_000;
 
@@ -95,12 +95,10 @@ export function useOfflineSttDownload() {
       }
 
       try {
-        const result = await ExpoSpeechRecognitionModule.getSupportedLocales({
-          androidRecognitionServicePackage: ANDROID_AS_PACKAGE,
-        });
+        const result = await fetchAndroidLocaleSnapshot();
         return {
-          supportedLocales: result.locales ?? [],
-          installedLocales: result.installedLocales ?? [],
+          supportedLocales: result.supportedLocales,
+          installedLocales: result.installedLocales,
         };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -202,6 +200,7 @@ export function useOfflineSttDownload() {
   const isLocaleDownloadable = useCallback(
     (locale: string): boolean => {
       if (!androidSupportsDownload()) return false;
+      if (snapshot.supportedLocales.length === 0) return true;
       return isLocaleSupported(snapshot.supportedLocales, locale);
     },
     [snapshot.supportedLocales],
@@ -225,14 +224,13 @@ export function useOfflineSttDownload() {
 
         if (isLocaleInstalled(next.installedLocales, locale)) {
           setLocaleState(locale, { status: "installed" });
-        } else if (isLocaleSupported(next.supportedLocales, locale)) {
-          setLocaleState(locale, { status: "not_installed" });
         } else {
           setLocaleState(locale, { status: "not_installed" });
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        setErrorState(setLocaleState, locale, "STT_CHECK_FAILED", message);
+        setLocaleState(locale, { status: "not_installed", error: message });
+        logStt("checkLocale", locale, message);
       }
     },
     [fetchLocales, setLocaleState],
@@ -259,7 +257,10 @@ export function useOfflineSttDownload() {
         return;
       }
 
-      if (!isLocaleSupported(snapshot.supportedLocales, locale)) {
+      if (
+        snapshot.supportedLocales.length > 0 &&
+        !isLocaleSupported(snapshot.supportedLocales, locale)
+      ) {
         setErrorState(
           setLocaleState,
           locale,
@@ -290,7 +291,6 @@ export function useOfflineSttDownload() {
           return;
         }
 
-        // opened_dialog on Android 13 — keep polling
         setLocaleState(locale, { status: "downloading" });
       } catch (err) {
         stopPolling(locale);

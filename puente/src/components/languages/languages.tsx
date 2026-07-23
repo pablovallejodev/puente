@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from "react";
-import { FlatList, StyleSheet } from "react-native";
+import { Platform, SectionList, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -10,39 +10,61 @@ import {
   useTraductorSession,
 } from "@/contexts/traductor-session-context";
 import type { TraductorLanguage } from "@/constants/traductor-languages";
+import { isLocaleInstalledState } from "@/lib/traductor-input-mode";
 import { StatusBarHiddenComponent } from "@/utils/statusbar";
 
 type SlotParam = "input" | "output";
-type ModeParam = "add" | "select";
+
+type LanguageSection = {
+  title: string;
+  data: TraductorLanguage[];
+  showDownload: boolean;
+};
+
+function androidSupportsDownloadUi(): boolean {
+  return Platform.OS === "android" && Platform.Version >= 33;
+}
 
 export default function LanguagesComponent() {
   const router = useRouter();
-  const { slot: rawSlot, mode: rawMode } = useLocalSearchParams<{
-    slot?: string;
-    mode?: string;
-  }>();
+  const { slot: rawSlot } = useLocalSearchParams<{ slot?: string }>();
   const slot: SlotParam = rawSlot === "output" ? "output" : "input";
-  const mode: ModeParam = rawMode === "add" ? "add" : "select";
 
   const {
     inputLanguages,
     outputLanguage,
-    addInputLanguage,
+    selectInputLanguage,
     setOutputLanguage,
     getDownloadState,
     downloadSttModel,
     refreshInstalledLocales,
-    isLocaleDownloadable,
   } = useTraductorSession();
 
-  const listData = useMemo(() => {
-    if (slot === "input" && mode === "add") {
-      return TRADUCTOR_LANGUAGES.filter(
-        (lang) => !inputLanguages.some((sel) => sel.id === lang.id),
-      );
+  const sections = useMemo((): LanguageSection[] => {
+    if (slot === "output") {
+      return [{ title: "Idiomas", data: TRADUCTOR_LANGUAGES, showDownload: false }];
     }
-    return TRADUCTOR_LANGUAGES;
-  }, [slot, mode, inputLanguages]);
+
+    const downloaded: TraductorLanguage[] = [];
+    const internet: TraductorLanguage[] = [];
+
+    for (const lang of TRADUCTOR_LANGUAGES) {
+      if (isLocaleInstalledState(getDownloadState(lang.speechLocale))) {
+        downloaded.push(lang);
+      } else {
+        internet.push(lang);
+      }
+    }
+
+    const result: LanguageSection[] = [];
+    if (downloaded.length > 0) {
+      result.push({ title: "Descargados", data: downloaded, showDownload: false });
+    }
+    if (internet.length > 0) {
+      result.push({ title: "Internet", data: internet, showDownload: true });
+    }
+    return result;
+  }, [slot, getDownloadState]);
 
   useEffect(() => {
     void refreshInstalledLocales();
@@ -51,13 +73,13 @@ export default function LanguagesComponent() {
   const handleSelect = (language: TraductorLanguage) => {
     if (slot === "output") {
       setOutputLanguage(language);
-    } else if (mode === "add") {
-      addInputLanguage(language);
+    } else {
+      selectInputLanguage(language);
     }
     router.back();
   };
 
-  const titleText = mode === "add" ? "Añadir idioma" : "Idiomas";
+  const titleText = slot === "output" ? "Idioma base" : "Idiomas input";
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -68,14 +90,21 @@ export default function LanguagesComponent() {
         loading={false}
       />
 
-      <FlatList
-        data={listData}
+      <SectionList
+        sections={sections}
         keyExtractor={(item) => item.id}
-        renderItem={({ item }) => {
+        stickySectionHeadersEnabled={false}
+        renderSectionHeader={({ section }) => (
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>{section.title}</Text>
+          </View>
+        )}
+        renderItem={({ item, section }) => {
           const downloadState = getDownloadState(item.speechLocale);
           const showDownload =
             slot === "input" &&
-            isLocaleDownloadable(item.speechLocale) &&
+            section.showDownload &&
+            androidSupportsDownloadUi() &&
             downloadState.status !== "installed";
           const selected =
             slot === "output"
@@ -106,5 +135,18 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingBottom: 24,
+  },
+  sectionHeader: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 8,
+    backgroundColor: "#FFFFFF",
+  },
+  sectionTitle: {
+    fontFamily: "Mulish_800ExtraBold",
+    fontSize: 12,
+    color: "#666666",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
   },
 });

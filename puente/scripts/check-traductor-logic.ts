@@ -15,6 +15,13 @@ import {
 } from "../src/lib/stt-locale";
 import { formatSttError, sttError } from "../src/lib/stt-errors";
 import { getMissingInputLocales } from "../src/lib/traductor-offline";
+import {
+  applyInputLanguageSelection,
+  getInputSttMode,
+  removeDownloadedInputLanguage,
+  sanitizeInputLanguages,
+} from "../src/lib/traductor-input-mode";
+import type { SttDownloadState } from "../src/hooks/use-offline-stt-download";
 
 function testLocaleMatching(): void {
   assert.equal(normalizeLocale("en_US"), "en-us");
@@ -107,6 +114,92 @@ function testResolveInputLanguageFromDetection(): void {
   assert.equal(fallback.id, "en");
 }
 
+function mockDownloadState(
+  installedLocales: string[],
+): (locale: string) => SttDownloadState {
+  return (locale) =>
+    installedLocales.includes(locale)
+      ? { status: "installed" }
+      : { status: "not_installed" };
+}
+
+function testInputSttMode(): void {
+  const getState = mockDownloadState(["es-ES"]);
+  assert.equal(
+    getInputSttMode([TRADUCTOR_LANGUAGES[0]], getState),
+    "internet",
+  );
+  assert.equal(
+    getInputSttMode([TRADUCTOR_LANGUAGES[1]], getState),
+    "downloaded",
+  );
+}
+
+function testApplyInputLanguageSelection(): void {
+  const getNone = mockDownloadState([]);
+  const getEs = mockDownloadState(["es-ES"]);
+  const getBoth = mockDownloadState(["en-US", "es-ES"]);
+
+  let langs = [...DEFAULT_INPUT_LANGUAGES];
+  langs = applyInputLanguageSelection(
+    langs,
+    TRADUCTOR_LANGUAGES[1],
+    true,
+    getEs,
+  );
+  assert.deepEqual(
+    langs.map((lang) => lang.id),
+    ["es"],
+  );
+
+  langs = applyInputLanguageSelection(
+    langs,
+    TRADUCTOR_LANGUAGES[0],
+    true,
+    getBoth,
+  );
+  assert.deepEqual(
+    langs.map((lang) => lang.id),
+    ["es", "en"],
+  );
+
+  langs = applyInputLanguageSelection(
+    langs,
+    TRADUCTOR_LANGUAGES[2],
+    false,
+    getBoth,
+  );
+  assert.deepEqual(
+    langs.map((lang) => lang.id),
+    ["ca"],
+  );
+}
+
+function testSanitizeInputLanguages(): void {
+  const getMixed = mockDownloadState(["es-ES"]);
+  const sanitized = sanitizeInputLanguages(
+    [TRADUCTOR_LANGUAGES[0], TRADUCTOR_LANGUAGES[1]],
+    getMixed,
+  );
+  assert.deepEqual(
+    sanitized.map((lang) => lang.id),
+    ["en"],
+  );
+}
+
+function testRemoveDownloadedInputLanguage(): void {
+  const getBoth = mockDownloadState(["en-US", "es-ES"]);
+  const langs = removeDownloadedInputLanguage(
+    [TRADUCTOR_LANGUAGES[0], TRADUCTOR_LANGUAGES[1]],
+    "en",
+    getBoth,
+  );
+  assert.deepEqual(
+    langs.map((lang) => lang.id),
+    ["es"],
+  );
+}
+
 function testAddRemoveGuards(): void {
   const add = (prev: TraductorLanguage[], lang: TraductorLanguage, max: number) => {
     if (prev.length >= max) return prev;
@@ -170,6 +263,10 @@ testMessageIsolation();
 testStaleRequestGuard();
 testInputSpeechLocalesKey();
 testResolveInputLanguageFromDetection();
+testInputSttMode();
+testApplyInputLanguageSelection();
+testSanitizeInputLanguages();
+testRemoveDownloadedInputLanguage();
 testAddRemoveGuards();
 testGetMissingInputLocales();
 testFormatSttError();

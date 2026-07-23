@@ -11,29 +11,36 @@ import {
   MAX_INPUT_LANGUAGES,
   type TraductorLanguage,
 } from "@/constants/traductor-languages";
+import type { InputSttMode } from "@/lib/traductor-input-mode";
 
 type InputLanguagesRowProps = {
   languages: TraductorLanguage[];
+  inputSttMode: InputSttMode;
   onRemove: (id: string) => void;
 };
 
 function InputLanguageChip({
   language,
   canRemove,
+  onPress,
   onRemove,
 }: {
   language: TraductorLanguage;
   canRemove: boolean;
+  onPress: () => void;
   onRemove: () => void;
 }) {
   return (
     <View style={styles.chipWrap}>
-      <View style={styles.chip}>
+      <Pressable
+        style={({ pressed }) => [styles.chip, pressed && styles.chipPressed]}
+        onPress={onPress}
+      >
         <Text style={styles.chipFlag}>{language.flagEmoji}</Text>
         <Text style={styles.chipLabel} numberOfLines={1}>
           {language.label}
         </Text>
-      </View>
+      </Pressable>
       {canRemove ? (
         <Pressable
           style={({ pressed }) => [
@@ -53,22 +60,33 @@ function InputLanguageChip({
 
 export function InputLanguagesRow({
   languages,
+  inputSttMode,
   onRemove,
 }: InputLanguagesRowProps) {
   const router = useRouter();
-  const canAdd = languages.length < MAX_INPUT_LANGUAGES;
-  const canRemove = languages.length > 1;
+  const isDownloadedMode = inputSttMode === "downloaded";
+  const canAdd = isDownloadedMode && languages.length < MAX_INPUT_LANGUAGES;
+  const canRemove = isDownloadedMode && languages.length > 1;
 
-  const goToAddLanguage = () => {
+  const goToLanguages = () => {
     router.push({
       pathname: "/languages",
-      params: { slot: "input", mode: "add" },
+      params: { slot: "input" },
     });
   };
 
   return (
     <View style={styles.container}>
-      <Text style={styles.sectionLabel}>Idiomas input</Text>
+      <View style={styles.headerRow}>
+        <Text style={styles.sectionLabel}>Idiomas input</Text>
+        <Pressable
+          onPress={goToLanguages}
+          hitSlop={8}
+          accessibilityLabel="Gestionar idiomas de entrada"
+        >
+          <Text style={styles.manageLink}>Gestionar</Text>
+        </Pressable>
+      </View>
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -79,6 +97,7 @@ export function InputLanguagesRow({
             key={language.id}
             language={language}
             canRemove={canRemove}
+            onPress={goToLanguages}
             onRemove={() => onRemove(language.id)}
           />
         ))}
@@ -88,8 +107,8 @@ export function InputLanguagesRow({
               styles.addButton,
               pressed && styles.addButtonPressed,
             ]}
-            onPress={goToAddLanguage}
-            accessibilityLabel="Añadir idioma de entrada"
+            onPress={goToLanguages}
+            accessibilityLabel="Añadir idioma descargado"
           >
             <Text style={styles.addIcon}>+</Text>
           </Pressable>
@@ -103,13 +122,23 @@ const styles = StyleSheet.create({
   container: {
     marginBottom: 8,
   },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
   sectionLabel: {
     fontFamily: "Mulish_500Medium",
     fontSize: 11,
     color: "#666666",
     textTransform: "uppercase",
     letterSpacing: 0.5,
-    marginBottom: 8,
+  },
+  manageLink: {
+    fontFamily: "Mulish_800ExtraBold",
+    fontSize: 12,
+    color: "#000000",
   },
   scrollContent: {
     flexDirection: "row",
@@ -131,6 +160,9 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     minWidth: 100,
     maxWidth: 140,
+  },
+  chipPressed: {
+    opacity: 0.85,
   },
   chipFlag: {
     fontSize: 20,
