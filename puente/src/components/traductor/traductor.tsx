@@ -7,7 +7,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter, type Href } from "expo-router";
 import {
   activateKeepAwakeAsync,
   deactivateKeepAwake,
@@ -22,6 +22,7 @@ import {
   resolveInputLanguageFromDetection,
 } from "@/constants/traductor-languages";
 import { useTraductorSession } from "@/contexts/traductor-session-context";
+import { useModelCatalog } from "@/contexts/model-catalog-context";
 import { useChatMessages } from "@/hooks/use-chat-messages";
 import { useSpeechTranscriptor } from "@/hooks/use-speech-transcriptor";
 import {
@@ -32,6 +33,7 @@ import { STANDARD_HORIZONTAL_PADDING } from "@/constants/ui";
 import { StatusBarHiddenComponent } from "@/utils/statusbar";
 
 export default function TraductorComponent() {
+  const router = useRouter();
   const [isFocused, setIsFocused] = useState(true);
 
   useFocusEffect(
@@ -67,7 +69,6 @@ export default function TraductorComponent() {
   );
 
   const multiInput = inputLanguages.length > 1;
-  // Whisper Tiny is always on-device (bundled). No network gate for STT.
   const speechEnabled = isFocused;
 
   const handleInterim = useCallback(
@@ -126,6 +127,15 @@ export default function TraductorComponent() {
     },
   );
 
+  const { isReady: modelsReady, booting: modelsBooting } = useModelCatalog();
+
+  useEffect(() => {
+    if (modelsBooting) return;
+    if (!modelsReady) {
+      router.replace("/modelos" as Href);
+    }
+  }, [modelsBooting, modelsReady, router]);
+
   useEffect(() => {
     for (const lang of inputLanguages) {
       void checkLocale(lang.speechLocale);
@@ -151,7 +161,10 @@ export default function TraductorComponent() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBarHiddenComponent />
-      <ChatHeadComponent titleText="Traductor" />
+      <ChatHeadComponent
+        titleText="Traductor"
+        onSettingsPress={() => router.push("/modelos" as Href)}
+      />
 
       <Text style={styles.statusText}>{statusLabel}</Text>
 

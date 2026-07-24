@@ -1,4 +1,3 @@
-import { Asset } from "expo-asset";
 import * as FileSystem from "expo-file-system/legacy";
 import { Tokenizer } from "@huggingface/tokenizers";
 import { InferenceSession, Tensor } from "onnxruntime-react-native";
@@ -19,203 +18,25 @@ import {
   WhisperError,
   wrapWhisperError,
 } from "@/lib/whisper-errors";
+import { assertModelInstalled } from "@/lib/model-install-state";
+import { readModelPreferences } from "@/lib/model-preferences";
+import {
+  getModelFilePath,
+  toOrtPath,
+} from "@/lib/model-paths";
+import { isModelError, ModelError } from "@/lib/model-errors";
 import type { TensorConstructor } from "@/lib/nllb-inference";
 
-const MODEL_CONFIG = require("@/assets/models/whisper-tiny/config.json") as WhisperModelConfig;
-const GENERATION_CONFIG =
-  require("@/assets/models/whisper-tiny/generation_config.json") as WhisperGenerationConfig;
-const PREPROCESSOR_CONFIG = {
-  ...DEFAULT_PREPROCESSOR,
-  ...(require("@/assets/models/whisper-tiny/preprocessor_config.json") as Partial<WhisperPreprocessorConfig>),
-};
-const TOKENIZER_CONFIG =
-  require("@/assets/models/whisper-tiny/tokenizer_config.json") as Record<
-    string,
-    unknown
-  >;
-const TOKENIZER_RAW_ASSET = require("@/assets/models/whisper-tiny/tokenizer.jsondata");
-const ENCODER_ASSET = require("@/assets/models/whisper-tiny/encoder_model_quantized.onnx");
-const DECODER_ASSET = require("@/assets/models/whisper-tiny/decoder_model_merged_quantized.onnx");
-
-export const MODEL_VERSION = "whisper-tiny-int8-q";
-
-const MODEL_DIR = `${FileSystem.documentDirectory ?? ""}whisper/${MODEL_VERSION}/`;
-const ENCODER_PATH = `${MODEL_DIR}encoder_model_quantized.onnx`;
-const DECODER_PATH = `${MODEL_DIR}decoder_model_merged_quantized.onnx`;
-
-function toOrtPath(uri: string): string {
-  return uri.replace(/^file:\/\//, "");
-}
-
-function assertRawAssetModule(moduleRef: unknown, label: string): number {
-  if (typeof moduleRef !== "number") {
-    throw new WhisperError({
-      code: "ASSET_UNAVAILABLE",
-      stage: "tokenizer.load",
-      message: `Asset ${label} mal empaquetado (tipo ${typeof moduleRef}). Reinstala la APK.`,
-      recoverable: false,
-      context: { label, receivedType: typeof moduleRef },
-    });
-  }
-  return moduleRef;
-}
-
-function isAssetRegistryError(message: string): boolean {
-  return message.includes("missing from the asset registry");
-}
-
-async function loadTokenizerJson(): Promise<Record<string, unknown>> {
-  const label = "tokenizer";
+async function readJsonFile<T>(path: string, label: string): Promise<T> {
   try {
-    const moduleId = assertRawAssetModule(TOKENIZER_RAW_ASSET, label);
-    const asset = Asset.fromModule(moduleId);
-    await asset.downloadAsync();
-    if (!asset.localUri) {
-      throw new WhisperError({
-        code: "ASSET_UNAVAILABLE",
-        stage: "tokenizer.load",
-        message: `No se pudo resolver la ruta del asset ${label}`,
-        recoverable: true,
-        context: { label },
-      });
-    }
-    const text = await FileSystem.readAsStringAsync(asset.localUri);
-    const parsed = JSON.parse(text) as Record<string, unknown>;
-    if (!parsed || typeof parsed !== "object") {
-      throw new WhisperError({
-        code: "TOKENIZER_LOAD_FAILED",
-        stage: "tokenizer.load",
-        message: `Tokenizer ${label} parseado vacío o inválido`,
-        recoverable: true,
-        context: { label },
-      });
-    }
-    return parsed;
+    const text = await FileSystem.readAsStringAsync(path);
+    return JSON.parse(text) as T;
   } catch (err) {
-    if (isWhisperError(err)) throw err;
-    const message = err instanceof Error ? err.message : String(err);
-    const registryMissing = isAssetRegistryError(message);
-    throw new WhisperError({
-      code: registryMissing ? "ASSET_UNAVAILABLE" : "TOKENIZER_LOAD_FAILED",
-      stage: "tokenizer.load",
-      message: registryMissing
-        ? `Asset ${label} no está en el registro. Reinstala la APK.`
-        : message,
-      recoverable: !registryMissing,
-      context: { label },
+    throw wrapWhisperError(err, "tokenizer.load", "TOKENIZER_LOAD_FAILED", true, {
+      label,
+      path,
     });
   }
-}
-
-async function ensureDirectory(dirPath: string): Promise<void> {
-  const info = await FileSystem.getInfoAsync(dirPath);
-  if (!info.exists) {
-    await FileSystem.makeDirectoryAsync(dirPath, { intermediates: true });
-  }
-}
-
-async function copyAssetToPath(
-  assetModule: unknown,
-  destPath: string,
-  label: string,
-): Promise<string> {
-  try {
-    const moduleId = assertRawAssetModule(assetModule, label);
-    const asset = Asset.fromModule(moduleId);
-    await asset.downloadAsync();
-    if (!asset.localUri) {
-      throw new WhisperError({
-        code: "ASSET_UNAVAILABLE",
-        stage: "asset.prepare",
-        message: `No se pudo resolver la ruta del asset ${label}`,
-        recoverable: true,
-        context: { label },
-      });
-    }
-
-    const expectedSize =
-      "filesize" in asset && typeof asset.filesize === "number"
-        ? asset.filesize
-        : undefined;
-    const destInfo = await FileSystem.getInfoAsync(destPath);
-    if (
-      destInfo.exists &&
-      expectedSize !== undefined &&
-      destInfo.size === expectedSize
-    ) {
-      return destPath;
-    }
-    if (destInfo.exists && expectedSize === undefined) {
-      await FileSystem.deleteAsync(destPath, { idempotent: true });
-    }
-
-    await ensureDirectory(MODEL_DIR);
-    const tempPath = `${destPath}.tmp`;
-    try {
-      await FileSystem.copyAsync({ from: asset.localUri, to: tempPath });
-      const tempInfo = await FileSystem.getInfoAsync(tempPath);
-      if (
-        expectedSize !== undefined &&
-        tempInfo.exists &&
-        tempInfo.size !== expectedSize
-      ) {
-        throw new WhisperError({
-          code: "ASSET_INCOMPLETE",
-          stage: "asset.prepare",
-          message: `Copia incompleta de ${label}`,
-          recoverable: true,
-          context: {
-            label,
-            expectedBytes: expectedSize,
-            actualBytes: tempInfo.size ?? 0,
-          },
-        });
-      }
-      if (destInfo.exists) {
-        await FileSystem.deleteAsync(destPath, { idempotent: true });
-      }
-      await FileSystem.moveAsync({ from: tempPath, to: destPath });
-      return destPath;
-    } catch (err) {
-      await FileSystem.deleteAsync(tempPath, { idempotent: true });
-      if (isWhisperError(err)) throw err;
-      throw wrapWhisperError(err, "asset.prepare", "ASSET_COPY_FAILED", true, {
-        label,
-      });
-    }
-  } catch (err) {
-    if (isWhisperError(err)) throw err;
-    const message = err instanceof Error ? err.message : String(err);
-    const registryMissing = isAssetRegistryError(message);
-    throw new WhisperError({
-      code: registryMissing ? "ASSET_UNAVAILABLE" : "ASSET_COPY_FAILED",
-      stage: "asset.prepare",
-      message: registryMissing
-        ? `Asset ${label} no está en el registro. Reinstala la APK.`
-        : message,
-      recoverable: !registryMissing,
-      context: { label },
-    });
-  }
-}
-
-async function prepareModelFiles(): Promise<{ encoder: string; decoder: string }> {
-  if (!FileSystem.documentDirectory) {
-    throw new WhisperError({
-      code: "ASSET_UNAVAILABLE",
-      stage: "asset.prepare",
-      message: "Directorio de documentos no disponible en este dispositivo",
-      recoverable: false,
-    });
-  }
-  const [encoder, decoder] = await Promise.all([
-    copyAssetToPath(ENCODER_ASSET, ENCODER_PATH, "encoder"),
-    copyAssetToPath(DECODER_ASSET, DECODER_PATH, "decoder"),
-  ]);
-  return {
-    encoder: toOrtPath(encoder),
-    decoder: toOrtPath(decoder),
-  };
 }
 
 function releaseSession(session: InferenceSession): void {
@@ -229,6 +50,7 @@ function releaseSession(session: InferenceSession): void {
 }
 
 export class WhisperEngine {
+  readonly modelId: string;
   private tokenizer: Tokenizer;
   private encoderSession: InferenceSession;
   private decoderSession: InferenceSession;
@@ -237,6 +59,7 @@ export class WhisperEngine {
   private preprocessor: WhisperPreprocessorConfig;
 
   private constructor(
+    modelId: string,
     tokenizer: Tokenizer,
     encoderSession: InferenceSession,
     decoderSession: InferenceSession,
@@ -244,6 +67,7 @@ export class WhisperEngine {
     generationConfig: WhisperGenerationConfig,
     preprocessor: WhisperPreprocessorConfig,
   ) {
+    this.modelId = modelId;
     this.tokenizer = tokenizer;
     this.encoderSession = encoderSession;
     this.decoderSession = decoderSession;
@@ -252,26 +76,95 @@ export class WhisperEngine {
     this.preprocessor = preprocessor;
   }
 
-  static async create(): Promise<WhisperEngine> {
-    let modelPaths: { encoder: string; decoder: string };
+  static async create(modelId: string): Promise<WhisperEngine> {
+    let spec;
     try {
-      modelPaths = await prepareModelFiles();
+      spec = await assertModelInstalled(modelId);
     } catch (err) {
-      if (isWhisperError(err)) throw err;
-      throw wrapWhisperError(err, "asset.prepare", "ASSET_COPY_FAILED", true);
+      if (isModelError(err)) {
+        throw new WhisperError({
+          code: "ENGINE_LOAD_FAILED",
+          stage: "asset.prepare",
+          message: err.toDisplayString(),
+          recoverable: err.recoverable,
+          context: { modelId, modelCode: err.code },
+        });
+      }
+      throw err;
     }
 
-    let tokenizerJson: Record<string, unknown>;
-    try {
-      tokenizerJson = await loadTokenizerJson();
-    } catch (err) {
-      if (isWhisperError(err)) throw err;
-      throw wrapWhisperError(err, "tokenizer.load", "TOKENIZER_LOAD_FAILED", true);
+    const dirFamily = spec.family;
+    const encoderPath = getModelFilePath(
+      dirFamily,
+      modelId,
+      "encoder_model_quantized.onnx",
+    );
+    const decoderPath = getModelFilePath(
+      dirFamily,
+      modelId,
+      "decoder_model_merged_quantized.onnx",
+    );
+    const configPath = getModelFilePath(dirFamily, modelId, "config.json");
+    const generationPath = getModelFilePath(
+      dirFamily,
+      modelId,
+      "generation_config.json",
+    );
+    const preprocessorPath = getModelFilePath(
+      dirFamily,
+      modelId,
+      "preprocessor_config.json",
+    );
+    const tokenizerConfigPath = getModelFilePath(
+      dirFamily,
+      modelId,
+      "tokenizer_config.json",
+    );
+    const tokenizerPath = getModelFilePath(dirFamily, modelId, "tokenizer.json");
+
+    for (const [label, path] of [
+      ["encoder", encoderPath],
+      ["decoder", decoderPath],
+    ] as const) {
+      const info = await FileSystem.getInfoAsync(path);
+      if (!info.exists) {
+        throw new ModelError({
+          code: "MODEL_ENGINE_PATH_MISSING",
+          stage: "engine.load",
+          message: `No existe el fichero ${label} del modelo ${modelId}`,
+          recoverable: true,
+          context: { modelId, path, label },
+        });
+      }
     }
+
+    const modelConfig = await readJsonFile<WhisperModelConfig>(
+      configPath,
+      "config",
+    );
+    const generationConfig = await readJsonFile<WhisperGenerationConfig>(
+      generationPath,
+      "generation_config",
+    );
+    const preprocessorPartial = await readJsonFile<
+      Partial<WhisperPreprocessorConfig>
+    >(preprocessorPath, "preprocessor_config");
+    const preprocessor: WhisperPreprocessorConfig = {
+      ...DEFAULT_PREPROCESSOR,
+      ...preprocessorPartial,
+    };
+    const tokenizerConfig = await readJsonFile<Record<string, unknown>>(
+      tokenizerConfigPath,
+      "tokenizer_config",
+    );
+    const tokenizerJson = await readJsonFile<Record<string, unknown>>(
+      tokenizerPath,
+      "tokenizer",
+    );
 
     let tokenizer: Tokenizer;
     try {
-      tokenizer = new Tokenizer(tokenizerJson, TOKENIZER_CONFIG);
+      tokenizer = new Tokenizer(tokenizerJson, tokenizerConfig);
     } catch (err) {
       throw wrapWhisperError(err, "tokenizer.load", "TOKENIZER_LOAD_FAILED", true);
     }
@@ -279,7 +172,7 @@ export class WhisperEngine {
     let encoderSession: InferenceSession;
     try {
       encoderSession = await InferenceSession.create(
-        modelPaths.encoder,
+        toOrtPath(encoderPath),
         WHISPER_SESSION_OPTIONS,
       );
     } catch (err) {
@@ -307,7 +200,7 @@ export class WhisperEngine {
     let decoderSession: InferenceSession;
     try {
       decoderSession = await InferenceSession.create(
-        modelPaths.decoder,
+        toOrtPath(decoderPath),
         WHISPER_SESSION_OPTIONS,
       );
     } catch (err) {
@@ -321,12 +214,13 @@ export class WhisperEngine {
     }
 
     return new WhisperEngine(
+      modelId,
       tokenizer,
       encoderSession,
       decoderSession,
-      MODEL_CONFIG,
-      GENERATION_CONFIG,
-      PREPROCESSOR_CONFIG,
+      modelConfig,
+      generationConfig,
+      preprocessor,
     );
   }
 
@@ -355,6 +249,8 @@ export class WhisperEngine {
 let enginePromise: Promise<WhisperEngine> | null = null;
 let engineLoadAttempts = 0;
 let cachedEngine: WhisperEngine | null = null;
+let cachedModelId: string | null = null;
+let loadingModelId: string | null = null;
 
 export const MAX_WHISPER_LOAD_ATTEMPTS = 2;
 
@@ -364,12 +260,39 @@ export function resetWhisperEngine(): void {
     cachedEngine = null;
   }
   enginePromise = null;
+  cachedModelId = null;
+  loadingModelId = null;
 }
 
 export async function loadWhisperEngine(
   forceRetry = false,
+  modelId?: string,
 ): Promise<WhisperEngine> {
-  if (forceRetry) {
+  let resolvedId = modelId;
+  if (!resolvedId) {
+    const prefs = await readModelPreferences();
+    resolvedId = prefs.selectedWhisperModelId ?? undefined;
+  }
+  if (!resolvedId) {
+    throw new WhisperError({
+      code: "ENGINE_LOAD_FAILED",
+      stage: "asset.prepare",
+      message:
+        "[MODEL_NOT_INSTALLED@engine.load] No hay un modelo Whisper seleccionado",
+      recoverable: true,
+      context: { modelCode: "MODEL_NOT_INSTALLED" },
+    });
+  }
+
+  if (cachedEngine && cachedModelId === resolvedId && !forceRetry) {
+    return cachedEngine;
+  }
+
+  const switching =
+    (cachedModelId != null && cachedModelId !== resolvedId) ||
+    (loadingModelId != null && loadingModelId !== resolvedId);
+
+  if (forceRetry || switching) {
     resetWhisperEngine();
     engineLoadAttempts = 0;
   }
@@ -381,26 +304,41 @@ export async function loadWhisperEngine(
         stage: "session.encoder",
         message: "Se agotaron los reintentos de carga de Whisper",
         recoverable: false,
-        context: { attempts: engineLoadAttempts },
+        context: { attempts: engineLoadAttempts, modelId: resolvedId },
       });
     }
 
     engineLoadAttempts += 1;
-    enginePromise = WhisperEngine.create()
+    const id = resolvedId;
+    loadingModelId = id;
+    enginePromise = WhisperEngine.create(id)
       .then((engine) => {
         cachedEngine = engine;
+        cachedModelId = id;
+        loadingModelId = null;
         return engine;
       })
       .catch((err) => {
         enginePromise = null;
         cachedEngine = null;
+        cachedModelId = null;
+        loadingModelId = null;
         if (isWhisperError(err)) throw err;
+        if (isModelError(err)) {
+          throw new WhisperError({
+            code: "ENGINE_LOAD_FAILED",
+            stage: "asset.prepare",
+            message: err.toDisplayString(),
+            recoverable: err.recoverable,
+            context: { modelId: id, modelCode: err.code },
+          });
+        }
         throw wrapWhisperError(
           err,
           "session.encoder",
           "ENGINE_LOAD_FAILED",
           true,
-          { attempt: engineLoadAttempts },
+          { attempt: engineLoadAttempts, modelId: id },
         );
       });
   }

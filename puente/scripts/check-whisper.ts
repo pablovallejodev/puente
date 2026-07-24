@@ -23,12 +23,25 @@ import {
 } from "../src/lib/whisper-inference";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const MODELS = path.join(ROOT, "assets", "models", "whisper-tiny");
+const MODELS =
+  process.env.WHISPER_MODEL_DIR?.trim() ||
+  path.join(ROOT, "assets", "models", "whisper-tiny");
 const FIXTURE = path.join(ROOT, "scripts", "fixtures", "jfk.wav");
 
 const MIN_ENCODER_BYTES = 1_000_000;
 const MIN_DECODER_BYTES = 5_000_000;
 const MIN_TOKENIZER_BYTES = 100_000;
+
+function resolveTokenizerPath(): string {
+  const json = path.join(MODELS, "tokenizer.json");
+  const jsondata = path.join(MODELS, "tokenizer.jsondata");
+  try {
+    statSync(json);
+    return json;
+  } catch {
+    return jsondata;
+  }
+}
 
 function loadJson<T>(filename: string): T {
   return JSON.parse(
@@ -100,14 +113,25 @@ function loadWavPcm16k(filePath: string): Float32Array {
 }
 
 async function main(): Promise<void> {
+  if (!process.env.WHISPER_MODEL_DIR?.trim()) {
+    console.error(
+      "WHISPER_MODEL_DIR no definido.\n" +
+        "Los modelos ya no están en assets/. Descarga Whisper Tiny (Xenova) y apunta la variable al directorio\n" +
+        "con encoder_model_quantized.onnx, decoder_model_merged_quantized.onnx, configs y tokenizer.json.\n" +
+        "Ver TESTING.md y src/constants/model-catalog.ts.",
+    );
+    process.exit(2);
+  }
+
   const started = Date.now();
-  console.log("Whisper Tiny INT8 golden check");
+  console.log("Whisper quantized golden check");
   console.log(`models: ${MODELS}`);
+
+  const tokenizerPath = resolveTokenizerPath();
 
   for (const [label, file, min] of [
     ["encoder", "encoder_model_quantized.onnx", MIN_ENCODER_BYTES],
     ["decoder", "decoder_model_merged_quantized.onnx", MIN_DECODER_BYTES],
-    ["tokenizer", "tokenizer.jsondata", MIN_TOKENIZER_BYTES],
   ] as const) {
     const p = path.join(MODELS, file);
     const size = statSync(p).size;
@@ -115,6 +139,13 @@ async function main(): Promise<void> {
       throw new Error(`${label} too small: ${size} < ${min}`);
     }
     console.log(`${label}: ${size} bytes OK`);
+  }
+  {
+    const size = statSync(tokenizerPath).size;
+    if (size < MIN_TOKENIZER_BYTES) {
+      throw new Error(`tokenizer too small: ${size}`);
+    }
+    console.log(`tokenizer: ${size} bytes OK (${path.basename(tokenizerPath)})`);
   }
 
   const modelConfig = loadJson<WhisperModelConfig>("config.json");
@@ -126,7 +157,7 @@ async function main(): Promise<void> {
     ...loadJson<Partial<WhisperPreprocessorConfig>>("preprocessor_config.json"),
   };
   const tokenizerJson = JSON.parse(
-    readFileSync(path.join(MODELS, "tokenizer.jsondata"), "utf8"),
+    readFileSync(tokenizerPath, "utf8"),
   ) as Record<string, unknown>;
   const tokenizerConfig = loadJson<Record<string, unknown>>(
     "tokenizer_config.json",

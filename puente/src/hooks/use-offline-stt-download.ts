@@ -1,11 +1,11 @@
 /**
- * STT offline state for Whisper (bundled multilingual model).
- * Keeps the same API as the former Google/ASI download hook so Languages UI
- * and session context keep working without per-locale system packs.
+ * STT offline state for Whisper — available when a Whisper model is selected
+ * and installed via the model catalog.
  */
 import { useCallback, useMemo } from "react";
 
 import type { SttErrorCode } from "@/lib/stt-errors";
+import { useModelCatalog } from "@/contexts/model-catalog-context";
 
 export type SttDownloadStatus =
   | "idle"
@@ -22,15 +22,28 @@ export type SttDownloadState = {
   code?: SttErrorCode;
 };
 
-const INSTALLED: SttDownloadState = { status: "installed" };
-
 export function useOfflineSttDownload() {
-  const getDownloadState = useCallback((_locale: string): SttDownloadState => {
-    return INSTALLED;
-  }, []);
+  const { selectedWhisperId, getModelState } = useModelCatalog();
+
+  const whisperReady =
+    !!selectedWhisperId &&
+    (getModelState(selectedWhisperId).status === "selected" ||
+      getModelState(selectedWhisperId).status === "installed");
+
+  const getDownloadState = useCallback(
+    (_locale: string): SttDownloadState => {
+      if (whisperReady) return { status: "installed" };
+      return {
+        status: "not_installed",
+        code: "STT_OFFLINE_MODELS_MISSING",
+        error: "Descarga un modelo Whisper en Ajustes de modelos",
+      };
+    },
+    [whisperReady],
+  );
 
   const downloadSttModel = useCallback(async (_locale: string) => {
-    /* Whisper Tiny is bundled — nothing to download. */
+    /* Per-locale packs removed — models managed on /modelos */
   }, []);
 
   const refreshInstalledLocales = useCallback(async () => {
@@ -38,7 +51,7 @@ export function useOfflineSttDownload() {
   }, []);
 
   const checkLocale = useCallback(async (_locale: string) => {
-    /* always installed */
+    /* no-op: availability is global Whisper install */
   }, []);
 
   const isLocaleDownloadable = useCallback((_locale: string) => false, []);
@@ -50,7 +63,7 @@ export function useOfflineSttDownload() {
       refreshInstalledLocales,
       checkLocale,
       isLocaleDownloadable,
-      onDeviceSttAvailable: true,
+      onDeviceSttAvailable: whisperReady,
     }),
     [
       getDownloadState,
@@ -58,6 +71,7 @@ export function useOfflineSttDownload() {
       refreshInstalledLocales,
       checkLocale,
       isLocaleDownloadable,
+      whisperReady,
     ],
   );
 }

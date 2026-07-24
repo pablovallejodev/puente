@@ -9,12 +9,15 @@ const arrowLeftBlackImage = require("@/assets/icons/arrows/black/left.png");
 export const ChatHeadComponent = React.memo<{
   titleText: string,
   textWhite?: boolean,
+  onSettingsPress?: () => void,
 }>(({
   titleText,
   textWhite,
+  onSettingsPress,
 }) => {
   return (
     <View style={styles.container}>
+      <View style={styles.standardPropertyColumn} />
       <View style={styles.standardTitleColumn}>
         <Text style={{
           ...styles.standardTitle,
@@ -22,6 +25,22 @@ export const ChatHeadComponent = React.memo<{
         }}>
           {titleText}
         </Text>
+      </View>
+      <View style={styles.standardPropertyColumn}>
+        {onSettingsPress ? (
+          <TouchableOpacity
+            style={styles.standardPropertyButton}
+            onPress={onSettingsPress}
+            accessibilityLabel="Modelos"
+          >
+            <Text style={{
+              ...styles.settingsGlyph,
+              ...(!!textWhite ? { color: "white" } : {})
+            }}>
+              ⚙
+            </Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
     </View>
   );
@@ -119,5 +138,11 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     textAlign: "center",
     verticalAlign: "middle",
+  },
+  settingsGlyph: {
+    fontSize: 22,
+    color: "black",
+    textAlign: "center",
+    lineHeight: 24,
   },
 });

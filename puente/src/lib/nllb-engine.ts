@@ -1,4 +1,3 @@
-import { Asset } from "expo-asset";
 import * as FileSystem from "expo-file-system/legacy";
 import { Tokenizer } from "@huggingface/tokenizers";
 import { InferenceSession, Tensor } from "onnxruntime-react-native";
@@ -14,201 +13,21 @@ import {
   TranslatorError,
   wrapUnknownError,
 } from "@/lib/translator-errors";
+import { assertModelInstalled } from "@/lib/model-install-state";
+import { readModelPreferences } from "@/lib/model-preferences";
+import { getModelFilePath, toOrtPath } from "@/lib/model-paths";
+import { isModelError, ModelError } from "@/lib/model-errors";
 
-const MODEL_CONFIG = require("@/assets/models/nllb/config.json") as ModelConfig;
-const GENERATION_CONFIG =
-  require("@/assets/models/nllb/generation_config.json") as GenerationConfig;
-const TOKENIZER_CONFIG =
-  require("@/assets/models/nllb/tokenizer_config.json") as Record<string, unknown>;
-const TOKENIZER_RAW_ASSET = require("@/assets/models/nllb/tokenizer.jsondata");
-const ENCODER_ASSET = require("@/assets/models/nllb/encoder_model_quantized.onnx");
-const DECODER_ASSET = require("@/assets/models/nllb/decoder_model_merged_quantized.onnx");
-
-export const MODEL_VERSION = "nllb-200-distilled-600M-q8";
-
-const MODEL_DIR = `${FileSystem.documentDirectory ?? ""}nllb/${MODEL_VERSION}/`;
-const ENCODER_PATH = `${MODEL_DIR}encoder_model_quantized.onnx`;
-const DECODER_PATH = `${MODEL_DIR}decoder_model_merged_quantized.onnx`;
-
-function toOrtPath(uri: string): string {
-  return uri.replace(/^file:\/\//, "");
-}
-
-function assertRawAssetModule(
-  moduleRef: unknown,
-  label: string,
-): number {
-  if (typeof moduleRef !== "number") {
-    throw new TranslatorError({
-      code: "ASSET_UNAVAILABLE",
-      stage: "tokenizer.load",
-      message: `Asset ${label} mal empaquetado (tipo ${typeof moduleRef}). Reinstala la APK.`,
-      recoverable: false,
-      context: { label, receivedType: typeof moduleRef },
-    });
-  }
-  return moduleRef;
-}
-
-function isAssetRegistryError(message: string): boolean {
-  return message.includes("missing from the asset registry");
-}
-
-async function loadTokenizerJson(): Promise<Record<string, unknown>> {
-  const label = "tokenizer";
+async function readJsonFile<T>(path: string, label: string): Promise<T> {
   try {
-    const moduleId = assertRawAssetModule(TOKENIZER_RAW_ASSET, label);
-    const asset = Asset.fromModule(moduleId);
-    await asset.downloadAsync();
-
-    if (!asset.localUri) {
-      throw new TranslatorError({
-        code: "ASSET_UNAVAILABLE",
-        stage: "tokenizer.load",
-        message: `No se pudo resolver la ruta del asset ${label}`,
-        recoverable: true,
-        context: { label },
-      });
-    }
-
-    const text = await FileSystem.readAsStringAsync(asset.localUri);
-    const parsed = JSON.parse(text) as Record<string, unknown>;
-    if (!parsed || typeof parsed !== "object") {
-      throw new TranslatorError({
-        code: "TOKENIZER_LOAD_FAILED",
-        stage: "tokenizer.load",
-        message: `Tokenizer ${label} parseado vacío o inválido`,
-        recoverable: true,
-        context: { label },
-      });
-    }
-    return parsed;
+    const text = await FileSystem.readAsStringAsync(path);
+    return JSON.parse(text) as T;
   } catch (err) {
-    if (isTranslatorError(err)) throw err;
-    const message = err instanceof Error ? err.message : String(err);
-    const registryMissing = isAssetRegistryError(message);
-    throw new TranslatorError({
-      code: registryMissing ? "ASSET_UNAVAILABLE" : "TOKENIZER_LOAD_FAILED",
-      stage: "tokenizer.load",
-      message: registryMissing
-        ? `Asset ${label} no está en el registro. Reinstala la APK.`
-        : message,
-      recoverable: !registryMissing,
-      context: { label },
+    throw wrapUnknownError(err, "tokenizer.load", "TOKENIZER_LOAD_FAILED", true, {
+      label,
+      path,
     });
   }
-}
-
-async function ensureDirectory(path: string): Promise<void> {
-  const info = await FileSystem.getInfoAsync(path);
-  if (!info.exists) {
-    await FileSystem.makeDirectoryAsync(path, { intermediates: true });
-  }
-}
-
-async function copyAssetToPath(
-  assetModule: unknown,
-  destPath: string,
-  label: string,
-): Promise<string> {
-  let moduleId: number;
-  try {
-    moduleId = assertRawAssetModule(assetModule, label);
-    const asset = Asset.fromModule(moduleId);
-    await asset.downloadAsync();
-
-    if (!asset.localUri) {
-      throw new TranslatorError({
-        code: "ASSET_UNAVAILABLE",
-        stage: "asset.prepare",
-        message: `No se pudo resolver la ruta del asset ${label}`,
-        recoverable: label === "tokenizer" ? false : true,
-        context: { label },
-      });
-    }
-
-    const expectedSize =
-      "filesize" in asset && typeof asset.filesize === "number"
-        ? asset.filesize
-        : undefined;
-    const destInfo = await FileSystem.getInfoAsync(destPath);
-    if (destInfo.exists && expectedSize !== undefined && destInfo.size === expectedSize) {
-      return destPath;
-    }
-    if (destInfo.exists && expectedSize === undefined) {
-      await FileSystem.deleteAsync(destPath, { idempotent: true });
-    }
-
-    await ensureDirectory(MODEL_DIR);
-
-    const tempPath = `${destPath}.tmp`;
-    try {
-      await FileSystem.copyAsync({ from: asset.localUri, to: tempPath });
-      const tempInfo = await FileSystem.getInfoAsync(tempPath);
-      if (
-        expectedSize !== undefined &&
-        tempInfo.exists &&
-        tempInfo.size !== expectedSize
-      ) {
-        throw new TranslatorError({
-          code: "ASSET_INCOMPLETE",
-          stage: "asset.prepare",
-          message: `Copia incompleta de ${label}`,
-          recoverable: true,
-          context: {
-            label,
-            expectedBytes: expectedSize,
-            actualBytes: tempInfo.size ?? 0,
-          },
-        });
-      }
-
-      if (destInfo.exists) {
-        await FileSystem.deleteAsync(destPath, { idempotent: true });
-      }
-      await FileSystem.moveAsync({ from: tempPath, to: destPath });
-      return destPath;
-    } catch (err) {
-      await FileSystem.deleteAsync(tempPath, { idempotent: true });
-      if (isTranslatorError(err)) throw err;
-      throw wrapUnknownError(err, "asset.prepare", "ASSET_COPY_FAILED", true, {
-        label,
-      });
-    }
-  } catch (err) {
-    if (isTranslatorError(err)) throw err;
-    const message = err instanceof Error ? err.message : String(err);
-    const registryMissing = isAssetRegistryError(message);
-    throw new TranslatorError({
-      code: registryMissing ? "ASSET_UNAVAILABLE" : "ASSET_COPY_FAILED",
-      stage: "asset.prepare",
-      message: registryMissing
-        ? `Asset ${label} no está en el registro. Reinstala la APK.`
-        : message,
-      recoverable: !registryMissing,
-      context: { label },
-    });
-  }
-}
-
-async function prepareModelFiles(): Promise<{ encoder: string; decoder: string }> {
-  if (!FileSystem.documentDirectory) {
-    throw new TranslatorError({
-      code: "ASSET_UNAVAILABLE",
-      stage: "asset.prepare",
-      message: "Directorio de documentos no disponible en este dispositivo",
-      recoverable: false,
-    });
-  }
-
-  const [encoder, decoder] = await Promise.all([
-    copyAssetToPath(ENCODER_ASSET, ENCODER_PATH, "encoder"),
-    copyAssetToPath(DECODER_ASSET, DECODER_PATH, "decoder"),
-  ]);
-  return {
-    encoder: toOrtPath(encoder),
-    decoder: toOrtPath(decoder),
-  };
 }
 
 function releaseSession(session: InferenceSession): void {
@@ -222,6 +41,7 @@ function releaseSession(session: InferenceSession): void {
 }
 
 export class NllbEngine {
+  readonly modelId: string;
   private tokenizer: Tokenizer;
   private encoderSession: InferenceSession;
   private decoderSession: InferenceSession;
@@ -229,12 +49,14 @@ export class NllbEngine {
   private eosTokenId: number;
 
   private constructor(
+    modelId: string,
     tokenizer: Tokenizer,
     encoderSession: InferenceSession,
     decoderSession: InferenceSession,
     modelConfig: ModelConfig,
     generationConfig: GenerationConfig,
   ) {
+    this.modelId = modelId;
     this.tokenizer = tokenizer;
     this.encoderSession = encoderSession;
     this.decoderSession = decoderSession;
@@ -243,35 +65,91 @@ export class NllbEngine {
       tokenizer.token_to_id("</s>") ?? generationConfig.eos_token_id;
   }
 
-  static async create(): Promise<NllbEngine> {
-    let modelPaths: { encoder: string; decoder: string };
+  static async create(modelId: string): Promise<NllbEngine> {
+    let spec;
     try {
-      modelPaths = await prepareModelFiles();
+      spec = await assertModelInstalled(modelId);
     } catch (err) {
-      if (isTranslatorError(err)) throw err;
-      throw wrapUnknownError(err, "asset.prepare", "ASSET_COPY_FAILED", true);
+      if (isModelError(err)) {
+        throw new TranslatorError({
+          code: "ENGINE_LOAD_FAILED",
+          stage: "asset.prepare",
+          message: err.toDisplayString(),
+          recoverable: err.recoverable,
+          context: { modelId, modelCode: err.code },
+        });
+      }
+      throw err;
     }
 
-    let tokenizerJson: Record<string, unknown>;
-    try {
-      tokenizerJson = await loadTokenizerJson();
-    } catch (err) {
-      if (isTranslatorError(err)) throw err;
-      throw wrapUnknownError(err, "tokenizer.load", "TOKENIZER_LOAD_FAILED", true);
+    const encoderPath = getModelFilePath(
+      spec.family,
+      modelId,
+      "encoder_model_quantized.onnx",
+    );
+    const decoderPath = getModelFilePath(
+      spec.family,
+      modelId,
+      "decoder_model_merged_quantized.onnx",
+    );
+    const configPath = getModelFilePath(spec.family, modelId, "config.json");
+    const generationPath = getModelFilePath(
+      spec.family,
+      modelId,
+      "generation_config.json",
+    );
+    const tokenizerConfigPath = getModelFilePath(
+      spec.family,
+      modelId,
+      "tokenizer_config.json",
+    );
+    const tokenizerPath = getModelFilePath(
+      spec.family,
+      modelId,
+      "tokenizer.json",
+    );
+
+    for (const [label, path] of [
+      ["encoder", encoderPath],
+      ["decoder", decoderPath],
+    ] as const) {
+      const info = await FileSystem.getInfoAsync(path);
+      if (!info.exists) {
+        throw new ModelError({
+          code: "MODEL_ENGINE_PATH_MISSING",
+          stage: "engine.load",
+          message: `No existe el fichero ${label} del modelo ${modelId}`,
+          recoverable: true,
+          context: { modelId, path, label },
+        });
+      }
     }
+
+    const modelConfig = await readJsonFile<ModelConfig>(configPath, "config");
+    const generationConfig = await readJsonFile<GenerationConfig>(
+      generationPath,
+      "generation_config",
+    );
+    const tokenizerConfig = await readJsonFile<Record<string, unknown>>(
+      tokenizerConfigPath,
+      "tokenizer_config",
+    );
+    const tokenizerJson = await readJsonFile<Record<string, unknown>>(
+      tokenizerPath,
+      "tokenizer",
+    );
 
     let tokenizer: Tokenizer;
     try {
-      tokenizer = new Tokenizer(tokenizerJson, TOKENIZER_CONFIG);
+      tokenizer = new Tokenizer(tokenizerJson, tokenizerConfig);
     } catch (err) {
       throw wrapUnknownError(err, "tokenizer.load", "TOKENIZER_LOAD_FAILED", true);
     }
 
     let encoderSession: InferenceSession;
-    let decoderSession: InferenceSession;
     try {
       encoderSession = await InferenceSession.create(
-        modelPaths.encoder,
+        toOrtPath(encoderPath),
         SESSION_OPTIONS,
       );
     } catch (err) {
@@ -288,25 +166,37 @@ export class NllbEngine {
           recoverable: false,
         });
       }
-      throw wrapUnknownError(err, "session.encoder", "SESSION_ENCODER_FAILED", true);
+      throw wrapUnknownError(
+        err,
+        "session.encoder",
+        "SESSION_ENCODER_FAILED",
+        true,
+      );
     }
 
+    let decoderSession: InferenceSession;
     try {
       decoderSession = await InferenceSession.create(
-        modelPaths.decoder,
+        toOrtPath(decoderPath),
         SESSION_OPTIONS,
       );
     } catch (err) {
       releaseSession(encoderSession);
-      throw wrapUnknownError(err, "session.decoder", "SESSION_DECODER_FAILED", true);
+      throw wrapUnknownError(
+        err,
+        "session.decoder",
+        "SESSION_DECODER_FAILED",
+        true,
+      );
     }
 
     return new NllbEngine(
+      modelId,
       tokenizer,
       encoderSession,
       decoderSession,
-      MODEL_CONFIG,
-      GENERATION_CONFIG,
+      modelConfig,
+      generationConfig,
     );
   }
 
@@ -337,6 +227,8 @@ export class NllbEngine {
 let enginePromise: Promise<NllbEngine> | null = null;
 let engineLoadAttempts = 0;
 let cachedEngine: NllbEngine | null = null;
+let cachedModelId: string | null = null;
+let loadingModelId: string | null = null;
 
 export const MAX_ENGINE_LOAD_ATTEMPTS = 2;
 
@@ -346,10 +238,39 @@ export function resetEngine(): void {
     cachedEngine = null;
   }
   enginePromise = null;
+  cachedModelId = null;
+  loadingModelId = null;
 }
 
-export async function loadEngine(forceRetry = false): Promise<NllbEngine> {
-  if (forceRetry) {
+export async function loadEngine(
+  forceRetry = false,
+  modelId?: string,
+): Promise<NllbEngine> {
+  let resolvedId = modelId;
+  if (!resolvedId) {
+    const prefs = await readModelPreferences();
+    resolvedId = prefs.selectedNllbModelId ?? undefined;
+  }
+  if (!resolvedId) {
+    throw new TranslatorError({
+      code: "ENGINE_LOAD_FAILED",
+      stage: "asset.prepare",
+      message:
+        "[MODEL_NOT_INSTALLED@engine.load] No hay un modelo NLLB seleccionado",
+      recoverable: true,
+      context: { modelCode: "MODEL_NOT_INSTALLED" },
+    });
+  }
+
+  if (cachedEngine && cachedModelId === resolvedId && !forceRetry) {
+    return cachedEngine;
+  }
+
+  const switching =
+    (cachedModelId != null && cachedModelId !== resolvedId) ||
+    (loadingModelId != null && loadingModelId !== resolvedId);
+
+  if (forceRetry || switching) {
     resetEngine();
     engineLoadAttempts = 0;
   }
@@ -361,23 +282,42 @@ export async function loadEngine(forceRetry = false): Promise<NllbEngine> {
         stage: "session.encoder",
         message: "Se agotaron los reintentos de carga del modelo",
         recoverable: false,
-        context: { attempts: engineLoadAttempts },
+        context: { attempts: engineLoadAttempts, modelId: resolvedId },
       });
     }
 
     engineLoadAttempts += 1;
-    enginePromise = NllbEngine.create()
+    const id = resolvedId;
+    loadingModelId = id;
+    enginePromise = NllbEngine.create(id)
       .then((engine) => {
         cachedEngine = engine;
+        cachedModelId = id;
+        loadingModelId = null;
         return engine;
       })
       .catch((err) => {
         enginePromise = null;
         cachedEngine = null;
+        cachedModelId = null;
+        loadingModelId = null;
         if (isTranslatorError(err)) throw err;
-        throw wrapUnknownError(err, "session.encoder", "ENGINE_LOAD_FAILED", true, {
-          attempt: engineLoadAttempts,
-        });
+        if (isModelError(err)) {
+          throw new TranslatorError({
+            code: "ENGINE_LOAD_FAILED",
+            stage: "asset.prepare",
+            message: err.toDisplayString(),
+            recoverable: err.recoverable,
+            context: { modelId: id, modelCode: err.code },
+          });
+        }
+        throw wrapUnknownError(
+          err,
+          "session.encoder",
+          "ENGINE_LOAD_FAILED",
+          true,
+          { attempt: engineLoadAttempts, modelId: id },
+        );
       });
   }
 

@@ -1,24 +1,26 @@
 import { StatusBarHiddenComponent } from '@/utils/statusbar';
-import { useRouter } from 'expo-router';
+import { useRouter, type Href } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Dimensions, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import LottieView from 'lottie-react-native';
 import { STANDARD_HORIZONTAL_PADDING } from '@/constants/ui';
+import { useModelCatalog } from '@/contexts/model-catalog-context';
 
 export default function IndexComponent() {
   const router = useRouter();
-  const [status, setStatus] = useState<boolean>(false);
+  const { booting, ready, isReady } = useModelCatalog();
+  const [minTimeDone, setMinTimeDone] = useState(false);
 
   useEffect(() => {
-    setTimeout(() => {
-      setStatus(true);
-    }, 1500);
+    const t = setTimeout(() => setMinTimeDone(true), 1500);
+    return () => clearTimeout(t);
   }, []);
 
   useEffect(() => {
-    if (status) router.replace('/traductor');
-  }, [status, router]);
+    if (!minTimeDone || booting || !ready) return;
+    router.replace((isReady ? '/traductor' : '/modelos') as Href);
+  }, [minTimeDone, booting, ready, isReady, router]);
 
   return (
     <SafeAreaView style={styles.safeArea}>

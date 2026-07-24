@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import * as SplashScreen from 'expo-splash-screen';
 import { useFonts } from "expo-font";
 
+import { ModelCatalogProvider } from '@/contexts/model-catalog-context';
 import { TraductorSessionProvider } from '@/contexts/traductor-session-context';
 
 export default function RootLayout() {
@@ -28,23 +29,30 @@ export default function RootLayout() {
   };
 
   return (
-    <TraductorSessionProvider>
-      <Stack screenOptions={{
-        headerShown: false,
-        gestureEnabled: false,
-        animation: "fade",
-        animationDuration: 300
-      }}>
-        <Stack.Screen name="index" options={pageOptions} />
-        <Stack.Screen name="traductor" options={pageOptions} />
-        <Stack.Screen name="languages" options={pageOptions} />
-      </Stack>
-    </TraductorSessionProvider>
+    <ModelCatalogProvider>
+      <TraductorSessionProvider>
+        <Stack screenOptions={{
+          headerShown: false,
+          gestureEnabled: false,
+          animation: "fade",
+          animationDuration: 300
+        }}>
+          <Stack.Screen name="index" options={pageOptions} />
+          <Stack.Screen name="traductor" options={pageOptions} />
+          <Stack.Screen name="languages" options={pageOptions} />
+          <Stack.Screen name="modelos" options={pageOptions} />
+        </Stack>
+      </TraductorSessionProvider>
+    </ModelCatalogProvider>
   );
 }
 
 
+
 /*
+
+NO BORRES ESTO QUE ME SIRVE DE REFERENCIA
+
 rm -r ./android && rm -r ./ios
 
 

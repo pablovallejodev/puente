@@ -1,39 +1,23 @@
-# Pruebas NLLB + Whisper Tiny (Puente)
+# Pruebas NLLB + Whisper (Puente)
 
-Assets:
-- `assets/models/nllb/` — NLLB-200 distilled 600M Q8
-- `assets/models/whisper-tiny/` — Whisper Tiny INT8 (encoder + decoder_merged)
+Los modelos **ya no van en el APK**. Se descargan desde Hugging Face (Xenova) en la pantalla `/modelos` y se guardan en `documentDirectory/models/`.
 
-STT: Whisper on-device (no Google/ASI).
+Catálogo: `src/constants/model-catalog.ts`.
 
 ## Check local (sin dispositivo)
 
-Desde `puente/`:
+Desde `puente/`, apunta a un directorio con los ficheros ya descargados (misma estructura que en el teléfono):
 
 ```bash
-pnpm install
-pnpm check:nllb      # ~870 MB en RAM — no ejecutar si la máquina está cargada
-pnpm check:whisper  # más ligero (~40 MB modelos + mel)
+# Ejemplo tras descargar a mano desde HF:
+export WHISPER_MODEL_DIR=/path/to/whisper-tiny-q   # encoder + decoder_merged quantized + configs + tokenizer.json
+export NLLB_MODEL_DIR=/path/to/nllb-600m-q8
+
+pnpm check:whisper   # solo si WHISPER_MODEL_DIR está definido
+pnpm check:nllb      # solo si NLLB_MODEL_DIR está definido — pesado (~1 GB RAM)
 ```
 
-- `check:nllb`: 3 fixtures en→es, es→en, ca→en.
-- `check:whisper`: transcribe `scripts/fixtures/jfk.wav` con Whisper Tiny INT8.
-
-**Cuidado:** `check:nllb` y `expo export` / builds locales son pesados. Ejecútalos solo con VS Code/contenedores/otros agentes parados.
-
-**Nota:** estos checks validan inferencia ONNX y parseo de `tokenizer.jsondata`. **No** validan el registro de assets de Metro en el APK.
-
-## Verificar empaquetado Metro (sin APK)
-
-Opcional y **pesado** (bundle completo). Solo con máquina libre:
-
-```bash
-cd puente
-npx expo export --platform android --output-dir /tmp/puente-export
-grep -E 'nllb/|whisper-tiny/|tokenizer\.jsondata|encoder_model|decoder_model' /tmp/puente-export/metadata.json
-```
-
-Deben aparecer assets bajo `nllb/` y `whisper-tiny/`. Si falta alguno, no generes APK todavía.
+**Cuidado:** `check:nllb` carga ~900 MB en RAM. No lo ejecutes si la máquina está justa.
 
 ## Development build (Android)
 
@@ -46,43 +30,47 @@ npx expo prebuild --clean
 npx expo run:android
 ```
 
-O con EAS (perfil `development` en `eas.json`):
-
-```bash
-eas build -p android --profile development
-```
-
-## APK de prueba
-
-```bash
-eas build -p android --profile preview
-```
-
-**Importante:** tras corregir el tokenizer (`tokenizer.jsondata`), debes **generar e instalar una APK nueva**. Desinstala la anterior o borra datos de la app. El botón **Reintentar** no puede reparar un asset que no estaba en el registro de una APK antigua.
-
 ## Qué probar en el móvil
 
-1. Arranque: carga Whisper (~40 MB) + NLLB (~870 MB la primera vez) → **Listo · Whisper on-device**.
-2. Hablar en el idioma de entrada → aparece texto → NLLB traduce.
-3. Modo avión **después** de la primera carga: STT + traducción siguen funcionando (GrapheneOS sin Google STT OK).
-4. Si falla, la pantalla muestra `[CODIGO@etapa] mensaje` o código `whisper_*`. `ASSET_UNAVAILABLE` → rebuild APK.
+1. Primera apertura → pantalla **Modelos** (gate). Sin salir hasta Whisper + NLLB descargados y seleccionados.
+2. “Descargar lo mejor para este teléfono” o cards individuales.
+3. Tras listo → Traductor. Icono ⚙ → volver a Modelos.
+4. Hablar → Whisper transcribe → NLLB traduce. Modo avión tras descarga OK.
+5. Errores de descarga/selección: `[MODEL_*@stage] …` (ver tabla abajo). Inferencia: códigos Whisper/Translator existentes.
 
-## Códigos de error frecuentes
+## Códigos de error — modelos (descarga / selección)
+
+Formato: `[CODE@stage] mensaje (context)`
+
+| Código | Stage típico | Significado |
+|--------|--------------|-------------|
+| `MODEL_UNKNOWN_ID` | `catalog.resolve` | id no está en el catálogo |
+| `MODEL_NOT_INSTALLED` | `install.check` / `engine.load` | falta `.complete` o dir |
+| `MODEL_INCOMPLETE` | `install.check` / `download.verify` | falta un fichero |
+| `MODEL_SIZE_MISMATCH` | `download.verify` | tamaño ≠ esperado HF |
+| `MODEL_ALREADY_DOWNLOADING` | `download.start` | descarga duplicada |
+| `MODEL_DOWNLOAD_OFFLINE` | `network.check` | sin red |
+| `MODEL_DOWNLOAD_HTTP` | `download.file` | HTTP ≠ 2xx |
+| `MODEL_DOWNLOAD_FAILED` | `download.file` | fallo FS/red |
+| `MODEL_DOWNLOAD_CANCELLED` | `download.file` | cancelada |
+| `MODEL_DISK_FULL` | `storage.space` | sin espacio |
+| `MODEL_FINALIZE_FAILED` | `download.finalize` | move / `.complete` |
+| `MODEL_SELECT_NOT_INSTALLED` | `select.apply` | Select sin instalar |
+| `MODEL_SELECT_FAILED` | `select.apply` | fallo al seleccionar |
+| `MODEL_PREFS_READ_FAILED` | `prefs.read` | SecureStore |
+| `MODEL_PREFS_WRITE_FAILED` | `prefs.write` | SecureStore |
+| `MODEL_ENGINE_PATH_MISSING` | `engine.load` | path ORT ausente |
+| `MODEL_GATE_INCOMPLETE` | `gate.ready` | onboarding incompleto |
+
+## Códigos de error — inferencia (existentes)
 
 | Código | Etapa | Significado |
 |--------|-------|-------------|
-| `ASSET_UNAVAILABLE` | `tokenizer.load` | Tokenizer no empaquetado o APK antigua → **nueva APK** |
-| `ORT_NOT_REGISTERED` | `session.encoder` | ONNX no autolinked → `npx expo prebuild --clean` y rebuild |
-| `ASSET_INCOMPLETE` | `asset.prepare` | Copia de modelo corrupta → borrar datos app y reinstalar |
-| `DECODE_FAILED` | `decode.run` | Fallo en inferencia decoder (memoria o modelo) |
-| `OUT_OF_MEMORY` | `decode.run` | RAM insuficiente para NLLB-600M |
+| `ORT_NOT_REGISTERED` | `session.encoder` | ONNX no autolinked → prebuild + rebuild |
+| `DECODE_FAILED` | `decode.run` | Fallo decoder |
+| `OUT_OF_MEMORY` | `decode.run` | RAM insuficiente (p. ej. NLLB) |
+| `ENGINE_LOAD_FAILED` | `asset.prepare` | Sin modelo seleccionado / ModelError anidado |
 
-## Tokenizer como asset raw
+## Tokenizer
 
-Los tokenizers grandes están en `assets/models/nllb/tokenizer.jsondata` y `assets/models/whisper-tiny/tokenizer.jsondata` (extensión `jsondata` en Metro). Los JSON pequeños (`config.json`, etc.) se importan como módulos normales. **No** uses `Asset.fromModule(require('*.json'))`: Metro devuelve un objeto parseado y fallará con `[object Object]`.
-
-## Parche ONNX (Expo SDK 56)
-
-El parche en `patches/onnxruntime-react-native@1.24.3.patch` elimina `unimodule.json` (autolinking Expo) y el bloque Gradle 9 obsoleto. Tras `pnpm install`, verificar que el parche se aplica.
-
-Tras `npx expo prebuild --clean`, comprobar en Android que `PackageList` incluye `OnnxruntimePackage` (no usar el config plugin oficial de ORT en Expo 56).
+Tras la migración, el tokenizer se lee como `tokenizer.json` desde disco (ya no Metro `.jsondata`).

@@ -19,9 +19,11 @@ import {
 } from "../src/lib/nllb-inference";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const MODELS = path.join(ROOT, "assets", "models", "nllb");
+const MODELS =
+  process.env.NLLB_MODEL_DIR?.trim() ||
+  path.join(ROOT, "assets", "models", "nllb");
 
-/** Minimum expected size for tokenizer.jsondata (~17 MB). */
+/** Minimum expected size for tokenizer (~17 MB). */
 const MIN_TOKENIZER_BYTES = 1_000_000;
 
 type Fixture = {
@@ -63,11 +65,19 @@ function loadJson<T>(filename: string): T {
 }
 
 function loadTokenizerJson(): Record<string, unknown> {
-  const tokenizerPath = path.join(MODELS, "tokenizer.jsondata");
+  const json = path.join(MODELS, "tokenizer.json");
+  const jsondata = path.join(MODELS, "tokenizer.jsondata");
+  let tokenizerPath = jsondata;
+  try {
+    statSync(json);
+    tokenizerPath = json;
+  } catch {
+    /* use jsondata */
+  }
   const stat = statSync(tokenizerPath);
   if (stat.size < MIN_TOKENIZER_BYTES) {
     throw new Error(
-      `tokenizer.jsondata too small (${stat.size} bytes, expected >= ${MIN_TOKENIZER_BYTES})`,
+      `tokenizer too small (${stat.size} bytes, expected >= ${MIN_TOKENIZER_BYTES})`,
     );
   }
   const parsed = JSON.parse(readFileSync(tokenizerPath, "utf8")) as Record<
@@ -75,13 +85,23 @@ function loadTokenizerJson(): Record<string, unknown> {
     unknown
   >;
   if (!parsed || typeof parsed !== "object") {
-    throw new Error("tokenizer.jsondata parsed to invalid value");
+    throw new Error("tokenizer parsed to invalid value");
   }
-  console.log(`tokenizer.jsondata: ${stat.size} bytes, parse OK`);
+  console.log(`${path.basename(tokenizerPath)}: ${stat.size} bytes, parse OK`);
   return parsed;
 }
 
 async function main(): Promise<void> {
+  if (!process.env.NLLB_MODEL_DIR?.trim()) {
+    console.error(
+      "NLLB_MODEL_DIR no definido.\n" +
+        "Los modelos ya no están en assets/. Descarga NLLB 600M Q8 (Xenova) y apunta la variable al directorio\n" +
+        "con encoder_model_quantized.onnx, decoder_model_merged_quantized.onnx, configs y tokenizer.json.\n" +
+        "Ver TESTING.md y src/constants/model-catalog.ts.",
+    );
+    process.exit(2);
+  }
+
   const started = Date.now();
   console.log("NLLB golden check");
   console.log(`models: ${MODELS}`);
