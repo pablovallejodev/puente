@@ -14,7 +14,7 @@ const config: ExpoConfig = {
       NSMicrophoneUsageDescription:
         "Puente uses the microphone continuously while Traductor is open to listen and translate your speech in real time. Audio is processed on device and is not saved.",
       NSSpeechRecognitionUsageDescription:
-        "Puente uses speech recognition to transcribe what you say. With an internet connection recognition runs online; offline it uses on-device models when available.",
+        "Puente transcribes speech on-device with a local Whisper model. Audio is processed on the device and is not saved.",
     },
     bundleIdentifier: "com.pablovallejo.puente",
   },
@@ -61,7 +61,7 @@ const config: ExpoConfig = {
         microphonePermission:
           "Puente uses the microphone continuously while Traductor is open to listen and translate your speech in real time. Audio is processed on device and is not saved.",
         speechRecognitionPermission:
-          "Puente uses speech recognition to transcribe what you say. With an internet connection recognition runs online; offline it uses on-device models when available.",
+          "Puente transcribes speech on-device with a local Whisper model. Audio is processed on the device and is not saved.",
         androidSpeechServicePackages: [
           "com.google.android.as",
           "com.google.android.googlequicksearchbox",

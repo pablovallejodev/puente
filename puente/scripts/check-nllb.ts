@@ -19,7 +19,7 @@ import {
 } from "../src/lib/nllb-inference";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const MODELS = path.join(ROOT, "assets", "models");
+const MODELS = path.join(ROOT, "assets", "models", "nllb");
 
 /** Minimum expected size for tokenizer.jsondata (~17 MB). */
 const MIN_TOKENIZER_BYTES = 1_000_000;

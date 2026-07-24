@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   FlatList,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -24,24 +23,13 @@ import {
 } from "@/constants/traductor-languages";
 import { useTraductorSession } from "@/contexts/traductor-session-context";
 import { useChatMessages } from "@/hooks/use-chat-messages";
-import { useNetworkConnected } from "@/hooks/use-network-connected";
 import { useSpeechTranscriptor } from "@/hooks/use-speech-transcriptor";
 import {
   useTranslator,
   type TranslationTarget,
 } from "@/hooks/use-translator";
-import { formatSttError, sttError } from "@/lib/stt-errors";
 import { STANDARD_HORIZONTAL_PADDING } from "@/constants/ui";
 import { StatusBarHiddenComponent } from "@/utils/statusbar";
-
-const INTERNET_BANNER_TEXT =
-  "Estás utilizando Internet. Si quieres utilizar más de un idioma, descárgalo.";
-
-const INTERNET_BANNER_NO_ON_DEVICE_TEXT =
-  "Estás utilizando Internet. El reconocimiento local no está disponible en este dispositivo.";
-
-const ON_DEVICE_UNAVAILABLE_TEXT =
-  "Reconocimiento local no disponible en este dispositivo. En GrapheneOS puede requerir Android System Intelligence.";
 
 export default function TraductorComponent() {
   const [isFocused, setIsFocused] = useState(true);
@@ -62,7 +50,6 @@ export default function TraductorComponent() {
     primaryInputLanguage,
     outputLanguage,
     inputSttMode,
-    onDeviceSttAvailable,
     removeInputLanguage,
     checkLocale,
   } = useTraductorSession();
@@ -74,51 +61,14 @@ export default function TraductorComponent() {
   const [translationTarget, setTranslationTarget] =
     useState<TranslationTarget | null>(null);
 
-  const networkConnected = useNetworkConnected();
-  const networkKnown = networkConnected !== null;
   const inputLocales = useMemo(
     () => inputLanguages.map((l) => l.speechLocale),
     [inputLanguages],
   );
 
-  const isInternetMode = inputSttMode === "internet";
-  const isDownloadedMode = inputSttMode === "downloaded";
   const multiInput = inputLanguages.length > 1;
-  const canDetectMulti =
-    multiInput &&
-    Platform.OS === "android" &&
-    Platform.Version >= 34 &&
-    isDownloadedMode &&
-    onDeviceSttAvailable;
-
-  // Never pass true to native start unless framework on-device STT exists.
-  const useOnDevice = isDownloadedMode && onDeviceSttAvailable;
-  const offlineBlocked = networkConnected === false && isInternetMode;
-  const showInternetBanner =
-    isInternetMode && networkConnected === true && networkKnown;
-  const showOnDeviceUnavailableAlone =
-    Platform.OS === "android" &&
-    !onDeviceSttAvailable &&
-    isFocused &&
-    !showInternetBanner;
-
-  const offlineBlockError = offlineBlocked
-    ? sttError(
-        "STT_OFFLINE_MODELS_MISSING",
-        "Sin conexión — descarga el idioma en Idiomas para usar offline",
-      )
-    : null;
-
-  const speechEnabled = isFocused && networkKnown && !offlineBlocked;
-
-  useEffect(() => {
-    if (offlineBlockError) {
-      console.warn("[traductor] STT_OFFLINE_MODELS_MISSING", {
-        inputLocales,
-        inputSttMode,
-      });
-    }
-  }, [offlineBlockError, inputLocales, inputSttMode]);
+  // Whisper Tiny is always on-device (bundled). No network gate for STT.
+  const speechEnabled = isFocused;
 
   const handleInterim = useCallback(
     (text: string, isFinal: boolean, detectedLocale?: string) => {
@@ -170,7 +120,7 @@ export default function TraductorComponent() {
   const { error: speechError, checkingPermissions } = useSpeechTranscriptor(
     inputLocales,
     {
-      requiresOnDeviceRecognition: useOnDevice,
+      requiresOnDeviceRecognition: true,
       onInterimTranscript: handleInterim,
       enabled: speechEnabled,
     },
@@ -187,20 +137,15 @@ export default function TraductorComponent() {
     flatListRef.current?.scrollToEnd({ animated: true });
   }, [messages]);
 
-  const statusLabel = offlineBlocked
-    ? "Sin conexión — descarga el idioma en Idiomas para usar offline"
-    : status === "loading"
+  const statusLabel =
+    status === "loading"
       ? "Cargando motor de traducción…"
       : checkingPermissions
-        ? "Comprobando micrófono…"
+        ? "Cargando reconocimiento (Whisper)…"
         : ready
-          ? canDetectMulti
-            ? "Listo · reconocimiento local · multilingüe"
-            : isDownloadedMode && multiInput && Platform.OS !== "android"
-              ? "Listo · reconocimiento local (solo primer idioma)"
-              : isDownloadedMode
-                ? "Listo · reconocimiento local"
-                : "Listo · reconocimiento online"
+          ? multiInput
+            ? "Listo · Whisper on-device (idioma principal)"
+            : "Listo · Whisper on-device"
           : "Error";
 
   return (
@@ -245,15 +190,6 @@ export default function TraductorComponent() {
         </View>
       ) : null}
 
-      {offlineBlockError ? (
-        <View style={styles.errorBox}>
-          <Text style={styles.errorText}>{offlineBlockError.message}</Text>
-          <Text style={styles.errorMeta}>
-            {formatSttError(offlineBlockError)}
-          </Text>
-        </View>
-      ) : null}
-
       {speechError ? (
         <View style={styles.errorBox}>
           <Text style={styles.errorText}>{speechError.message}</Text>
@@ -262,16 +198,6 @@ export default function TraductorComponent() {
       ) : null}
 
       <View style={styles.bottomPanel}>
-        {showInternetBanner ? (
-          <Text style={styles.internetBanner}>
-            {onDeviceSttAvailable
-              ? INTERNET_BANNER_TEXT
-              : INTERNET_BANNER_NO_ON_DEVICE_TEXT}
-          </Text>
-        ) : null}
-        {showOnDeviceUnavailableAlone ? (
-          <Text style={styles.onDeviceHint}>{ON_DEVICE_UNAVAILABLE_TEXT}</Text>
-        ) : null}
         <InputLanguagesRow
           languages={inputLanguages}
           inputSttMode={inputSttMode}
@@ -356,22 +282,6 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 8,
     backgroundColor: "#FFFFFF",
-  },
-  internetBanner: {
-    fontFamily: "Mulish_500Medium",
-    fontSize: 12,
-    color: "#000000",
-    textAlign: "center",
-    marginBottom: 10,
-    lineHeight: 18,
-  },
-  onDeviceHint: {
-    fontFamily: "Mulish_500Medium",
-    fontSize: 11,
-    color: "#666666",
-    textAlign: "center",
-    marginBottom: 10,
-    lineHeight: 16,
   },
   arrowDown: {
     fontFamily: "Mulish_500Medium",

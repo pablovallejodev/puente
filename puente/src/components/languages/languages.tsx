@@ -1,5 +1,5 @@
-import { useEffect, useMemo } from "react";
-import { Platform, SectionList, StyleSheet, Text, View } from "react-native";
+import { useMemo } from "react";
+import { SectionList, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -10,7 +10,6 @@ import {
   useTraductorSession,
 } from "@/contexts/traductor-session-context";
 import type { TraductorLanguage } from "@/constants/traductor-languages";
-import { isLocaleInstalledState } from "@/lib/traductor-input-mode";
 import { StatusBarHiddenComponent } from "@/utils/statusbar";
 
 type SlotParam = "input" | "output";
@@ -18,12 +17,7 @@ type SlotParam = "input" | "output";
 type LanguageSection = {
   title: string;
   data: TraductorLanguage[];
-  showDownload: boolean;
 };
-
-function androidSupportsDownloadUi(): boolean {
-  return Platform.OS === "android" && Platform.Version >= 33;
-}
 
 export default function LanguagesComponent() {
   const router = useRouter();
@@ -33,50 +27,16 @@ export default function LanguagesComponent() {
   const {
     inputLanguages,
     outputLanguage,
-    onDeviceSttAvailable,
     selectInputLanguage,
     setOutputLanguage,
     getDownloadState,
-    downloadSttModel,
-    refreshInstalledLocales,
   } = useTraductorSession();
 
   const sections = useMemo((): LanguageSection[] => {
-    if (slot === "output") {
-      return [{ title: "Idiomas", data: TRADUCTOR_LANGUAGES, showDownload: false }];
-    }
-
-    const downloaded: TraductorLanguage[] = [];
-    const internet: TraductorLanguage[] = [];
-
-    for (const lang of TRADUCTOR_LANGUAGES) {
-      if (
-        onDeviceSttAvailable &&
-        isLocaleInstalledState(getDownloadState(lang.speechLocale))
-      ) {
-        downloaded.push(lang);
-      } else {
-        internet.push(lang);
-      }
-    }
-
-    const result: LanguageSection[] = [];
-    if (downloaded.length > 0) {
-      result.push({ title: "Descargados", data: downloaded, showDownload: false });
-    }
-    if (internet.length > 0) {
-      result.push({
-        title: onDeviceSttAvailable ? "Internet" : "Internet (solo online)",
-        data: internet,
-        showDownload: onDeviceSttAvailable,
-      });
-    }
-    return result;
-  }, [slot, getDownloadState, onDeviceSttAvailable]);
-
-  useEffect(() => {
-    void refreshInstalledLocales();
-  }, [refreshInstalledLocales]);
+    const title =
+      slot === "output" ? "Idiomas" : "Whisper on-device (multilingüe)";
+    return [{ title, data: TRADUCTOR_LANGUAGES }];
+  }, [slot]);
 
   const handleSelect = (language: TraductorLanguage) => {
     if (slot === "output") {
@@ -98,13 +58,6 @@ export default function LanguagesComponent() {
         loading={false}
       />
 
-      {slot === "input" && !onDeviceSttAvailable ? (
-        <Text style={styles.unavailableHint}>
-          Reconocimiento local no disponible en este dispositivo. Puedes
-          seleccionar un idioma para usar con Internet.
-        </Text>
-      ) : null}
-
       <SectionList
         sections={sections}
         keyExtractor={(item) => item.id}
@@ -114,14 +67,8 @@ export default function LanguagesComponent() {
             <Text style={styles.sectionTitle}>{section.title}</Text>
           </View>
         )}
-        renderItem={({ item, section }) => {
+        renderItem={({ item }) => {
           const downloadState = getDownloadState(item.speechLocale);
-          const showDownload =
-            slot === "input" &&
-            section.showDownload &&
-            androidSupportsDownloadUi() &&
-            onDeviceSttAvailable &&
-            downloadState.status !== "installed";
           const selected =
             slot === "output"
               ? outputLanguage.id === item.id
@@ -132,9 +79,9 @@ export default function LanguagesComponent() {
               language={item}
               downloadState={downloadState}
               selected={selected}
-              showDownload={showDownload}
+              showDownload={false}
               onSelect={() => handleSelect(item)}
-              onDownload={() => downloadSttModel(item.speechLocale)}
+              onDownload={() => {}}
             />
           );
         }}
@@ -151,15 +98,6 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingBottom: 24,
-  },
-  unavailableHint: {
-    fontFamily: "Mulish_500Medium",
-    fontSize: 12,
-    color: "#666666",
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 4,
-    lineHeight: 18,
   },
   sectionHeader: {
     paddingHorizontal: 16,

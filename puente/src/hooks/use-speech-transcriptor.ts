@@ -1,21 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Platform } from "react-native";
 import * as Haptics from "expo-haptics";
 import {
-  ExpoSpeechRecognitionModule,
-  RecognizerIntentEnableLanguageSwitch,
-  useSpeechRecognitionEvent,
-} from "expo-speech-recognition";
-import { setAudioModeAsync } from "expo-audio";
+  requestRecordingPermissionsAsync,
+  setAudioModeAsync,
+  useAudioStream,
+  type AudioStreamBuffer,
+} from "expo-audio";
 
 import {
-  ANDROID_AS_PACKAGE,
-  getOnDeviceSttPackageSync,
-  isOnDeviceSttSupported,
-} from "@/lib/android-stt-service";
-const CONTINUOUS_RECOGNITION = true;
-const RESTART_DELAY_MS = 300;
-const ERROR_BACKOFF_MS = 1000;
+  WHISPER_SAMPLE_RATE,
+  WhisperAudioEndpoint,
+} from "@/lib/whisper-audio-endpoint";
+import {
+  loadWhisperEngine,
+  type WhisperEngine,
+} from "@/lib/whisper-engine";
+import { isWhisperError } from "@/lib/whisper-errors";
 
 export type SpeechError = {
   code: string;
@@ -23,6 +23,7 @@ export type SpeechError = {
 } | null;
 
 export type SpeechTranscriptorOptions = {
+  /** Ignored: Whisper is always on-device. Kept for API compatibility. */
   requiresOnDeviceRecognition?: boolean;
   onInterimTranscript?: (
     text: string,
@@ -32,236 +33,175 @@ export type SpeechTranscriptorOptions = {
   enabled?: boolean;
 };
 
+function bufferToFloat32(buffer: AudioStreamBuffer): Float32Array {
+  if (buffer.channels !== 1) {
+    const view = new Float32Array(buffer.data);
+    const frames = Math.floor(view.length / buffer.channels);
+    const mono = new Float32Array(frames);
+    for (let i = 0; i < frames; i++) {
+      let sum = 0;
+      for (let c = 0; c < buffer.channels; c++) {
+        sum += view[i * buffer.channels + c];
+      }
+      mono[i] = sum / buffer.channels;
+    }
+    return mono;
+  }
+  return new Float32Array(buffer.data);
+}
+
+function resampleTo16k(input: Float32Array, inputRate: number): Float32Array {
+  if (inputRate === WHISPER_SAMPLE_RATE) return input;
+  if (inputRate <= 0 || input.length === 0) return input;
+  const outLen = Math.max(
+    1,
+    Math.floor((input.length * WHISPER_SAMPLE_RATE) / inputRate),
+  );
+  const out = new Float32Array(outLen);
+  const ratio = inputRate / WHISPER_SAMPLE_RATE;
+  for (let i = 0; i < outLen; i++) {
+    const src = i * ratio;
+    const i0 = Math.floor(src);
+    const i1 = Math.min(i0 + 1, input.length - 1);
+    const t = src - i0;
+    out[i] = input[i0] * (1 - t) + input[i1] * t;
+  }
+  return out;
+}
+
 export function useSpeechTranscriptor(
   inputLocales: string[],
   options: SpeechTranscriptorOptions = {},
 ) {
-  const {
-    requiresOnDeviceRecognition = false,
-    onInterimTranscript,
-    enabled = true,
-  } = options;
+  const { onInterimTranscript, enabled = true } = options;
 
   const localesKey = inputLocales.join("|");
 
-  const [hasPermissions, setHasPermissions] = useState<boolean>(false);
-  const [checkingPermissions, setCheckingPermissions] = useState<boolean>(true);
-  const [transcript, setTranscript] = useState<string>("");
-  const [isListening, setIsListening] = useState<boolean>(false);
+  const [hasPermissions, setHasPermissions] = useState(false);
+  const [checkingPermissions, setCheckingPermissions] = useState(true);
+  const [transcript, setTranscript] = useState("");
+  const [isListening, setIsListening] = useState(false);
   const [error, setError] = useState<SpeechError>(null);
+  const [engineReady, setEngineReady] = useState(false);
 
-  const isMountedRef = useRef<boolean>(true);
-  const permissionsGrantedRef = useRef<boolean>(false);
+  const isMountedRef = useRef(true);
+  const permissionsGrantedRef = useRef(false);
   const inputLocalesRef = useRef(inputLocales);
-  const detectedLocaleRef = useRef<string>("");
-  const requiresOnDeviceRef = useRef(requiresOnDeviceRecognition);
   const onInterimRef = useRef(onInterimTranscript);
-  const sessionGenRef = useRef(0);
-  const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const startingRef = useRef(false);
-  const stoppingRef = useRef(false);
+  const engineRef = useRef<WhisperEngine | null>(null);
+  const endpointRef = useRef<WhisperAudioEndpoint | null>(null);
+  const chunkHandlerRef = useRef<(pcm: Float32Array) => void>(() => {});
+  const transcribingRef = useRef(false);
+  const enabledRef = useRef(enabled);
   const prevLocalesKeyRef = useRef(localesKey);
-  const prevOnDeviceRef = useRef(requiresOnDeviceRecognition);
 
   inputLocalesRef.current = inputLocales;
-  requiresOnDeviceRef.current = requiresOnDeviceRecognition;
   onInterimRef.current = onInterimTranscript;
+  enabledRef.current = enabled;
 
-  const clearRestartTimer = useCallback(() => {
-    if (restartTimerRef.current) {
-      clearTimeout(restartTimerRef.current);
-      restartTimerRef.current = null;
-    }
+  useEffect(() => {
+    endpointRef.current = new WhisperAudioEndpoint({
+      onSpeechChunk: (pcm) => {
+        chunkHandlerRef.current(pcm);
+      },
+    });
+    return () => {
+      endpointRef.current?.reset();
+      endpointRef.current = null;
+    };
   }, []);
 
-  const startListeningInternal = useCallback(async () => {
-    if (
-      !enabled ||
-      !permissionsGrantedRef.current ||
-      stoppingRef.current ||
-      startingRef.current
-    ) {
-      return;
-    }
+  chunkHandlerRef.current = (pcm: Float32Array) => {
+    void (async () => {
+      const engine = engineRef.current;
+      if (!engine || !isMountedRef.current || !enabledRef.current) return;
+      if (transcribingRef.current) return;
 
-    startingRef.current = true;
+      transcribingRef.current = true;
+      endpointRef.current?.setBusy(true);
+      try {
+        const locale = inputLocalesRef.current[0] ?? "en-US";
+        const text = await engine.transcribe(pcm, locale);
+        if (!isMountedRef.current || !text.trim()) return;
+        setTranscript(text);
+        onInterimRef.current?.(text, true, locale);
+        setTranscript("");
+        setError(null);
+      } catch (err) {
+        if (!isMountedRef.current) return;
+        const message = isWhisperError(err)
+          ? err.toDisplayString()
+          : err instanceof Error
+            ? err.message
+            : String(err);
+        setError({ code: "whisper_failed", message });
+      } finally {
+        transcribingRef.current = false;
+        endpointRef.current?.setBusy(false);
+      }
+    })();
+  };
+
+  const onBuffer = useCallback((buffer: AudioStreamBuffer) => {
+    if (!enabledRef.current || !permissionsGrantedRef.current) return;
+    const floatBuf = bufferToFloat32(buffer);
+    const pcm = resampleTo16k(floatBuf, buffer.sampleRate);
+    endpointRef.current?.push(pcm);
+  }, []);
+
+  const { stream, isStreaming } = useAudioStream({
+    sampleRate: WHISPER_SAMPLE_RATE,
+    channels: 1,
+    encoding: "float32",
+    onBuffer,
+  });
+
+  const stopListening = useCallback(() => {
+    try {
+      stream.stop();
+    } catch {
+      /* ignore */
+    }
+    endpointRef.current?.flush();
+    setIsListening(false);
+  }, [stream]);
+
+  const startListeningInternal = useCallback(async () => {
+    if (!enabledRef.current || !permissionsGrantedRef.current) return;
+    if (!engineRef.current) return;
 
     try {
-      setTranscript("");
-
-      if (
-        requiresOnDeviceRef.current &&
-        Platform.OS === "android" &&
-        !isOnDeviceSttSupported()
-      ) {
-        setIsListening(false);
-        setError({
-          code: "on-device-unavailable",
-          message:
-            "Reconocimiento local no disponible en este dispositivo. Usa modo Internet.",
-        });
-        return;
-      }
-
-      const locales = inputLocalesRef.current;
-      const primaryLocale = locales[0] ?? "en-US";
-      const multiLang = locales.length > 1;
-      const canDetectMulti =
-        multiLang &&
-        Platform.OS === "android" &&
-        Platform.Version >= 34 &&
-        requiresOnDeviceRef.current;
-
-      if (__DEV__ && multiLang && !canDetectMulti) {
-        console.info("[stt] multi_fallback_primary", { locales });
-      }
-
-      const startOptions: Parameters<
-        typeof ExpoSpeechRecognitionModule.start
-      >[0] = {
-        lang: primaryLocale,
-        maxAlternatives: 1,
-        addsPunctuation: true,
-        continuous: CONTINUOUS_RECOGNITION,
-        interimResults: true,
-        requiresOnDeviceRecognition: requiresOnDeviceRef.current,
-      };
-
-      const onDevicePackage =
-        getOnDeviceSttPackageSync() ?? ANDROID_AS_PACKAGE;
-
-      if (canDetectMulti) {
-        startOptions.androidRecognitionServicePackage = onDevicePackage;
-        startOptions.androidIntentOptions = {
-          EXTRA_ENABLE_LANGUAGE_DETECTION: true,
-          EXTRA_ENABLE_LANGUAGE_SWITCH:
-            RecognizerIntentEnableLanguageSwitch.LANGUAGE_SWITCH_BALANCED,
-          EXTRA_LANGUAGE_DETECTION_ALLOWED_LANGUAGES: locales,
-          EXTRA_LANGUAGE_SWITCH_ALLOWED_LANGUAGES: locales,
-        };
-      } else if (requiresOnDeviceRef.current && Platform.OS === "android") {
-        startOptions.androidRecognitionServicePackage = onDevicePackage;
-      }
-
-      ExpoSpeechRecognitionModule.start(startOptions);
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      endpointRef.current?.reset();
+      await stream.start();
+      setIsListening(true);
+      setError(null);
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     } catch (err) {
       setIsListening(false);
       const message = err instanceof Error ? err.message : String(err);
       setError({ code: "start_failed", message });
-    } finally {
-      startingRef.current = false;
     }
-  }, [enabled]);
-
-  const scheduleRestartWithStart = useCallback(
-    (delayMs: number) => {
-      clearRestartTimer();
-      const gen = sessionGenRef.current;
-      restartTimerRef.current = setTimeout(() => {
-        if (!isMountedRef.current || gen !== sessionGenRef.current) return;
-        if (!enabled || !permissionsGrantedRef.current || stoppingRef.current) {
-          return;
-        }
-        void startListeningInternal();
-      }, delayMs);
-    },
-    [clearRestartTimer, enabled, startListeningInternal],
-  );
-
-  useSpeechRecognitionEvent("start", () => {
-    if (!isMountedRef.current) return;
-    setIsListening(true);
-    setError(null);
-  });
-
-  useSpeechRecognitionEvent("end", () => {
-    if (!isMountedRef.current) return;
-    setIsListening(false);
-
-    if (stoppingRef.current) return;
-
-    if (permissionsGrantedRef.current && enabled) {
-      scheduleRestartWithStart(RESTART_DELAY_MS);
-    }
-  });
-
-  useSpeechRecognitionEvent("result", (event) => {
-    if (!isMountedRef.current) return;
-
-    if (event.results && event.results.length > 0) {
-      const transcriptText = event.results
-        .map((_result) => _result.transcript)
-        .join(" ");
-      const trimmed = transcriptText.trim();
-      if (!trimmed) return;
-
-      const goodTranscript = `${trimmed[0].toUpperCase()}${trimmed.slice(1)}`;
-      setTranscript(goodTranscript);
-
-      const locale =
-        detectedLocaleRef.current || inputLocalesRef.current[0] || "";
-      onInterimRef.current?.(goodTranscript, event.isFinal, locale);
-
-      if (event.isFinal) {
-        setTranscript("");
-        detectedLocaleRef.current = "";
-      }
-    }
-  });
-
-  useSpeechRecognitionEvent("error", (event) => {
-    if (!isMountedRef.current) return;
-    setIsListening(false);
-
-    if (event.error !== "aborted" && event.error !== "no-speech") {
-      setError({
-        code: event.error,
-        message: event.message ?? event.error,
-      });
-
-      if (permissionsGrantedRef.current && enabled && !stoppingRef.current) {
-        scheduleRestartWithStart(ERROR_BACKOFF_MS);
-      }
-    }
-  });
-
-  useSpeechRecognitionEvent("languagedetection", (event) => {
-    if (!event.detectedLanguage) return;
-    detectedLocaleRef.current = event.detectedLanguage;
-  });
-
-  const stopListening = useCallback(() => {
-    clearRestartTimer();
-    stoppingRef.current = true;
-    sessionGenRef.current += 1;
-
-    try {
-      ExpoSpeechRecognitionModule.stop();
-    } catch {
-      // ignore
-    }
-
-    setIsListening(false);
-  }, [clearRestartTimer]);
+  }, [stream]);
 
   const restartListening = useCallback(async () => {
     stopListening();
-    stoppingRef.current = false;
-    await new Promise((r) => setTimeout(r, 200));
+    await new Promise((r) => setTimeout(r, 150));
     await startListeningInternal();
   }, [startListeningInternal, stopListening]);
 
-  const requestPermissions = useCallback(async () => {
+  const requestPermissionsAndLoad = useCallback(async () => {
     try {
       setCheckingPermissions(true);
 
-      const speechStatus =
-        await ExpoSpeechRecognitionModule.requestPermissionsAsync();
-      if (!speechStatus.granted) {
+      const mic = await requestRecordingPermissionsAsync();
+      if (!mic.granted) {
         setHasPermissions(false);
-        setCheckingPermissions(false);
         permissionsGrantedRef.current = false;
+        setCheckingPermissions(false);
+        setError({
+          code: "permission_denied",
+          message: "Se necesita permiso de micrófono",
+        });
         return;
       }
 
@@ -270,27 +210,32 @@ export function useSpeechTranscriptor(
         allowsRecording: true,
       });
 
-      const available = ExpoSpeechRecognitionModule.isRecognitionAvailable();
-      if (!available) {
-        setHasPermissions(false);
-        setCheckingPermissions(false);
-        permissionsGrantedRef.current = false;
-        return;
-      }
-
       setHasPermissions(true);
-      setCheckingPermissions(false);
       permissionsGrantedRef.current = true;
 
-      if (enabled) await startListeningInternal();
-    } catch (err) {
-      setHasPermissions(false);
+      const engine = await loadWhisperEngine();
+      if (!isMountedRef.current) return;
+      engineRef.current = engine;
+      setEngineReady(true);
       setCheckingPermissions(false);
+
+      if (enabledRef.current) {
+        await startListeningInternal();
+      }
+    } catch (err) {
+      if (!isMountedRef.current) return;
+      setHasPermissions(false);
       permissionsGrantedRef.current = false;
-      const message = err instanceof Error ? err.message : String(err);
-      setError({ code: "permission_failed", message });
+      setEngineReady(false);
+      setCheckingPermissions(false);
+      const message = isWhisperError(err)
+        ? err.toDisplayString()
+        : err instanceof Error
+          ? err.message
+          : String(err);
+      setError({ code: "whisper_load_failed", message });
     }
-  }, [enabled, startListeningInternal]);
+  }, [startListeningInternal]);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -306,8 +251,7 @@ export function useSpeechTranscriptor(
       };
     }
 
-    stoppingRef.current = false;
-    void requestPermissions();
+    void requestPermissionsAndLoad();
 
     return () => {
       isMountedRef.current = false;
@@ -317,34 +261,27 @@ export function useSpeechTranscriptor(
         allowsRecording: false,
       });
     };
-  }, [enabled, requestPermissions, stopListening]);
+  }, [enabled, requestPermissionsAndLoad, stopListening]);
 
   useEffect(() => {
-    if (!permissionsGrantedRef.current || !enabled) return;
-
-    const localesChanged = prevLocalesKeyRef.current !== localesKey;
-    const onDeviceChanged =
-      prevOnDeviceRef.current !== requiresOnDeviceRecognition;
-
+    if (!permissionsGrantedRef.current || !enabled || !engineReady) return;
+    if (prevLocalesKeyRef.current === localesKey) return;
     prevLocalesKeyRef.current = localesKey;
-    prevOnDeviceRef.current = requiresOnDeviceRecognition;
+    void restartListening();
+  }, [localesKey, enabled, engineReady, restartListening]);
 
-    if (localesChanged || onDeviceChanged) {
-      void restartListening();
+  useEffect(() => {
+    if (isMountedRef.current) {
+      setIsListening(isStreaming);
     }
-  }, [
-    localesKey,
-    requiresOnDeviceRecognition,
-    enabled,
-    restartListening,
-  ]);
+  }, [isStreaming]);
 
   return {
     isListening,
     transcript,
     error,
     hasPermissions,
-    checkingPermissions,
+    checkingPermissions: checkingPermissions || (enabled && !engineReady),
     restartListening,
     stopListening,
   };

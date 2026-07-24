@@ -3,30 +3,43 @@ import * as FileSystem from "expo-file-system/legacy";
 import { Tokenizer } from "@huggingface/tokenizers";
 import { InferenceSession, Tensor } from "onnxruntime-react-native";
 
+import { speechLocaleToWhisperLang } from "@/constants/whisper-languages";
 import {
-  type GenerationConfig,
-  type ModelConfig,
-  SESSION_OPTIONS,
-  translateText,
-} from "@/lib/nllb-inference";
+  DEFAULT_PREPROCESSOR,
+  type WhisperPreprocessorConfig,
+} from "@/lib/whisper-mel";
 import {
-  isTranslatorError,
-  TranslatorError,
-  wrapUnknownError,
-} from "@/lib/translator-errors";
+  WHISPER_SESSION_OPTIONS,
+  transcribePcm,
+  type WhisperGenerationConfig,
+  type WhisperModelConfig,
+} from "@/lib/whisper-inference";
+import {
+  isWhisperError,
+  WhisperError,
+  wrapWhisperError,
+} from "@/lib/whisper-errors";
+import type { TensorConstructor } from "@/lib/nllb-inference";
 
-const MODEL_CONFIG = require("@/assets/models/nllb/config.json") as ModelConfig;
+const MODEL_CONFIG = require("@/assets/models/whisper-tiny/config.json") as WhisperModelConfig;
 const GENERATION_CONFIG =
-  require("@/assets/models/nllb/generation_config.json") as GenerationConfig;
+  require("@/assets/models/whisper-tiny/generation_config.json") as WhisperGenerationConfig;
+const PREPROCESSOR_CONFIG = {
+  ...DEFAULT_PREPROCESSOR,
+  ...(require("@/assets/models/whisper-tiny/preprocessor_config.json") as Partial<WhisperPreprocessorConfig>),
+};
 const TOKENIZER_CONFIG =
-  require("@/assets/models/nllb/tokenizer_config.json") as Record<string, unknown>;
-const TOKENIZER_RAW_ASSET = require("@/assets/models/nllb/tokenizer.jsondata");
-const ENCODER_ASSET = require("@/assets/models/nllb/encoder_model_quantized.onnx");
-const DECODER_ASSET = require("@/assets/models/nllb/decoder_model_merged_quantized.onnx");
+  require("@/assets/models/whisper-tiny/tokenizer_config.json") as Record<
+    string,
+    unknown
+  >;
+const TOKENIZER_RAW_ASSET = require("@/assets/models/whisper-tiny/tokenizer.jsondata");
+const ENCODER_ASSET = require("@/assets/models/whisper-tiny/encoder_model_quantized.onnx");
+const DECODER_ASSET = require("@/assets/models/whisper-tiny/decoder_model_merged_quantized.onnx");
 
-export const MODEL_VERSION = "nllb-200-distilled-600M-q8";
+export const MODEL_VERSION = "whisper-tiny-int8-q";
 
-const MODEL_DIR = `${FileSystem.documentDirectory ?? ""}nllb/${MODEL_VERSION}/`;
+const MODEL_DIR = `${FileSystem.documentDirectory ?? ""}whisper/${MODEL_VERSION}/`;
 const ENCODER_PATH = `${MODEL_DIR}encoder_model_quantized.onnx`;
 const DECODER_PATH = `${MODEL_DIR}decoder_model_merged_quantized.onnx`;
 
@@ -34,12 +47,9 @@ function toOrtPath(uri: string): string {
   return uri.replace(/^file:\/\//, "");
 }
 
-function assertRawAssetModule(
-  moduleRef: unknown,
-  label: string,
-): number {
+function assertRawAssetModule(moduleRef: unknown, label: string): number {
   if (typeof moduleRef !== "number") {
-    throw new TranslatorError({
+    throw new WhisperError({
       code: "ASSET_UNAVAILABLE",
       stage: "tokenizer.load",
       message: `Asset ${label} mal empaquetado (tipo ${typeof moduleRef}). Reinstala la APK.`,
@@ -60,9 +70,8 @@ async function loadTokenizerJson(): Promise<Record<string, unknown>> {
     const moduleId = assertRawAssetModule(TOKENIZER_RAW_ASSET, label);
     const asset = Asset.fromModule(moduleId);
     await asset.downloadAsync();
-
     if (!asset.localUri) {
-      throw new TranslatorError({
+      throw new WhisperError({
         code: "ASSET_UNAVAILABLE",
         stage: "tokenizer.load",
         message: `No se pudo resolver la ruta del asset ${label}`,
@@ -70,11 +79,10 @@ async function loadTokenizerJson(): Promise<Record<string, unknown>> {
         context: { label },
       });
     }
-
     const text = await FileSystem.readAsStringAsync(asset.localUri);
     const parsed = JSON.parse(text) as Record<string, unknown>;
     if (!parsed || typeof parsed !== "object") {
-      throw new TranslatorError({
+      throw new WhisperError({
         code: "TOKENIZER_LOAD_FAILED",
         stage: "tokenizer.load",
         message: `Tokenizer ${label} parseado vacío o inválido`,
@@ -84,10 +92,10 @@ async function loadTokenizerJson(): Promise<Record<string, unknown>> {
     }
     return parsed;
   } catch (err) {
-    if (isTranslatorError(err)) throw err;
+    if (isWhisperError(err)) throw err;
     const message = err instanceof Error ? err.message : String(err);
     const registryMissing = isAssetRegistryError(message);
-    throw new TranslatorError({
+    throw new WhisperError({
       code: registryMissing ? "ASSET_UNAVAILABLE" : "TOKENIZER_LOAD_FAILED",
       stage: "tokenizer.load",
       message: registryMissing
@@ -99,10 +107,10 @@ async function loadTokenizerJson(): Promise<Record<string, unknown>> {
   }
 }
 
-async function ensureDirectory(path: string): Promise<void> {
-  const info = await FileSystem.getInfoAsync(path);
+async function ensureDirectory(dirPath: string): Promise<void> {
+  const info = await FileSystem.getInfoAsync(dirPath);
   if (!info.exists) {
-    await FileSystem.makeDirectoryAsync(path, { intermediates: true });
+    await FileSystem.makeDirectoryAsync(dirPath, { intermediates: true });
   }
 }
 
@@ -111,18 +119,16 @@ async function copyAssetToPath(
   destPath: string,
   label: string,
 ): Promise<string> {
-  let moduleId: number;
   try {
-    moduleId = assertRawAssetModule(assetModule, label);
+    const moduleId = assertRawAssetModule(assetModule, label);
     const asset = Asset.fromModule(moduleId);
     await asset.downloadAsync();
-
     if (!asset.localUri) {
-      throw new TranslatorError({
+      throw new WhisperError({
         code: "ASSET_UNAVAILABLE",
         stage: "asset.prepare",
         message: `No se pudo resolver la ruta del asset ${label}`,
-        recoverable: label === "tokenizer" ? false : true,
+        recoverable: true,
         context: { label },
       });
     }
@@ -132,7 +138,11 @@ async function copyAssetToPath(
         ? asset.filesize
         : undefined;
     const destInfo = await FileSystem.getInfoAsync(destPath);
-    if (destInfo.exists && expectedSize !== undefined && destInfo.size === expectedSize) {
+    if (
+      destInfo.exists &&
+      expectedSize !== undefined &&
+      destInfo.size === expectedSize
+    ) {
       return destPath;
     }
     if (destInfo.exists && expectedSize === undefined) {
@@ -140,7 +150,6 @@ async function copyAssetToPath(
     }
 
     await ensureDirectory(MODEL_DIR);
-
     const tempPath = `${destPath}.tmp`;
     try {
       await FileSystem.copyAsync({ from: asset.localUri, to: tempPath });
@@ -150,7 +159,7 @@ async function copyAssetToPath(
         tempInfo.exists &&
         tempInfo.size !== expectedSize
       ) {
-        throw new TranslatorError({
+        throw new WhisperError({
           code: "ASSET_INCOMPLETE",
           stage: "asset.prepare",
           message: `Copia incompleta de ${label}`,
@@ -162,7 +171,6 @@ async function copyAssetToPath(
           },
         });
       }
-
       if (destInfo.exists) {
         await FileSystem.deleteAsync(destPath, { idempotent: true });
       }
@@ -170,16 +178,16 @@ async function copyAssetToPath(
       return destPath;
     } catch (err) {
       await FileSystem.deleteAsync(tempPath, { idempotent: true });
-      if (isTranslatorError(err)) throw err;
-      throw wrapUnknownError(err, "asset.prepare", "ASSET_COPY_FAILED", true, {
+      if (isWhisperError(err)) throw err;
+      throw wrapWhisperError(err, "asset.prepare", "ASSET_COPY_FAILED", true, {
         label,
       });
     }
   } catch (err) {
-    if (isTranslatorError(err)) throw err;
+    if (isWhisperError(err)) throw err;
     const message = err instanceof Error ? err.message : String(err);
     const registryMissing = isAssetRegistryError(message);
-    throw new TranslatorError({
+    throw new WhisperError({
       code: registryMissing ? "ASSET_UNAVAILABLE" : "ASSET_COPY_FAILED",
       stage: "asset.prepare",
       message: registryMissing
@@ -193,14 +201,13 @@ async function copyAssetToPath(
 
 async function prepareModelFiles(): Promise<{ encoder: string; decoder: string }> {
   if (!FileSystem.documentDirectory) {
-    throw new TranslatorError({
+    throw new WhisperError({
       code: "ASSET_UNAVAILABLE",
       stage: "asset.prepare",
       message: "Directorio de documentos no disponible en este dispositivo",
       recoverable: false,
     });
   }
-
   const [encoder, decoder] = await Promise.all([
     copyAssetToPath(ENCODER_ASSET, ENCODER_PATH, "encoder"),
     copyAssetToPath(DECODER_ASSET, DECODER_PATH, "decoder"),
@@ -221,58 +228,59 @@ function releaseSession(session: InferenceSession): void {
   }
 }
 
-export class NllbEngine {
+export class WhisperEngine {
   private tokenizer: Tokenizer;
   private encoderSession: InferenceSession;
   private decoderSession: InferenceSession;
-  private modelConfig: ModelConfig;
-  private eosTokenId: number;
+  private modelConfig: WhisperModelConfig;
+  private generationConfig: WhisperGenerationConfig;
+  private preprocessor: WhisperPreprocessorConfig;
 
   private constructor(
     tokenizer: Tokenizer,
     encoderSession: InferenceSession,
     decoderSession: InferenceSession,
-    modelConfig: ModelConfig,
-    generationConfig: GenerationConfig,
+    modelConfig: WhisperModelConfig,
+    generationConfig: WhisperGenerationConfig,
+    preprocessor: WhisperPreprocessorConfig,
   ) {
     this.tokenizer = tokenizer;
     this.encoderSession = encoderSession;
     this.decoderSession = decoderSession;
     this.modelConfig = modelConfig;
-    this.eosTokenId =
-      tokenizer.token_to_id("</s>") ?? generationConfig.eos_token_id;
+    this.generationConfig = generationConfig;
+    this.preprocessor = preprocessor;
   }
 
-  static async create(): Promise<NllbEngine> {
+  static async create(): Promise<WhisperEngine> {
     let modelPaths: { encoder: string; decoder: string };
     try {
       modelPaths = await prepareModelFiles();
     } catch (err) {
-      if (isTranslatorError(err)) throw err;
-      throw wrapUnknownError(err, "asset.prepare", "ASSET_COPY_FAILED", true);
+      if (isWhisperError(err)) throw err;
+      throw wrapWhisperError(err, "asset.prepare", "ASSET_COPY_FAILED", true);
     }
 
     let tokenizerJson: Record<string, unknown>;
     try {
       tokenizerJson = await loadTokenizerJson();
     } catch (err) {
-      if (isTranslatorError(err)) throw err;
-      throw wrapUnknownError(err, "tokenizer.load", "TOKENIZER_LOAD_FAILED", true);
+      if (isWhisperError(err)) throw err;
+      throw wrapWhisperError(err, "tokenizer.load", "TOKENIZER_LOAD_FAILED", true);
     }
 
     let tokenizer: Tokenizer;
     try {
       tokenizer = new Tokenizer(tokenizerJson, TOKENIZER_CONFIG);
     } catch (err) {
-      throw wrapUnknownError(err, "tokenizer.load", "TOKENIZER_LOAD_FAILED", true);
+      throw wrapWhisperError(err, "tokenizer.load", "TOKENIZER_LOAD_FAILED", true);
     }
 
     let encoderSession: InferenceSession;
-    let decoderSession: InferenceSession;
     try {
       encoderSession = await InferenceSession.create(
         modelPaths.encoder,
-        SESSION_OPTIONS,
+        WHISPER_SESSION_OPTIONS,
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -280,7 +288,7 @@ export class NllbEngine {
         message.includes("install") ||
         message.includes("OrtApi is not initialized")
       ) {
-        throw new TranslatorError({
+        throw new WhisperError({
           code: "ORT_NOT_REGISTERED",
           stage: "session.encoder",
           message:
@@ -288,43 +296,53 @@ export class NllbEngine {
           recoverable: false,
         });
       }
-      throw wrapUnknownError(err, "session.encoder", "SESSION_ENCODER_FAILED", true);
+      throw wrapWhisperError(
+        err,
+        "session.encoder",
+        "SESSION_ENCODER_FAILED",
+        true,
+      );
     }
 
+    let decoderSession: InferenceSession;
     try {
       decoderSession = await InferenceSession.create(
         modelPaths.decoder,
-        SESSION_OPTIONS,
+        WHISPER_SESSION_OPTIONS,
       );
     } catch (err) {
       releaseSession(encoderSession);
-      throw wrapUnknownError(err, "session.decoder", "SESSION_DECODER_FAILED", true);
+      throw wrapWhisperError(
+        err,
+        "session.decoder",
+        "SESSION_DECODER_FAILED",
+        true,
+      );
     }
 
-    return new NllbEngine(
+    return new WhisperEngine(
       tokenizer,
       encoderSession,
       decoderSession,
       MODEL_CONFIG,
       GENERATION_CONFIG,
+      PREPROCESSOR_CONFIG,
     );
   }
 
-  async translate(
-    text: string,
-    srcLang: string,
-    tgtLang: string,
-  ): Promise<string> {
-    return translateText({
-      text,
-      srcLang,
-      tgtLang,
+  /** Transcribe PCM float32 mono @ 16 kHz. `speechLocale` is BCP-47. */
+  async transcribe(pcm: Float32Array, speechLocale: string): Promise<string> {
+    const language = speechLocaleToWhisperLang(speechLocale);
+    return transcribePcm({
+      pcm,
+      language,
       tokenizer: this.tokenizer,
       encoderSession: this.encoderSession as unknown as import("@/lib/nllb-inference").OrtSession,
       decoderSession: this.decoderSession as unknown as import("@/lib/nllb-inference").OrtSession,
       modelConfig: this.modelConfig,
-      eosTokenId: this.eosTokenId,
-      TensorCtor: Tensor as unknown as import("@/lib/nllb-inference").TensorConstructor,
+      generationConfig: this.generationConfig,
+      preprocessor: this.preprocessor,
+      TensorCtor: Tensor as unknown as TensorConstructor,
     });
   }
 
@@ -334,13 +352,13 @@ export class NllbEngine {
   }
 }
 
-let enginePromise: Promise<NllbEngine> | null = null;
+let enginePromise: Promise<WhisperEngine> | null = null;
 let engineLoadAttempts = 0;
-let cachedEngine: NllbEngine | null = null;
+let cachedEngine: WhisperEngine | null = null;
 
-export const MAX_ENGINE_LOAD_ATTEMPTS = 2;
+export const MAX_WHISPER_LOAD_ATTEMPTS = 2;
 
-export function resetEngine(): void {
+export function resetWhisperEngine(): void {
   if (cachedEngine) {
     cachedEngine.dispose();
     cachedEngine = null;
@@ -348,25 +366,27 @@ export function resetEngine(): void {
   enginePromise = null;
 }
 
-export async function loadEngine(forceRetry = false): Promise<NllbEngine> {
+export async function loadWhisperEngine(
+  forceRetry = false,
+): Promise<WhisperEngine> {
   if (forceRetry) {
-    resetEngine();
+    resetWhisperEngine();
     engineLoadAttempts = 0;
   }
 
   if (!enginePromise) {
-    if (engineLoadAttempts >= MAX_ENGINE_LOAD_ATTEMPTS) {
-      throw new TranslatorError({
+    if (engineLoadAttempts >= MAX_WHISPER_LOAD_ATTEMPTS) {
+      throw new WhisperError({
         code: "ENGINE_LOAD_FAILED",
         stage: "session.encoder",
-        message: "Se agotaron los reintentos de carga del modelo",
+        message: "Se agotaron los reintentos de carga de Whisper",
         recoverable: false,
         context: { attempts: engineLoadAttempts },
       });
     }
 
     engineLoadAttempts += 1;
-    enginePromise = NllbEngine.create()
+    enginePromise = WhisperEngine.create()
       .then((engine) => {
         cachedEngine = engine;
         return engine;
@@ -374,10 +394,14 @@ export async function loadEngine(forceRetry = false): Promise<NllbEngine> {
       .catch((err) => {
         enginePromise = null;
         cachedEngine = null;
-        if (isTranslatorError(err)) throw err;
-        throw wrapUnknownError(err, "session.encoder", "ENGINE_LOAD_FAILED", true, {
-          attempt: engineLoadAttempts,
-        });
+        if (isWhisperError(err)) throw err;
+        throw wrapWhisperError(
+          err,
+          "session.encoder",
+          "ENGINE_LOAD_FAILED",
+          true,
+          { attempt: engineLoadAttempts },
+        );
       });
   }
 
