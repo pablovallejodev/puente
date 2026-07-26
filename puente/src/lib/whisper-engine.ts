@@ -12,6 +12,7 @@ import {
   transcribePcm,
   type WhisperGenerationConfig,
   type WhisperModelConfig,
+  type WhisperTranscribeResult,
 } from "@/lib/whisper-inference";
 import {
   isWhisperError,
@@ -224,12 +225,23 @@ export class WhisperEngine {
     );
   }
 
-  /** Transcribe PCM float32 mono @ 16 kHz. `speechLocale` is BCP-47. */
-  async transcribe(pcm: Float32Array, speechLocale: string): Promise<string> {
-    const language = speechLocaleToWhisperLang(speechLocale);
+  /**
+   * Transcribe PCM float32 mono @ 16 kHz.
+   * `languageOrLocale`: `"auto"` (Universal) or BCP-47 locale (forced).
+   */
+  async transcribe(
+    pcm: Float32Array,
+    languageOrLocale: "auto" | string,
+    options?: { stickyLanguage?: string | null },
+  ): Promise<WhisperTranscribeResult> {
+    const language =
+      languageOrLocale === "auto"
+        ? "auto"
+        : speechLocaleToWhisperLang(languageOrLocale);
     return transcribePcm({
       pcm,
       language,
+      stickyLanguage: options?.stickyLanguage ?? null,
       tokenizer: this.tokenizer,
       encoderSession: this.encoderSession as unknown as import("@/lib/nllb-inference").OrtSession,
       decoderSession: this.decoderSession as unknown as import("@/lib/nllb-inference").OrtSession,

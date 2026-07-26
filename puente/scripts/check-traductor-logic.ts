@@ -1,12 +1,24 @@
 import assert from "node:assert/strict";
 
 import {
-  DEFAULT_INPUT_LANGUAGES,
-  inputSpeechLocalesKey,
-  resolveInputLanguageFromDetection,
+  FALLBACK_OUTPUT_LANGUAGE,
+  findTraductorLanguageById,
+  findTraductorLanguageByLocale,
+  resolveDeviceTraductorLanguage,
   TRADUCTOR_LANGUAGES,
-  type TraductorLanguage,
+  UNIVERSAL_INPUT,
+  type InputLanguageSelection,
 } from "../src/constants/traductor-languages";
+import {
+  speechLocaleToWhisperLang,
+  whisperLangToSpeechLocale,
+  UNIVERSAL_CANDIDATE_LANGS,
+} from "../src/constants/whisper-languages";
+import {
+  LANG_DETECT_MIN_PROB,
+  softmaxLangAmong,
+} from "../src/lib/whisper-inference";
+import type { OrtTensor } from "../src/lib/nllb-inference";
 import {
   isLocaleInstalled,
   isLocaleSupported,
@@ -15,13 +27,6 @@ import {
 } from "../src/lib/stt-locale";
 import { formatSttError, sttError } from "../src/lib/stt-errors";
 import { getMissingInputLocales } from "../src/lib/traductor-offline";
-import {
-  applyInputLanguageSelection,
-  getInputSttMode,
-  removeDownloadedInputLanguage,
-  sanitizeInputLanguages,
-} from "../src/lib/traductor-input-mode";
-import type { SttDownloadState } from "../src/hooks/use-offline-stt-download";
 
 function testLocaleMatching(): void {
   assert.equal(normalizeLocale("en_US"), "en-us");
@@ -99,207 +104,104 @@ function testPerMessageGeneration(): void {
     gens.set(id, next);
     return next;
   };
-  const isCurrent = (id: string, gen: number) => gens.get(id) === gen;
+  const isCurrent = (id: string, g: number) => gens.get(id) === g;
 
-  const g1 = bump("m1");
-  const g2 = bump("m2");
-  const g1b = bump("m1");
-
-  assert.equal(isCurrent("m1", g1), false);
-  assert.equal(isCurrent("m1", g1b), true);
-  assert.equal(isCurrent("m2", g2), true);
+  const g1 = bump("a");
+  const g2 = bump("a");
+  assert.equal(isCurrent("a", g1), false);
+  assert.equal(isCurrent("a", g2), true);
 }
 
 function testFinalTranslationFreeze(): void {
   type Msg = {
     id: string;
     isFinal: boolean;
-    isTranslating: boolean;
     translated: string;
+    isTranslating: boolean;
   };
 
   const apply = (
     m: Msg,
     text: string,
-    isTranslating: boolean,
-    force = false,
+    options?: { force?: boolean },
   ): Msg => {
-    if (!force && m.isFinal && m.translated && !m.isTranslating && text) {
+    if (!options?.force && m.isFinal && m.translated && !m.isTranslating && text) {
       return m;
     }
-    return { ...m, translated: text, isTranslating };
+    return { ...m, translated: text, isTranslating: false };
   };
 
-  const finalMsg: Msg = {
-    id: "m1",
-    isFinal: true,
-    isTranslating: false,
-    translated: "Hello",
-  };
-  const frozen = apply(finalMsg, "Bonjour", false);
+  const frozen = apply(
+    {
+      id: "1",
+      isFinal: true,
+      translated: "Hello",
+      isTranslating: false,
+    },
+    "Bonjour",
+  );
   assert.equal(frozen.translated, "Hello");
 
-  const forced = apply(finalMsg, "Bonjour", false, true);
+  const forced = apply(
+    {
+      id: "1",
+      isFinal: true,
+      translated: "Hello",
+      isTranslating: false,
+    },
+    "Bonjour",
+    { force: true },
+  );
   assert.equal(forced.translated, "Bonjour");
 }
 
-function testInputSpeechLocalesKey(): void {
-  const langs: TraductorLanguage[] = [
-    TRADUCTOR_LANGUAGES[0],
-    TRADUCTOR_LANGUAGES[1],
-  ];
-  assert.equal(inputSpeechLocalesKey(langs), "en-US|es-ES");
-  assert.equal(inputSpeechLocalesKey(DEFAULT_INPUT_LANGUAGES), "en-US");
+function testProductLanguagesIncludeSqTh(): void {
+  assert.ok(findTraductorLanguageById("sq"));
+  assert.ok(findTraductorLanguageById("th"));
+  assert.equal(findTraductorLanguageByLocale("sq-AL")?.id, "sq");
+  assert.equal(findTraductorLanguageByLocale("th-TH")?.id, "th");
+  assert.equal(speechLocaleToWhisperLang("sq-AL"), "sq");
+  assert.equal(speechLocaleToWhisperLang("th-TH"), "th");
+  assert.equal(whisperLangToSpeechLocale("sq"), "sq-AL");
+  assert.equal(whisperLangToSpeechLocale("th"), "th-TH");
+  assert.ok(UNIVERSAL_CANDIDATE_LANGS.includes("sq"));
+  assert.ok(UNIVERSAL_CANDIDATE_LANGS.includes("th"));
+  assert.equal(TRADUCTOR_LANGUAGES.length >= 9, true);
 }
 
-function testResolveInputLanguageFromDetection(): void {
-  const inputLanguages = [TRADUCTOR_LANGUAGES[0], TRADUCTOR_LANGUAGES[1]];
-
-  const exact = resolveInputLanguageFromDetection("es-ES", inputLanguages);
-  assert.equal(exact.id, "es");
-
-  const prefix = resolveInputLanguageFromDetection("es-MX", inputLanguages);
-  assert.equal(prefix.id, "es");
-
-  const fallback = resolveInputLanguageFromDetection("fr-FR", inputLanguages);
-  assert.equal(fallback.id, "en");
+function testResolveDeviceTraductorLanguage(): void {
+  assert.equal(resolveDeviceTraductorLanguage("es-ES").id, "es");
+  assert.equal(resolveDeviceTraductorLanguage("ca-ES").id, "ca");
+  assert.equal(resolveDeviceTraductorLanguage("th-TH").id, "th");
+  assert.equal(resolveDeviceTraductorLanguage("sq-AL").id, "sq");
+  assert.equal(resolveDeviceTraductorLanguage("ja-JP").id, FALLBACK_OUTPUT_LANGUAGE.id);
 }
 
-function mockDownloadState(
-  installedLocales: string[],
-): (locale: string) => SttDownloadState {
-  return (locale) =>
-    installedLocales.includes(locale)
-      ? { status: "installed" }
-      : { status: "not_installed" };
-}
-
-function testInputSttMode(): void {
-  const getState = mockDownloadState(["es-ES"]);
-  assert.equal(
-    getInputSttMode([TRADUCTOR_LANGUAGES[0]], getState),
-    "internet",
-  );
-  assert.equal(
-    getInputSttMode([TRADUCTOR_LANGUAGES[1]], getState),
-    "downloaded",
-  );
-  // GrapheneOS / no on-device: never enter downloaded mode.
-  assert.equal(
-    getInputSttMode([TRADUCTOR_LANGUAGES[1]], getState, false),
-    "internet",
-  );
-}
-
-function testApplyInputLanguageSelection(): void {
-  const getEs = mockDownloadState(["es-ES"]);
-  const getBoth = mockDownloadState(["en-US", "es-ES"]);
-
-  let langs = [...DEFAULT_INPUT_LANGUAGES];
-  langs = applyInputLanguageSelection(
-    langs,
-    TRADUCTOR_LANGUAGES[1],
-    true,
-    getEs,
-  );
-  assert.deepEqual(
-    langs.map((lang) => lang.id),
-    ["es"],
-  );
-
-  langs = applyInputLanguageSelection(
-    langs,
-    TRADUCTOR_LANGUAGES[0],
-    true,
-    getBoth,
-  );
-  assert.deepEqual(
-    langs.map((lang) => lang.id),
-    ["es", "en"],
-  );
-
-  langs = applyInputLanguageSelection(
-    langs,
-    TRADUCTOR_LANGUAGES[2],
-    false,
-    getBoth,
-  );
-  assert.deepEqual(
-    langs.map((lang) => lang.id),
-    ["ca"],
-  );
-
-  // Selecting "installed" language when on-device is unavailable → internet mode.
-  langs = applyInputLanguageSelection(
-    [...DEFAULT_INPUT_LANGUAGES],
-    TRADUCTOR_LANGUAGES[1],
-    true,
-    getEs,
-    false,
-  );
-  assert.deepEqual(
-    langs.map((lang) => lang.id),
-    ["es"],
-  );
-  assert.equal(getInputSttMode(langs, getEs, false), "internet");
-}
-
-function testSanitizeInputLanguages(): void {
-  const getMixed = mockDownloadState(["es-ES"]);
-  const sanitized = sanitizeInputLanguages(
-    [TRADUCTOR_LANGUAGES[0], TRADUCTOR_LANGUAGES[1]],
-    getMixed,
-  );
-  assert.deepEqual(
-    sanitized.map((lang) => lang.id),
-    ["en"],
-  );
-
-  const noOnDevice = sanitizeInputLanguages(
-    [TRADUCTOR_LANGUAGES[1], TRADUCTOR_LANGUAGES[0]],
-    getMixed,
-    false,
-  );
-  assert.deepEqual(
-    noOnDevice.map((lang) => lang.id),
-    ["es"],
-  );
-}
-
-function testRemoveDownloadedInputLanguage(): void {
-  const getBoth = mockDownloadState(["en-US", "es-ES"]);
-  const langs = removeDownloadedInputLanguage(
-    [TRADUCTOR_LANGUAGES[0], TRADUCTOR_LANGUAGES[1]],
-    "en",
-    getBoth,
-  );
-  assert.deepEqual(
-    langs.map((lang) => lang.id),
-    ["es"],
-  );
-}
-
-function testAddRemoveGuards(): void {
-  const add = (prev: TraductorLanguage[], lang: TraductorLanguage, max: number) => {
-    if (prev.length >= max) return prev;
-    if (prev.some((l) => l.id === lang.id)) return prev;
-    return [...prev, lang];
+function testInputSelectionShape(): void {
+  const universal: InputLanguageSelection = UNIVERSAL_INPUT;
+  assert.equal(universal.kind, "universal");
+  const fixed: InputLanguageSelection = {
+    kind: "fixed",
+    language: TRADUCTOR_LANGUAGES[1],
   };
+  assert.equal(fixed.kind, "fixed");
+  assert.equal(fixed.language.id, "es");
+}
 
-  const remove = (prev: TraductorLanguage[], id: string) => {
-    if (prev.length <= 1) return prev;
-    return prev.filter((l) => l.id !== id);
+function testSoftmaxLangAmong(): void {
+  const vocab = 10;
+  const data = new Float32Array(vocab);
+  data[3] = 5;
+  data[7] = 1;
+  const logits: OrtTensor = {
+    dims: [1, 1, vocab],
+    data,
   };
-
-  let langs = [...DEFAULT_INPUT_LANGUAGES];
-  langs = add(langs, TRADUCTOR_LANGUAGES[1], 5);
-  assert.equal(langs.length, 2);
-  langs = add(langs, TRADUCTOR_LANGUAGES[1], 5);
-  assert.equal(langs.length, 2);
-  langs = remove(langs, "en");
-  assert.equal(langs.length, 1);
-  langs = remove(langs, "es");
-  assert.equal(langs.length, 1);
+  const { id, prob, index } = softmaxLangAmong(logits, [3, 7]);
+  assert.equal(id, 3);
+  assert.equal(index, 0);
+  assert.ok(prob > 0.9);
+  assert.ok(prob >= LANG_DETECT_MIN_PROB);
 }
 
 function testGetMissingInputLocales(): void {
@@ -314,15 +216,6 @@ function testFormatSttError(): void {
   assert.equal(
     formatSttError(err),
     "[STT_OFFLINE_MODELS_MISSING] Faltan modelos: es-ES",
-  );
-
-  const onDeviceErr = sttError(
-    "STT_ON_DEVICE_UNAVAILABLE",
-    "Reconocimiento local no disponible",
-  );
-  assert.equal(
-    formatSttError(onDeviceErr),
-    "[STT_ON_DEVICE_UNAVAILABLE] Reconocimiento local no disponible",
   );
 }
 
@@ -351,13 +244,10 @@ testMessageIsolation();
 testStaleRequestGuard();
 testPerMessageGeneration();
 testFinalTranslationFreeze();
-testInputSpeechLocalesKey();
-testResolveInputLanguageFromDetection();
-testInputSttMode();
-testApplyInputLanguageSelection();
-testSanitizeInputLanguages();
-testRemoveDownloadedInputLanguage();
-testAddRemoveGuards();
+testProductLanguagesIncludeSqTh();
+testResolveDeviceTraductorLanguage();
+testInputSelectionShape();
+testSoftmaxLangAmong();
 testGetMissingInputLocales();
 testFormatSttError();
 testSourceLanguageFreeze();

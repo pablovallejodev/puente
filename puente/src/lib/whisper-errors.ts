@@ -7,7 +7,9 @@ export type WhisperStage =
   | "encode.run"
   | "decode.run"
   | "decode.output"
-  | "audio.capture";
+  | "audio.capture"
+  | "lang.detect"
+  | "lang.resolve";
 
 export type WhisperErrorCode =
   | "ASSET_UNAVAILABLE"
@@ -24,7 +26,12 @@ export type WhisperErrorCode =
   | "DECODE_EMPTY"
   | "ENGINE_LOAD_FAILED"
   | "AUDIO_FAILED"
-  | "OUT_OF_MEMORY";
+  | "OUT_OF_MEMORY"
+  | "LANG_DETECT_FAILED"
+  | "LANG_DETECT_EMPTY"
+  | "LANG_DETECT_LOW_CONFIDENCE"
+  | "LANG_DETECT_AUDIO_TOO_SHORT"
+  | "LANG_DETECT_UNSUPPORTED";
 
 export type WhisperErrorInfo = {
   code: WhisperErrorCode;

@@ -22,6 +22,10 @@ export type SpeechError = {
   message: string;
 } | null;
 
+export type SpeechInputMode =
+  | { mode: "auto" }
+  | { mode: "fixed"; locale: string };
+
 export type SpeechTranscriptorOptions = {
   /** Ignored: Whisper is always on-device. Kept for API compatibility. */
   requiresOnDeviceRecognition?: boolean;
@@ -32,6 +36,8 @@ export type SpeechTranscriptorOptions = {
   ) => void;
   enabled?: boolean;
 };
+
+const STICKY_TTL_MS = 45_000;
 
 function bufferToFloat32(buffer: AudioStreamBuffer): Float32Array {
   if (buffer.channels !== 1) {
@@ -69,13 +75,17 @@ function resampleTo16k(input: Float32Array, inputRate: number): Float32Array {
   return out;
 }
 
+function inputModeKey(input: SpeechInputMode): string {
+  return input.mode === "auto" ? "auto" : `fixed:${input.locale}`;
+}
+
 export function useSpeechTranscriptor(
-  inputLocales: string[],
+  input: SpeechInputMode,
   options: SpeechTranscriptorOptions = {},
 ) {
   const { onInterimTranscript, enabled = true } = options;
 
-  const localesKey = inputLocales.join("|");
+  const modeKey = inputModeKey(input);
 
   const [hasPermissions, setHasPermissions] = useState(false);
   const [checkingPermissions, setCheckingPermissions] = useState(true);
@@ -86,16 +96,17 @@ export function useSpeechTranscriptor(
 
   const isMountedRef = useRef(true);
   const permissionsGrantedRef = useRef(false);
-  const inputLocalesRef = useRef(inputLocales);
+  const inputRef = useRef(input);
   const onInterimRef = useRef(onInterimTranscript);
   const engineRef = useRef<WhisperEngine | null>(null);
   const endpointRef = useRef<WhisperAudioEndpoint | null>(null);
   const chunkHandlerRef = useRef<(pcm: Float32Array) => void>(() => {});
   const transcribingRef = useRef(false);
   const enabledRef = useRef(enabled);
-  const prevLocalesKeyRef = useRef(localesKey);
+  const prevModeKeyRef = useRef(modeKey);
+  const stickyLangRef = useRef<{ language: string; at: number } | null>(null);
 
-  inputLocalesRef.current = inputLocales;
+  inputRef.current = input;
   onInterimRef.current = onInterimTranscript;
   enabledRef.current = enabled;
 
@@ -120,21 +131,54 @@ export function useSpeechTranscriptor(
       transcribingRef.current = true;
       endpointRef.current?.setBusy(true);
       try {
-        const locale = inputLocalesRef.current[0] ?? "en-US";
-        const text = await engine.transcribe(pcm, locale);
-        if (!isMountedRef.current || !text.trim()) return;
-        setTranscript(text);
-        onInterimRef.current?.(text, true, locale);
+        const current = inputRef.current;
+        const sticky =
+          current.mode === "auto" &&
+          stickyLangRef.current &&
+          Date.now() - stickyLangRef.current.at < STICKY_TTL_MS
+            ? stickyLangRef.current.language
+            : null;
+
+        const result = await engine.transcribe(
+          pcm,
+          current.mode === "auto" ? "auto" : current.locale,
+          { stickyLanguage: sticky },
+        );
+
+        if (!isMountedRef.current || !result.text.trim()) return;
+
+        if (current.mode === "auto" && !result.usedSticky) {
+          stickyLangRef.current = {
+            language: result.language,
+            at: Date.now(),
+          };
+        }
+
+        if (__DEV__) {
+          console.info("[stt] detect", {
+            language: result.language,
+            prob: Number(result.languageProb.toFixed(3)),
+            sticky: result.usedSticky,
+            locale: result.speechLocale,
+            textLen: result.text.length,
+          });
+        }
+
+        setTranscript(result.text);
+        onInterimRef.current?.(result.text, true, result.speechLocale);
         setTranscript("");
         setError(null);
       } catch (err) {
         if (!isMountedRef.current) return;
-        const message = isWhisperError(err)
-          ? err.toDisplayString()
-          : err instanceof Error
-            ? err.message
-            : String(err);
-        setError({ code: "whisper_failed", message });
+        if (isWhisperError(err)) {
+          setError({
+            code: err.code,
+            message: err.toDisplayString(),
+          });
+        } else {
+          const message = err instanceof Error ? err.message : String(err);
+          setError({ code: "whisper_failed", message });
+        }
       } finally {
         transcribingRef.current = false;
         endpointRef.current?.setBusy(false);
@@ -228,12 +272,15 @@ export function useSpeechTranscriptor(
       permissionsGrantedRef.current = false;
       setEngineReady(false);
       setCheckingPermissions(false);
-      const message = isWhisperError(err)
-        ? err.toDisplayString()
-        : err instanceof Error
-          ? err.message
-          : String(err);
-      setError({ code: "whisper_load_failed", message });
+      if (isWhisperError(err)) {
+        setError({
+          code: err.code,
+          message: err.toDisplayString(),
+        });
+      } else {
+        const message = err instanceof Error ? err.message : String(err);
+        setError({ code: "whisper_load_failed", message });
+      }
     }
   }, [startListeningInternal]);
 
@@ -265,10 +312,11 @@ export function useSpeechTranscriptor(
 
   useEffect(() => {
     if (!permissionsGrantedRef.current || !enabled || !engineReady) return;
-    if (prevLocalesKeyRef.current === localesKey) return;
-    prevLocalesKeyRef.current = localesKey;
+    if (prevModeKeyRef.current === modeKey) return;
+    prevModeKeyRef.current = modeKey;
+    stickyLangRef.current = null;
     void restartListening();
-  }, [localesKey, enabled, engineReady, restartListening]);
+  }, [modeKey, enabled, engineReady, restartListening]);
 
   useEffect(() => {
     if (isMountedRef.current) {

@@ -189,7 +189,7 @@ async function main(): Promise<void> {
   console.log(`pcm samples: ${pcm.length} (~${(pcm.length / 16000).toFixed(1)}s)`);
 
   const t0 = Date.now();
-  const text = await transcribePcm({
+  const result = await transcribePcm({
     pcm,
     language: "en",
     tokenizer,
@@ -201,9 +201,11 @@ async function main(): Promise<void> {
     TensorCtor: Tensor as unknown as import("../src/lib/nllb-inference").TensorConstructor,
   });
   const ms = Date.now() - t0;
+  const text = result.text;
 
   console.log(`✓ jfk.wav (${ms}ms)`);
   console.log(`  out: ${text}`);
+  console.log(`  lang: ${result.language} (forced)`);
 
   const lower = text.toLowerCase();
   const ok =

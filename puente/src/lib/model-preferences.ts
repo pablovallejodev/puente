@@ -4,6 +4,7 @@ import { wrapModelError } from "@/lib/model-errors";
 
 const KEY_WHISPER = "selectedWhisperModelId";
 const KEY_NLLB = "selectedNllbModelId";
+const KEY_BASE_LANG = "selectedBaseLanguageId";
 
 export type ModelPreferences = {
   selectedWhisperModelId: string | null;
@@ -23,6 +24,27 @@ export async function readModelPreferences(): Promise<ModelPreferences> {
   } catch (err) {
     throw wrapModelError(err, "prefs.read", "MODEL_PREFS_READ_FAILED", true, {
       key: "selected*",
+    });
+  }
+}
+
+export async function readSelectedBaseLanguageId(): Promise<string | null> {
+  try {
+    return await SecureStore.getItemAsync(KEY_BASE_LANG);
+  } catch (err) {
+    throw wrapModelError(err, "prefs.read", "MODEL_PREFS_READ_FAILED", true, {
+      key: KEY_BASE_LANG,
+    });
+  }
+}
+
+export async function setSelectedBaseLanguageId(languageId: string): Promise<void> {
+  try {
+    await SecureStore.setItemAsync(KEY_BASE_LANG, languageId);
+  } catch (err) {
+    throw wrapModelError(err, "prefs.write", "MODEL_PREFS_WRITE_FAILED", true, {
+      key: KEY_BASE_LANG,
+      languageId,
     });
   }
 }

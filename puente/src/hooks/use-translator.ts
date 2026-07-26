@@ -220,6 +220,14 @@ export function useTranslator(
       return;
     }
 
+    if (srcLang === tgtLang) {
+      onTranslationRef.current(messageId, trimmed, false);
+      setError(null);
+      setDiagnostics(null);
+      setStatus("ready");
+      return;
+    }
+
     const timer = setTimeout(() => {
       void (async () => {
         if (!isCurrentGeneration(messageId, generation)) return;

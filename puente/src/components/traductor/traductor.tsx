@@ -15,22 +15,36 @@ import {
 
 import { ChatHeadComponent } from "@/components/basics/headers";
 import { ChatMessageItem } from "@/components/traductor/chat-message-item";
-import { InputLanguagesRow } from "@/components/traductor/input-languages-row";
 import { LanguageSlotButton } from "@/components/traductor/language-slot-button";
 import {
-  inputSpeechLocalesKey,
-  resolveInputLanguageFromDetection,
+  findTraductorLanguageById,
+  findTraductorLanguageByLocale,
 } from "@/constants/traductor-languages";
 import { useTraductorSession } from "@/contexts/traductor-session-context";
 import { useModelCatalog } from "@/contexts/model-catalog-context";
 import { useChatMessages } from "@/hooks/use-chat-messages";
-import { useSpeechTranscriptor } from "@/hooks/use-speech-transcriptor";
+import {
+  useSpeechTranscriptor,
+  type SpeechInputMode,
+} from "@/hooks/use-speech-transcriptor";
 import {
   useTranslator,
   type TranslationTarget,
 } from "@/hooks/use-translator";
 import { STANDARD_HORIZONTAL_PADDING } from "@/constants/ui";
 import { StatusBarHiddenComponent } from "@/utils/statusbar";
+
+function sourceIdFromLocale(locale: string): string {
+  const byLocale = findTraductorLanguageByLocale(locale);
+  if (byLocale) return byLocale.id;
+  const prefix = locale.split("-")[0]?.toLowerCase();
+  if (prefix) {
+    const byId = findTraductorLanguageById(prefix);
+    if (byId) return byId.id;
+    return prefix;
+  }
+  return "und";
+}
 
 export default function TraductorComponent() {
   const router = useRouter();
@@ -47,14 +61,7 @@ export default function TraductorComponent() {
     }, []),
   );
 
-  const {
-    inputLanguages,
-    primaryInputLanguage,
-    outputLanguage,
-    inputSttMode,
-    removeInputLanguage,
-    checkLocale,
-  } = useTraductorSession();
+  const { inputLanguage, outputLanguage } = useTraductorSession();
 
   const { messages, onTranscriptUpdate, onTranslationUpdate } =
     useChatMessages();
@@ -63,49 +70,34 @@ export default function TraductorComponent() {
   const [translationTarget, setTranslationTarget] =
     useState<TranslationTarget | null>(null);
 
-  const inputLocales = useMemo(
-    () => inputLanguages.map((l) => l.speechLocale),
-    [inputLanguages],
-  );
+  const speechInput: SpeechInputMode = useMemo(() => {
+    if (inputLanguage.kind === "universal") return { mode: "auto" };
+    return { mode: "fixed", locale: inputLanguage.language.speechLocale };
+  }, [inputLanguage]);
 
-  const multiInput = inputLanguages.length > 1;
   const speechEnabled = isFocused;
 
   const handleInterim = useCallback(
     (text: string, isFinal: boolean, detectedLocale?: string) => {
-      const resolved = resolveInputLanguageFromDetection(
-        detectedLocale ?? primaryInputLanguage.speechLocale,
-        inputLanguages,
-      );
+      const locale =
+        detectedLocale ??
+        (inputLanguage.kind === "fixed"
+          ? inputLanguage.language.speechLocale
+          : "");
+      if (!locale) return;
 
-      if (
-        __DEV__ &&
-        detectedLocale &&
-        resolved.id === primaryInputLanguage.id &&
-        detectedLocale !== primaryInputLanguage.speechLocale
-      ) {
-        console.info("[stt] detection_unresolved", {
-          detected: detectedLocale,
-          allowed: inputLocales,
-        });
-      }
-
-      const messageId = onTranscriptUpdate(text, isFinal, resolved.id);
+      const sourceLanguageId = sourceIdFromLocale(locale);
+      const messageId = onTranscriptUpdate(text, isFinal, sourceLanguageId);
       if (!messageId || !text.trim()) return;
 
       setTranslationTarget({
         messageId,
         text,
         isFinal,
-        inputLocale: resolved.speechLocale,
+        inputLocale: locale,
       });
     },
-    [
-      onTranscriptUpdate,
-      inputLanguages,
-      primaryInputLanguage,
-      inputLocales,
-    ],
+    [onTranscriptUpdate, inputLanguage],
   );
 
   const handleTranslation = useCallback(
@@ -116,10 +108,14 @@ export default function TraductorComponent() {
   );
 
   const { status, error, diagnostics, ready, retry, canRetryLoad } =
-    useTranslator(translationTarget, outputLanguage.speechLocale, handleTranslation);
+    useTranslator(
+      translationTarget,
+      outputLanguage.speechLocale,
+      handleTranslation,
+    );
 
   const { error: speechError, checkingPermissions } = useSpeechTranscriptor(
-    inputLocales,
+    speechInput,
     {
       requiresOnDeviceRecognition: true,
       onInterimTranscript: handleInterim,
@@ -137,12 +133,6 @@ export default function TraductorComponent() {
   }, [modelsBooting, modelsReady, router]);
 
   useEffect(() => {
-    for (const lang of inputLanguages) {
-      void checkLocale(lang.speechLocale);
-    }
-  }, [inputSpeechLocalesKey(inputLanguages), checkLocale]);
-
-  useEffect(() => {
     if (messages.length === 0) return;
     flatListRef.current?.scrollToEnd({ animated: true });
   }, [messages]);
@@ -153,9 +143,9 @@ export default function TraductorComponent() {
       : checkingPermissions
         ? "Cargando reconocimiento (Whisper)…"
         : ready
-          ? multiInput
-            ? "Listo · Whisper on-device (idioma principal)"
-            : "Listo · Whisper on-device"
+          ? inputLanguage.kind === "universal"
+            ? "Listo · Whisper Universal"
+            : `Listo · Whisper (${inputLanguage.language.id})`
           : "Error";
 
   return (
@@ -192,7 +182,7 @@ export default function TraductorComponent() {
           <Text style={styles.errorText}>{error}</Text>
           {diagnostics ? (
             <Text style={styles.errorMeta}>
-              {diagnostics.code} · {diagnostics.stage}
+              [{diagnostics.code}@{diagnostics.stage}]
             </Text>
           ) : null}
           {(canRetryLoad || ready) && (
@@ -206,16 +196,23 @@ export default function TraductorComponent() {
       {speechError ? (
         <View style={styles.errorBox}>
           <Text style={styles.errorText}>{speechError.message}</Text>
-          <Text style={styles.errorMeta}>{speechError.code}</Text>
         </View>
       ) : null}
 
       <View style={styles.bottomPanel}>
-        <InputLanguagesRow
-          languages={inputLanguages}
-          inputSttMode={inputSttMode}
-          onRemove={removeInputLanguage}
-        />
+        {inputLanguage.kind === "universal" ? (
+          <LanguageSlotButton slot="input" kind="universal" />
+        ) : (
+          <LanguageSlotButton
+            slot="input"
+            kind="fixed"
+            language={inputLanguage.language}
+          />
+        )}
+        <Text style={styles.helperText}>
+          ¿Se está transcribiendo mal? Puedes seleccionar el idioma input para
+          hacerlo mejor.
+        </Text>
         <Text style={styles.arrowDown}>↓</Text>
         <LanguageSlotButton slot="output" language={outputLanguage} />
       </View>
@@ -295,6 +292,15 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 8,
     backgroundColor: "#FFFFFF",
+  },
+  helperText: {
+    fontFamily: "Mulish_500Medium",
+    fontSize: 11,
+    color: "#666666",
+    lineHeight: 15,
+    marginTop: -4,
+    marginBottom: 4,
+    paddingHorizontal: 4,
   },
   arrowDown: {
     fontFamily: "Mulish_500Medium",

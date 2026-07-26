@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { SectionList, StyleSheet, Text, View } from "react-native";
+import { Pressable, SectionList, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -16,7 +16,7 @@ type SlotParam = "input" | "output";
 
 type LanguageSection = {
   title: string;
-  data: TraductorLanguage[];
+  data: Array<TraductorLanguage | { id: "universal"; label: string }>;
 };
 
 export default function LanguagesComponent() {
@@ -25,29 +25,45 @@ export default function LanguagesComponent() {
   const slot: SlotParam = rawSlot === "output" ? "output" : "input";
 
   const {
-    inputLanguages,
+    inputLanguage,
     outputLanguage,
-    selectInputLanguage,
+    selectUniversalInput,
+    selectFixedInputLanguage,
     setOutputLanguage,
     getDownloadState,
   } = useTraductorSession();
 
   const sections = useMemo((): LanguageSection[] => {
-    const title =
-      slot === "output" ? "Idiomas" : "Whisper on-device (multilingüe)";
-    return [{ title, data: TRADUCTOR_LANGUAGES }];
+    if (slot === "output") {
+      return [{ title: "Idiomas", data: TRADUCTOR_LANGUAGES }];
+    }
+    return [
+      {
+        title: "Detección automática",
+        data: [{ id: "universal", label: "Universal" }],
+      },
+      {
+        title: "Idioma fijo",
+        data: TRADUCTOR_LANGUAGES,
+      },
+    ];
   }, [slot]);
+
+  const handleSelectUniversal = () => {
+    selectUniversalInput();
+    router.back();
+  };
 
   const handleSelect = (language: TraductorLanguage) => {
     if (slot === "output") {
       setOutputLanguage(language);
     } else {
-      selectInputLanguage(language);
+      selectFixedInputLanguage(language);
     }
     router.back();
   };
 
-  const titleText = slot === "output" ? "Idioma base" : "Idiomas input";
+  const titleText = slot === "output" ? "Idioma base" : "Idioma input";
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -68,24 +84,48 @@ export default function LanguagesComponent() {
           </View>
         )}
         renderItem={({ item }) => {
-          const downloadState = getDownloadState(item.speechLocale);
+          if (item.id === "universal") {
+            const selected = inputLanguage.kind === "universal";
+            return (
+              <Pressable
+                style={({ pressed }) => [
+                  styles.universalRow,
+                  selected && styles.universalSelected,
+                  pressed && styles.universalPressed,
+                ]}
+                onPress={handleSelectUniversal}
+              >
+                <Text style={styles.universalFlag}>🌐</Text>
+                <View style={styles.universalLabels}>
+                  <Text style={styles.universalLabel}>Universal</Text>
+                  <Text style={styles.universalHint}>
+                    Whisper detecta el idioma automáticamente
+                  </Text>
+                </View>
+                {selected ? <Text style={styles.check}>✓</Text> : null}
+              </Pressable>
+            );
+          }
+
+          const language = item as TraductorLanguage;
+          const downloadState = getDownloadState(language.speechLocale);
           const selected =
             slot === "output"
-              ? outputLanguage.id === item.id
-              : inputLanguages.some((lang) => lang.id === item.id);
+              ? outputLanguage.id === language.id
+              : inputLanguage.kind === "fixed" &&
+                inputLanguage.language.id === language.id;
 
           return (
             <LanguageDownloadRow
-              language={item}
+              language={language}
               downloadState={downloadState}
               selected={selected}
               showDownload={false}
-              onSelect={() => handleSelect(item)}
-              onDownload={() => {}}
+              onSelect={() => handleSelect(language)}
+              onDownload={() => undefined}
             />
           );
         }}
-        contentContainerStyle={styles.listContent}
       />
     </SafeAreaView>
   );
@@ -96,20 +136,60 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#FFFFFF",
   },
-  listContent: {
-    paddingBottom: 24,
-  },
   sectionHeader: {
     paddingHorizontal: 16,
     paddingTop: 16,
     paddingBottom: 8,
-    backgroundColor: "#FFFFFF",
   },
   sectionTitle: {
     fontFamily: "Mulish_800ExtraBold",
-    fontSize: 12,
+    fontSize: 13,
     color: "#666666",
     textTransform: "uppercase",
     letterSpacing: 0.5,
+  },
+  universalRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginHorizontal: 16,
+    marginBottom: 4,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: "#E5E5E5",
+    borderRadius: 8,
+    backgroundColor: "#FFFFFF",
+  },
+  universalSelected: {
+    borderColor: "#000000",
+  },
+  universalPressed: {
+    opacity: 0.85,
+  },
+  universalFlag: {
+    fontSize: 22,
+    width: 32,
+    textAlign: "center",
+  },
+  universalLabels: {
+    flex: 1,
+    marginLeft: 8,
+  },
+  universalLabel: {
+    fontFamily: "Mulish_800ExtraBold",
+    fontSize: 16,
+    color: "#000000",
+  },
+  universalHint: {
+    fontFamily: "Mulish_500Medium",
+    fontSize: 12,
+    color: "#666666",
+    marginTop: 2,
+  },
+  check: {
+    fontFamily: "Mulish_800ExtraBold",
+    fontSize: 16,
+    color: "#000000",
+    marginLeft: 8,
   },
 });

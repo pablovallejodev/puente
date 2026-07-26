@@ -3,32 +3,48 @@ import { useRouter } from "expo-router";
 
 import type { TraductorLanguage } from "@/constants/traductor-languages";
 
-type LanguageSlotButtonProps = {
-  slot: "input" | "output";
-  language: TraductorLanguage;
-};
+type LanguageSlotButtonProps =
+  | {
+      slot: "input";
+      kind: "universal" | "fixed";
+      language?: TraductorLanguage;
+    }
+  | {
+      slot: "output";
+      language: TraductorLanguage;
+    };
 
-export function LanguageSlotButton({ slot, language }: LanguageSlotButtonProps) {
+export function LanguageSlotButton(props: LanguageSlotButtonProps) {
   const router = useRouter();
 
   const goToLanguages = () => {
     router.push({
       pathname: "/languages",
-      params: { slot },
+      params: { slot: props.slot },
     });
   };
+
+  const isUniversal = props.slot === "input" && props.kind === "universal";
+  const language =
+    props.slot === "output"
+      ? props.language
+      : props.kind === "fixed"
+        ? props.language
+        : undefined;
+
+  const flag = isUniversal ? "🌐" : (language?.flagEmoji ?? "🌐");
+  const label = isUniversal ? "Universal" : (language?.label ?? "—");
+  const slotLabel = props.slot === "input" ? "Idioma input" : "Idioma base";
 
   return (
     <Pressable
       style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
       onPress={goToLanguages}
     >
-      <Text style={styles.flag}>{language.flagEmoji}</Text>
+      <Text style={styles.flag}>{flag}</Text>
       <View style={styles.labelColumn}>
-        <Text style={styles.slotLabel}>
-          {slot === "input" ? "Idioma input" : "Idioma base"}
-        </Text>
-        <Text style={styles.label}>{language.label}</Text>
+        <Text style={styles.slotLabel}>{slotLabel}</Text>
+        <Text style={styles.label}>{label}</Text>
       </View>
       <Text style={styles.chevron}>▼</Text>
     </Pressable>

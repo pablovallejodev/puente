@@ -34,9 +34,11 @@ npx expo run:android
 
 1. Primera apertura → pantalla **Modelos** (gate). Sin salir hasta Whisper + NLLB descargados y seleccionados.
 2. “Descargar lo mejor para este teléfono” o cards individuales.
-3. Tras listo → Traductor. Icono ⚙ → volver a Modelos.
-4. Hablar → Whisper transcribe → NLLB traduce. Modo avión tras descarga OK.
-5. Errores de descarga/selección: `[MODEL_*@stage] …` (ver tabla abajo). Inferencia: códigos Whisper/Translator existentes.
+3. Tras listo → Traductor. **Idioma input = Universal** (default). **Idioma base** ≈ locale del teléfono.
+4. Hablar ES/CA/IT/FR (u otro de la lista) en Universal → transcript en ese idioma → NLLB al idioma base.
+5. Si la transcripción falla: tocar Idioma input → elegir idioma fijo (override). Volver a Universal restaura auto-detect.
+6. Icono ⚙ → Modelos. Modo avión tras descarga OK.
+7. Errores: `[CODE@stage] …` (tablas abajo).
 
 ## Códigos de error — modelos (descarga / selección)
 
@@ -68,8 +70,24 @@ Formato: `[CODE@stage] mensaje (context)`
 |--------|-------|-------------|
 | `ORT_NOT_REGISTERED` | `session.encoder` | ONNX no autolinked → prebuild + rebuild |
 | `DECODE_FAILED` | `decode.run` | Fallo decoder |
-| `OUT_OF_MEMORY` | `decode.run` | RAM insuficiente (p. ej. NLLB) |
+| `DECODE_EMPTY` | `decode.output` | Whisper no generó tokens |
+| `OUT_OF_MEMORY` | `decode.run` / load | RAM insuficiente (p. ej. NLLB) |
 | `ENGINE_LOAD_FAILED` | `asset.prepare` | Sin modelo seleccionado / ModelError anidado |
+| `LANGUAGE_UNSUPPORTED` | `decode.run` / `tokenizer.load` | Idioma sin token Whisper o FLORES |
+
+## Códigos de error — detección Universal (Whisper)
+
+Formato: `[CODE@stage] mensaje (context)`
+
+| Código | Stage | Significado |
+|--------|-------|-------------|
+| `LANG_DETECT_FAILED` | `lang.detect` | Excepción en el pass SOT → logits |
+| `LANG_DETECT_EMPTY` | `lang.detect` | Sin logits / sin candidatos `lang_to_id` |
+| `LANG_DETECT_LOW_CONFIDENCE` | `lang.resolve` | Softmax &lt; 0.45 y sin sticky usable |
+| `LANG_DETECT_AUDIO_TOO_SHORT` | `lang.resolve` | Chunk &lt; ~800 ms y sin sticky |
+| `LANG_DETECT_UNSUPPORTED` | `lang.resolve` | Idioma detectado sin mapeo BCP-47 de producto |
+
+Si ves uno de estos, pégalo tal cual (incluye `@stage` y el paréntesis de contexto).
 
 ## Tokenizer
 

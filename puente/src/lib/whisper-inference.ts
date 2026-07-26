@@ -1,4 +1,8 @@
 import {
+  UNIVERSAL_CANDIDATE_LANGS,
+  whisperLangToSpeechLocale,
+} from "@/constants/whisper-languages";
+import {
   argmaxLastToken,
   boolTensor,
   buildEmptyPastFeeds,
@@ -38,9 +42,24 @@ export const WHISPER_SESSION_OPTIONS = {
 
 export const MAX_NEW_TOKENS = 224;
 
+/** Softmax peak below this → sticky or abort (Universal). */
+export const LANG_DETECT_MIN_PROB = 0.45;
+
+/** PCM samples @ 16 kHz — below this, detection is unreliable. */
+export const LANG_DETECT_MIN_SAMPLES = Math.floor(16000 * 0.8);
+
+export type WhisperTranscribeResult = {
+  text: string;
+  language: string;
+  languageProb: number;
+  speechLocale: string;
+  usedSticky: boolean;
+};
+
 export type TranscribeParams = {
   pcm: Float32Array;
-  language: string;
+  /** Whisper ISO code ("es") or "auto". */
+  language: string | "auto";
   tokenizer: TokenizerLike;
   encoderSession: OrtSession;
   decoderSession: OrtSession;
@@ -48,6 +67,9 @@ export type TranscribeParams = {
   generationConfig: WhisperGenerationConfig;
   preprocessor?: WhisperPreprocessorConfig;
   TensorCtor: TensorConstructor;
+  candidateLangs?: readonly string[];
+  /** Sticky from prior Universal utterance. */
+  stickyLanguage?: string | null;
 };
 
 function floatTensor(
@@ -88,47 +110,188 @@ function resolveLanguageTokenId(
   });
 }
 
+function languageCodeFromToken(token: string): string {
+  return token.replace(/^<\|/, "").replace(/\|>$/, "").toLowerCase();
+}
+
+function collectCandidateTokenIds(
+  generationConfig: WhisperGenerationConfig,
+  tokenizer: TokenizerLike,
+  candidateLangs: readonly string[],
+): { ids: number[]; codes: string[] } {
+  const ids: number[] = [];
+  const codes: string[] = [];
+  const allow = new Set(candidateLangs.map((c) => c.toLowerCase()));
+
+  for (const [token, id] of Object.entries(generationConfig.lang_to_id)) {
+    const code = languageCodeFromToken(token);
+    if (!allow.has(code)) continue;
+    if (typeof id !== "number") continue;
+    ids.push(id);
+    codes.push(code);
+  }
+
+  if (ids.length === 0) {
+    for (const code of allow) {
+      const token = `<|${code}|>`;
+      const fromTok = tokenizer.token_to_id(token);
+      if (fromTok === undefined) continue;
+      ids.push(fromTok);
+      codes.push(code);
+    }
+  }
+
+  return { ids, codes };
+}
+
+/** Softmax over candidate language logits at the last decoder position. */
+export function softmaxLangAmong(
+  logits: OrtTensor,
+  candidateIds: number[],
+): { index: number; id: number; prob: number } {
+  if (candidateIds.length === 0) {
+    throw new WhisperError({
+      code: "LANG_DETECT_EMPTY",
+      stage: "lang.detect",
+      message: "No hay tokens de idioma candidatos",
+      recoverable: false,
+    });
+  }
+
+  const dims = logits.dims;
+  const seqLen = dims.length >= 2 ? Number(dims[1]) : 1;
+  const vocabSize = dims.length >= 3 ? Number(dims[2]) : 0;
+  const data = logits.data as Float32Array;
+  const offset = (seqLen - 1) * vocabSize;
+
+  let maxLogit = -Infinity;
+  for (const id of candidateIds) {
+    const v = data[offset + id];
+    if (v > maxLogit) maxLogit = v;
+  }
+
+  let sum = 0;
+  const exps = new Array<number>(candidateIds.length);
+  for (let i = 0; i < candidateIds.length; i++) {
+    const e = Math.exp(data[offset + candidateIds[i]] - maxLogit);
+    exps[i] = e;
+    sum += e;
+  }
+
+  let bestIndex = 0;
+  let bestProb = -1;
+  for (let i = 0; i < candidateIds.length; i++) {
+    const p = exps[i] / sum;
+    if (p > bestProb) {
+      bestProb = p;
+      bestIndex = i;
+    }
+  }
+
+  return {
+    index: bestIndex,
+    id: candidateIds[bestIndex],
+    prob: bestProb,
+  };
+}
+
+async function detectLanguageFromEncoder(
+  encoderHiddenStates: OrtTensor,
+  params: Pick<
+    TranscribeParams,
+    | "decoderSession"
+    | "modelConfig"
+    | "generationConfig"
+    | "tokenizer"
+    | "TensorCtor"
+    | "candidateLangs"
+  >,
+): Promise<{ language: string; languageProb: number }> {
+  const {
+    decoderSession,
+    modelConfig,
+    generationConfig,
+    tokenizer,
+    TensorCtor,
+    candidateLangs = UNIVERSAL_CANDIDATE_LANGS,
+  } = params;
+
+  const { ids, codes } = collectCandidateTokenIds(
+    generationConfig,
+    tokenizer,
+    candidateLangs,
+  );
+  if (ids.length === 0) {
+    throw new WhisperError({
+      code: "LANG_DETECT_EMPTY",
+      stage: "lang.detect",
+      message: "lang_to_id vacío para candidatos Universal",
+      recoverable: false,
+    });
+  }
+
+  const numLayers = modelConfig.decoder_layers;
+  const numHeads = modelConfig.decoder_attention_heads;
+  const headDim = modelConfig.d_model / numHeads;
+  const sot = generationConfig.decoder_start_token_id;
+  const pastFeeds = buildEmptyPastFeeds(numLayers, numHeads, headDim, TensorCtor);
+
+  let decoderOutputs: Record<string, OrtTensor | unknown>;
+  try {
+    decoderOutputs = await decoderSession.run({
+      input_ids: int64Tensor([sot], TensorCtor),
+      encoder_hidden_states: encoderHiddenStates,
+      use_cache_branch: boolTensor(false, TensorCtor),
+      ...pastFeeds,
+    });
+  } catch (err) {
+    throw wrapWhisperError(
+      err,
+      "lang.detect",
+      "LANG_DETECT_FAILED",
+      true,
+    );
+  }
+
+  const logits = decoderOutputs.logits as OrtTensor | undefined;
+  if (!logits) {
+    throw new WhisperError({
+      code: "LANG_DETECT_EMPTY",
+      stage: "lang.detect",
+      message: "Decoder no devolvió logits para detección",
+      recoverable: true,
+    });
+  }
+
+  const { index, prob } = softmaxLangAmong(logits, ids);
+  return { language: codes[index], languageProb: prob };
+}
+
 function capitalizeFirst(text: string): string {
   const trimmed = text.trim();
   if (!trimmed) return "";
   return `${trimmed[0].toUpperCase()}${trimmed.slice(1)}`;
 }
 
-export async function transcribePcm(params: TranscribeParams): Promise<string> {
+async function decodeTranscript(params: {
+  encoderHiddenStates: OrtTensor;
+  language: string;
+  tokenizer: TokenizerLike;
+  decoderSession: OrtSession;
+  modelConfig: WhisperModelConfig;
+  generationConfig: WhisperGenerationConfig;
+  TensorCtor: TensorConstructor;
+}): Promise<string> {
   const {
-    pcm,
+    encoderHiddenStates,
     language,
     tokenizer,
-    encoderSession,
     decoderSession,
     modelConfig,
     generationConfig,
-    preprocessor = DEFAULT_PREPROCESSOR,
     TensorCtor,
   } = params;
 
-  if (pcm.length === 0) return "";
-
-  let mel: Float32Array;
-  try {
-    mel = extractWhisperMel(pcm, preprocessor);
-  } catch (err) {
-    throw wrapWhisperError(err, "mel.extract", "MEL_FAILED", true);
-  }
-
-  const nMels = preprocessor.feature_size;
-  const nFrames = preprocessor.nb_max_frames;
-
-  let encoderOutputs: Record<string, OrtTensor | unknown>;
-  try {
-    encoderOutputs = await encoderSession.run({
-      input_features: floatTensor(mel, [1, nMels, nFrames], TensorCtor),
-    });
-  } catch (err) {
-    throw wrapWhisperError(err, "encode.run", "ENCODE_FAILED", true);
-  }
-
-  const encoderHiddenStates = encoderOutputs.last_hidden_state as OrtTensor;
   const numLayers = modelConfig.decoder_layers;
   const numHeads = modelConfig.decoder_attention_heads;
   const headDim = modelConfig.d_model / numHeads;
@@ -190,4 +353,142 @@ export async function transcribePcm(params: TranscribeParams): Promise<string> {
     .decode(generatedIds, { skip_special_tokens: true })
     .trim();
   return capitalizeFirst(text);
+}
+
+function resolveSpeechLocale(language: string): string {
+  const locale = whisperLangToSpeechLocale(language);
+  if (!locale) {
+    throw new WhisperError({
+      code: "LANG_DETECT_UNSUPPORTED",
+      stage: "lang.resolve",
+      message: `Idioma detectado sin locale BCP-47: ${language}`,
+      recoverable: false,
+      context: { language },
+    });
+  }
+  return locale;
+}
+
+export async function transcribePcm(
+  params: TranscribeParams,
+): Promise<WhisperTranscribeResult> {
+  const {
+    pcm,
+    language: languageOpt,
+    tokenizer,
+    encoderSession,
+    decoderSession,
+    modelConfig,
+    generationConfig,
+    preprocessor = DEFAULT_PREPROCESSOR,
+    TensorCtor,
+    candidateLangs = UNIVERSAL_CANDIDATE_LANGS,
+    stickyLanguage = null,
+  } = params;
+
+  if (pcm.length === 0) {
+    return {
+      text: "",
+      language: stickyLanguage ?? "en",
+      languageProb: 0,
+      speechLocale: resolveSpeechLocale(stickyLanguage ?? "en"),
+      usedSticky: !!stickyLanguage,
+    };
+  }
+
+  let mel: Float32Array;
+  try {
+    mel = extractWhisperMel(pcm, preprocessor);
+  } catch (err) {
+    throw wrapWhisperError(err, "mel.extract", "MEL_FAILED", true);
+  }
+
+  const nMels = preprocessor.feature_size;
+  const nFrames = preprocessor.nb_max_frames;
+
+  let encoderOutputs: Record<string, OrtTensor | unknown>;
+  try {
+    encoderOutputs = await encoderSession.run({
+      input_features: floatTensor(mel, [1, nMels, nFrames], TensorCtor),
+    });
+  } catch (err) {
+    throw wrapWhisperError(err, "encode.run", "ENCODE_FAILED", true);
+  }
+
+  const encoderHiddenStates = encoderOutputs.last_hidden_state as OrtTensor;
+
+  let language: string;
+  let languageProb: number;
+  let usedSticky = false;
+
+  if (languageOpt === "auto") {
+    if (pcm.length < LANG_DETECT_MIN_SAMPLES) {
+      if (stickyLanguage) {
+        language = stickyLanguage;
+        languageProb = 1;
+        usedSticky = true;
+      } else {
+        throw new WhisperError({
+          code: "LANG_DETECT_AUDIO_TOO_SHORT",
+          stage: "lang.resolve",
+          message: "Audio demasiado corto para detectar idioma",
+          recoverable: true,
+          context: { samples: pcm.length, min: LANG_DETECT_MIN_SAMPLES },
+        });
+      }
+    } else {
+      const detected = await detectLanguageFromEncoder(encoderHiddenStates, {
+        decoderSession,
+        modelConfig,
+        generationConfig,
+        tokenizer,
+        TensorCtor,
+        candidateLangs,
+      });
+
+      if (detected.languageProb < LANG_DETECT_MIN_PROB) {
+        if (stickyLanguage) {
+          language = stickyLanguage;
+          languageProb = detected.languageProb;
+          usedSticky = true;
+        } else {
+          throw new WhisperError({
+            code: "LANG_DETECT_LOW_CONFIDENCE",
+            stage: "lang.resolve",
+            message: "Confianza baja en detección de idioma",
+            recoverable: true,
+            context: {
+              language: detected.language,
+              prob: Number(detected.languageProb.toFixed(3)),
+            },
+          });
+        }
+      } else {
+        language = detected.language;
+        languageProb = detected.languageProb;
+      }
+    }
+  } else {
+    language = languageOpt;
+    languageProb = 1;
+  }
+
+  const speechLocale = resolveSpeechLocale(language);
+  const text = await decodeTranscript({
+    encoderHiddenStates,
+    language,
+    tokenizer,
+    decoderSession,
+    modelConfig,
+    generationConfig,
+    TensorCtor,
+  });
+
+  return {
+    text,
+    language,
+    languageProb,
+    speechLocale,
+    usedSticky,
+  };
 }

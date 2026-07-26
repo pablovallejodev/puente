@@ -6,7 +6,12 @@ export type TraductorLanguage = {
   flagEmoji: string;
 };
 
-export const MAX_INPUT_LANGUAGES = 5;
+/** Product sentinel — not a BCP-47 locale. */
+export type InputLanguageSelection =
+  | { kind: "universal" }
+  | { kind: "fixed"; language: TraductorLanguage };
+
+export const UNIVERSAL_INPUT: InputLanguageSelection = { kind: "universal" };
 
 export const TRADUCTOR_LANGUAGES: TraductorLanguage[] = [
   {
@@ -58,30 +63,27 @@ export const TRADUCTOR_LANGUAGES: TraductorLanguage[] = [
     floresCode: "fra_Latn",
     flagEmoji: "🇫🇷",
   },
+  {
+    id: "sq",
+    label: "Shqip",
+    speechLocale: "sq-AL",
+    floresCode: "als_Latn",
+    flagEmoji: "🇦🇱",
+  },
+  {
+    id: "th",
+    label: "ไทย",
+    speechLocale: "th-TH",
+    floresCode: "tha_Thai",
+    flagEmoji: "🇹🇭",
+  },
 ];
 
-export const DEFAULT_INPUT_LANGUAGE = TRADUCTOR_LANGUAGES[0];
-export const DEFAULT_OUTPUT_LANGUAGE = TRADUCTOR_LANGUAGES[1];
-export const DEFAULT_INPUT_LANGUAGES = [DEFAULT_INPUT_LANGUAGE];
+export const DEFAULT_INPUT_LANGUAGE: InputLanguageSelection = UNIVERSAL_INPUT;
 
-export function inputSpeechLocalesKey(langs: TraductorLanguage[]): string {
-  return langs.map((l) => l.speechLocale).join("|");
-}
-
-export function resolveInputLanguageFromDetection(
-  detectedLocale: string,
-  inputLanguages: TraductorLanguage[],
-): TraductorLanguage {
-  const exact = findTraductorLanguageByLocale(detectedLocale);
-  if (exact && inputLanguages.some((l) => l.id === exact.id)) return exact;
-
-  const prefix = detectedLocale.split("-")[0]?.toLowerCase();
-  const byPrefix = inputLanguages.find(
-    (l) =>
-      l.id === prefix || l.speechLocale.toLowerCase().startsWith(`${prefix}-`),
-  );
-  return byPrefix ?? inputLanguages[0];
-}
+/** Fallback if device locale is not in the UI list. */
+export const FALLBACK_OUTPUT_LANGUAGE =
+  TRADUCTOR_LANGUAGES.find((l) => l.id === "es") ?? TRADUCTOR_LANGUAGES[0];
 
 export function findTraductorLanguageByLocale(
   locale: string,
@@ -96,6 +98,22 @@ export function findTraductorLanguageById(
   id: string,
 ): TraductorLanguage | undefined {
   return TRADUCTOR_LANGUAGES.find((lang) => lang.id === id);
+}
+
+export function resolveDeviceTraductorLanguage(
+  languageTag: string,
+): TraductorLanguage {
+  const normalized = languageTag.trim().replace(/_/g, "-").toLowerCase();
+  const primary = normalized.split("-")[0] ?? "";
+  const byId = findTraductorLanguageById(primary);
+  if (byId) return byId;
+
+  const byPrefix = TRADUCTOR_LANGUAGES.find((lang) =>
+    normalizeLocale(lang.speechLocale).startsWith(`${primary}-`),
+  );
+  if (byPrefix) return byPrefix;
+
+  return FALLBACK_OUTPUT_LANGUAGE;
 }
 
 function normalizeLocale(locale: string): string {

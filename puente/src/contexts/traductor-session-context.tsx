@@ -8,10 +8,15 @@ import {
   type ReactNode,
 } from "react";
 
+import { getDeviceLocaleTag } from "@/constants/languages";
 import {
+  DEFAULT_INPUT_LANGUAGE,
+  FALLBACK_OUTPUT_LANGUAGE,
+  findTraductorLanguageById,
+  resolveDeviceTraductorLanguage,
   TRADUCTOR_LANGUAGES,
-  DEFAULT_INPUT_LANGUAGES,
-  DEFAULT_OUTPUT_LANGUAGE,
+  UNIVERSAL_INPUT,
+  type InputLanguageSelection,
   type TraductorLanguage,
 } from "@/constants/traductor-languages";
 import {
@@ -19,22 +24,16 @@ import {
   type SttDownloadState,
 } from "@/hooks/use-offline-stt-download";
 import {
-  applyInputLanguageSelection,
-  getInputSttMode,
-  isLocaleInstalledState,
-  removeDownloadedInputLanguage,
-  sanitizeInputLanguages,
-  type InputSttMode,
-} from "@/lib/traductor-input-mode";
+  readSelectedBaseLanguageId,
+  setSelectedBaseLanguageId,
+} from "@/lib/model-preferences";
 
 type TraductorSessionContextValue = {
-  inputLanguages: TraductorLanguage[];
-  primaryInputLanguage: TraductorLanguage;
+  inputLanguage: InputLanguageSelection;
   outputLanguage: TraductorLanguage;
-  inputSttMode: InputSttMode;
   onDeviceSttAvailable: boolean;
-  selectInputLanguage: (lang: TraductorLanguage) => void;
-  removeInputLanguage: (id: string) => void;
+  selectUniversalInput: () => void;
+  selectFixedInputLanguage: (lang: TraductorLanguage) => void;
   setOutputLanguage: (lang: TraductorLanguage) => void;
   getDownloadState: (locale: string) => SttDownloadState;
   downloadSttModel: (locale: string) => Promise<void>;
@@ -48,12 +47,13 @@ const TraductorSessionContext = createContext<TraductorSessionContextValue | nul
 );
 
 export function TraductorSessionProvider({ children }: { children: ReactNode }) {
-  const [inputLanguages, setInputLanguages] = useState<TraductorLanguage[]>(
-    DEFAULT_INPUT_LANGUAGES,
+  const [inputLanguage, setInputLanguage] = useState<InputLanguageSelection>(
+    DEFAULT_INPUT_LANGUAGE,
   );
-  const [outputLanguage, setOutputLanguage] = useState<TraductorLanguage>(
-    DEFAULT_OUTPUT_LANGUAGE,
+  const [outputLanguage, setOutputLanguageState] = useState<TraductorLanguage>(
+    FALLBACK_OUTPUT_LANGUAGE,
   );
+  const [baseHydrated, setBaseHydrated] = useState(false);
 
   const {
     getDownloadState,
@@ -64,72 +64,52 @@ export function TraductorSessionProvider({ children }: { children: ReactNode }) 
     onDeviceSttAvailable,
   } = useOfflineSttDownload();
 
-  const primaryInputLanguage = inputLanguages[0];
-
-  const inputSttMode = useMemo(
-    () =>
-      getInputSttMode(inputLanguages, getDownloadState, onDeviceSttAvailable),
-    [inputLanguages, getDownloadState, onDeviceSttAvailable],
-  );
-
-  const selectInputLanguage = useCallback(
-    (lang: TraductorLanguage) => {
-      const installed =
-        isLocaleInstalledState(getDownloadState(lang.speechLocale)) &&
-        onDeviceSttAvailable;
-      setInputLanguages((prev) =>
-        applyInputLanguageSelection(
-          prev,
-          lang,
-          installed,
-          getDownloadState,
-          onDeviceSttAvailable,
-        ),
-      );
-    },
-    [getDownloadState, onDeviceSttAvailable],
-  );
-
-  const removeInputLanguage = useCallback(
-    (id: string) => {
-      setInputLanguages((prev) =>
-        removeDownloadedInputLanguage(
-          prev,
-          id,
-          getDownloadState,
-          onDeviceSttAvailable,
-        ),
-      );
-    },
-    [getDownloadState, onDeviceSttAvailable],
-  );
-
   useEffect(() => {
-    setInputLanguages((prev) => {
-      const next = sanitizeInputLanguages(
-        prev,
-        getDownloadState,
-        onDeviceSttAvailable,
-      );
-      if (
-        next.length === prev.length &&
-        next.every((lang, index) => lang.id === prev[index]?.id)
-      ) {
-        return prev;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const savedId = await readSelectedBaseLanguageId();
+        if (cancelled) return;
+        const fromPref = savedId ? findTraductorLanguageById(savedId) : null;
+        setOutputLanguageState(
+          fromPref ?? resolveDeviceTraductorLanguage(getDeviceLocaleTag()),
+        );
+      } catch {
+        if (cancelled) return;
+        setOutputLanguageState(
+          resolveDeviceTraductorLanguage(getDeviceLocaleTag()),
+        );
+      } finally {
+        if (!cancelled) setBaseHydrated(true);
       }
-      return next;
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const selectUniversalInput = useCallback(() => {
+    setInputLanguage(UNIVERSAL_INPUT);
+  }, []);
+
+  const selectFixedInputLanguage = useCallback((lang: TraductorLanguage) => {
+    setInputLanguage({ kind: "fixed", language: lang });
+  }, []);
+
+  const setOutputLanguage = useCallback((lang: TraductorLanguage) => {
+    setOutputLanguageState(lang);
+    void setSelectedBaseLanguageId(lang.id).catch(() => {
+      /* prefs best-effort */
     });
-  }, [getDownloadState, onDeviceSttAvailable]);
+  }, []);
 
   const value = useMemo<TraductorSessionContextValue>(
     () => ({
-      inputLanguages,
-      primaryInputLanguage,
+      inputLanguage,
       outputLanguage,
-      inputSttMode,
       onDeviceSttAvailable,
-      selectInputLanguage,
-      removeInputLanguage,
+      selectUniversalInput,
+      selectFixedInputLanguage,
       setOutputLanguage,
       getDownloadState,
       downloadSttModel,
@@ -138,18 +118,18 @@ export function TraductorSessionProvider({ children }: { children: ReactNode }) 
       isLocaleDownloadable,
     }),
     [
-      inputLanguages,
-      primaryInputLanguage,
+      inputLanguage,
       outputLanguage,
-      inputSttMode,
       onDeviceSttAvailable,
-      selectInputLanguage,
-      removeInputLanguage,
+      selectUniversalInput,
+      selectFixedInputLanguage,
+      setOutputLanguage,
       getDownloadState,
       downloadSttModel,
       refreshInstalledLocales,
       checkLocale,
       isLocaleDownloadable,
+      baseHydrated,
     ],
   );
 
@@ -163,7 +143,9 @@ export function TraductorSessionProvider({ children }: { children: ReactNode }) 
 export function useTraductorSession(): TraductorSessionContextValue {
   const ctx = useContext(TraductorSessionContext);
   if (!ctx) {
-    throw new Error("useTraductorSession must be used within TraductorSessionProvider");
+    throw new Error(
+      "useTraductorSession must be used within TraductorSessionProvider",
+    );
   }
   return ctx;
 }
