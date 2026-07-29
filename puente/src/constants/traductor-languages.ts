@@ -638,6 +638,31 @@ export function resolveDeviceTraductorLanguage(
   return FALLBACK_OUTPUT_LANGUAGE;
 }
 
+/** Fixed product pins; device language is prepended by getRecommendedLanguages. */
+export const BASE_RECOMMENDED_LANGUAGE_IDS = ["es", "ca", "en"] as const;
+
+/**
+ * Device language first, then es/ca/en without duplicates.
+ * 3 items when device is already in the base; 4 when device is another catalog language.
+ */
+export function getRecommendedLanguages(
+  deviceTag: string,
+): TraductorLanguage[] {
+  const device = resolveDeviceTraductorLanguage(deviceTag);
+  const out: TraductorLanguage[] = [device];
+  const seen = new Set<string>([device.id]);
+
+  for (const id of BASE_RECOMMENDED_LANGUAGE_IDS) {
+    if (seen.has(id)) continue;
+    const lang = findTraductorLanguageById(id);
+    if (!lang) continue;
+    out.push(lang);
+    seen.add(id);
+  }
+
+  return out;
+}
+
 function normalizeLocale(locale: string): string {
   return locale.trim().replace(/_/g, "-").toLowerCase();
 }

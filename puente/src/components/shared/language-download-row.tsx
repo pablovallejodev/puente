@@ -9,6 +9,10 @@ import {
 import type { TraductorLanguage } from "@/constants/traductor-languages";
 import type { SttDownloadState } from "@/hooks/use-offline-stt-download";
 import { LanguageFlag } from "@/components/shared/language-flag";
+import {
+  getTraductorLanguageDisplayName,
+  type UiLocale,
+} from "@/lib/language-display-name";
 import { theme } from "@/constants/theme";
 
 type LanguageDownloadRowProps = {
@@ -16,30 +20,17 @@ type LanguageDownloadRowProps = {
   downloadState: SttDownloadState;
   selected?: boolean;
   showDownload?: boolean;
+  uiLocale?: UiLocale;
   onSelect: () => void;
   onDownload: () => void;
 };
-
-function statusLabel(state: SttDownloadState): string | null {
-  switch (state.status) {
-    case "installed":
-      return "✓";
-    case "checking":
-      return "…";
-    case "scheduled":
-      return "Programado";
-    case "error":
-      return state.error ?? "Error";
-    default:
-      return null;
-  }
-}
 
 export function LanguageDownloadRow({
   language,
   downloadState,
   selected = false,
   showDownload = false,
+  uiLocale,
   onSelect,
   onDownload,
 }: LanguageDownloadRowProps) {
@@ -48,7 +39,10 @@ export function LanguageDownloadRow({
     downloadState.status === "scheduled" ||
     downloadState.status === "checking";
   const isInstalled = downloadState.status === "installed";
-  const label = statusLabel(downloadState);
+  const displayName = getTraductorLanguageDisplayName(
+    language,
+    uiLocale ?? "en",
+  );
 
   return (
     <Pressable
@@ -65,7 +59,7 @@ export function LanguageDownloadRow({
         <LanguageFlag language={language} size={24} />
       </View>
       <View style={styles.labelColumn}>
-        <Text style={styles.label}>{language.label}</Text>
+        <Text style={styles.label}>{displayName}</Text>
         {showDownload ? (
           <Text style={styles.locale}>{language.speechLocale}</Text>
         ) : null}
@@ -80,34 +74,37 @@ export function LanguageDownloadRow({
       </View>
 
       <View style={styles.actionColumn}>
-        {selected ? (
+        {showDownload ? (
+          selected ? (
+            <View style={styles.selectedMark}>
+              <Text style={styles.selectedMarkText}>✓</Text>
+            </View>
+          ) : !isInstalled ? (
+            <Pressable
+              style={({ pressed }) => [
+                styles.downloadButton,
+                pressed && styles.downloadButtonPressed,
+                isBusy && styles.downloadButtonDisabled,
+              ]}
+              onPress={() => {
+                if (!isBusy) onDownload();
+              }}
+              disabled={isBusy}
+              hitSlop={8}
+            >
+              {isBusy ? (
+                <ActivityIndicator size="small" color={theme.colors.text} />
+              ) : (
+                <Text style={styles.downloadIcon}>↓</Text>
+              )}
+            </Pressable>
+          ) : (
+            <Text style={styles.installedMark}>✓</Text>
+          )
+        ) : selected ? (
           <View style={styles.selectedMark}>
             <Text style={styles.selectedMarkText}>✓</Text>
           </View>
-        ) : showDownload && !isInstalled ? (
-          <Pressable
-            style={({ pressed }) => [
-              styles.downloadButton,
-              pressed && styles.downloadButtonPressed,
-              isBusy && styles.downloadButtonDisabled,
-            ]}
-            onPress={() => {
-              if (!isBusy) onDownload();
-            }}
-            disabled={isBusy}
-            hitSlop={8}
-          >
-            {isBusy ? (
-              <ActivityIndicator size="small" color={theme.colors.text} />
-            ) : (
-              <Text style={styles.downloadIcon}>↓</Text>
-            )}
-          </Pressable>
-        ) : isInstalled ? (
-          <Text style={styles.installedMark}>✓</Text>
-        ) : null}
-        {label && !showDownload ? (
-          <Text style={styles.status}>{label}</Text>
         ) : null}
       </View>
     </Pressable>
@@ -211,11 +208,6 @@ const styles = StyleSheet.create({
   installedMark: {
     fontFamily: theme.font.heading,
     fontSize: 14,
-    color: theme.colors.text,
-  },
-  status: {
-    fontFamily: theme.font.body,
-    fontSize: 11,
     color: theme.colors.text,
   },
 });

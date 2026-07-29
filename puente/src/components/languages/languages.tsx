@@ -16,7 +16,16 @@ import {
   TRADUCTOR_LANGUAGES,
   useTraductorSession,
 } from "@/contexts/traductor-session-context";
-import type { TraductorLanguage } from "@/constants/traductor-languages";
+import { getDeviceLocaleTag } from "@/constants/languages";
+import {
+  getRecommendedLanguages,
+  type TraductorLanguage,
+} from "@/constants/traductor-languages";
+import {
+  getTraductorLanguageDisplayName,
+  resolveUiLocale,
+  type UiLocale,
+} from "@/lib/language-display-name";
 import { StatusBarDarkComponent } from "@/utils/statusbar";
 import { theme } from "@/constants/theme";
 
@@ -29,10 +38,17 @@ type LanguageSection = {
   data: (TraductorLanguage | UniversalRow)[];
 };
 
-function matchesQuery(language: TraductorLanguage, query: string): boolean {
+function matchesQuery(
+  language: TraductorLanguage,
+  query: string,
+  uiLocale: UiLocale,
+): boolean {
   if (!query) return true;
   const q = query.trim().toLowerCase();
   return (
+    getTraductorLanguageDisplayName(language, uiLocale)
+      .toLowerCase()
+      .includes(q) ||
     language.label.toLowerCase().includes(q) ||
     language.id.toLowerCase().includes(q) ||
     language.speechLocale.toLowerCase().includes(q) ||
@@ -45,6 +61,10 @@ export default function LanguagesComponent() {
   const { slot: rawSlot } = useLocalSearchParams<{ slot?: string }>();
   const slot: SlotParam = rawSlot === "output" ? "output" : "input";
   const [query, setQuery] = useState("");
+  const uiLocale = useMemo(
+    () => resolveUiLocale(getDeviceLocaleTag()),
+    [],
+  );
 
   const {
     inputLanguage,
@@ -55,14 +75,33 @@ export default function LanguagesComponent() {
     getDownloadState,
   } = useTraductorSession();
 
+  const recommendedAll = useMemo(
+    () => getRecommendedLanguages(getDeviceLocaleTag()),
+    [],
+  );
+  const recommendedIds = useMemo(
+    () => new Set(recommendedAll.map((lang) => lang.id)),
+    [recommendedAll],
+  );
+
+  const visibleRecommended = useMemo(
+    () =>
+      recommendedAll.filter((lang) => matchesQuery(lang, query, uiLocale)),
+    [recommendedAll, query, uiLocale],
+  );
+
   const filteredLanguages = useMemo(
-    () => TRADUCTOR_LANGUAGES.filter((lang) => matchesQuery(lang, query)),
-    [query],
+    () =>
+      TRADUCTOR_LANGUAGES.filter(
+        (lang) =>
+          !recommendedIds.has(lang.id) && matchesQuery(lang, query, uiLocale),
+      ),
+    [query, recommendedIds, uiLocale],
   );
 
   const sections = useMemo((): LanguageSection[] => {
     if (slot === "output") {
-      return [{ title: "Idiomas", data: filteredLanguages }];
+      return [{ title: "", data: filteredLanguages }];
     }
     const showUniversal =
       !query.trim() || "universal".includes(query.trim().toLowerCase());
@@ -74,7 +113,7 @@ export default function LanguagesComponent() {
       });
     }
     sectionsOut.push({
-      title: "Idioma fijo",
+      title: "",
       data: filteredLanguages,
     });
     return sectionsOut;
@@ -93,6 +132,24 @@ export default function LanguagesComponent() {
     }
     router.back();
   };
+
+  const isLanguageSelected = (language: TraductorLanguage) =>
+    slot === "output"
+      ? outputLanguage.id === language.id
+      : inputLanguage.kind === "fixed" &&
+        inputLanguage.language.id === language.id;
+
+  const renderLanguageRow = (language: TraductorLanguage) => (
+    <LanguageDownloadRow
+      language={language}
+      downloadState={getDownloadState(language.speechLocale)}
+      selected={isLanguageSelected(language)}
+      showDownload={false}
+      uiLocale={uiLocale}
+      onSelect={() => handleSelect(language)}
+      onDownload={() => undefined}
+    />
+  );
 
   const titleText = slot === "output" ? "Traducir al" : "Idioma de origen";
 
@@ -128,6 +185,11 @@ export default function LanguagesComponent() {
                   : "Usa Universal para detectar automáticamente o fija un idioma para ganar precisión."}
               </Text>
             </View>
+            {visibleRecommended.map((language) => (
+              <View key={`reco-${language.id}`}>
+                {renderLanguageRow(language)}
+              </View>
+            ))}
             <TextInput
               value={query}
               onChangeText={setQuery}
@@ -142,10 +204,12 @@ export default function LanguagesComponent() {
           </View>
         }
         ListEmptyComponent={
-          <Text style={styles.empty}>No hay idiomas que coincidan.</Text>
+          visibleRecommended.length === 0 ? (
+            <Text style={styles.empty}>No hay idiomas que coincidan.</Text>
+          ) : null
         }
         renderSectionHeader={({ section }) =>
-          section.data.length === 0 ? null : (
+          !section.title || section.data.length === 0 ? null : (
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>{section.title}</Text>
             </View>
@@ -177,24 +241,7 @@ export default function LanguagesComponent() {
             );
           }
 
-          const language = item as TraductorLanguage;
-          const downloadState = getDownloadState(language.speechLocale);
-          const selected =
-            slot === "output"
-              ? outputLanguage.id === language.id
-              : inputLanguage.kind === "fixed" &&
-                inputLanguage.language.id === language.id;
-
-          return (
-            <LanguageDownloadRow
-              language={language}
-              downloadState={downloadState}
-              selected={selected}
-              showDownload={false}
-              onSelect={() => handleSelect(language)}
-              onDownload={() => undefined}
-            />
-          );
+          return renderLanguageRow(item as TraductorLanguage);
         }}
       />
     </SafeAreaView>
@@ -224,6 +271,7 @@ const styles = StyleSheet.create({
   intro: {
     marginHorizontal: theme.spacing.md,
     marginTop: theme.spacing.md,
+    marginBottom: theme.spacing.sm,
     padding: theme.spacing.lg,
     borderRadius: theme.radius.xl,
     backgroundColor: theme.colors.surfaceStone,
@@ -252,7 +300,7 @@ const styles = StyleSheet.create({
   },
   search: {
     marginHorizontal: theme.spacing.md,
-    marginTop: theme.spacing.md,
+    marginTop: 0,
     marginBottom: theme.spacing.sm,
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.ml,

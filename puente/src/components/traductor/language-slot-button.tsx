@@ -2,7 +2,12 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 
 import type { TraductorLanguage } from "@/constants/traductor-languages";
+import { getDeviceLocaleTag } from "@/constants/languages";
 import { LanguageFlag } from "@/components/shared/language-flag";
+import {
+  getTraductorLanguageDisplayName,
+  resolveUiLocale,
+} from "@/lib/language-display-name";
 import { theme } from "@/constants/theme";
 
 type LanguageSlotButtonProps =
@@ -34,7 +39,14 @@ export function LanguageSlotButton(props: LanguageSlotButtonProps) {
         ? props.language
         : undefined;
 
-  const label = isUniversal ? "Universal" : (language?.label ?? "—");
+  const label = isUniversal
+    ? "Universal"
+    : language
+      ? getTraductorLanguageDisplayName(
+          language,
+          resolveUiLocale(getDeviceLocaleTag()),
+        )
+      : "—";
   const slotLabel = props.slot === "input" ? "Origen" : "Traduce a";
 
   return (
