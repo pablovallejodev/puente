@@ -1,3 +1,21 @@
+/**
+ * Failures in the ONNX Runtime speech-recognition pipeline Puente runs itself:
+ * mel extraction, encoder, language probe and the greedy decode loop.
+ *
+ * Engines that transcribe through a native backend (sherpa-onnx) raise
+ * EngineError instead; the transcriptor hook handles both.
+ *
+ * Every code is documented in lib/errors/error-catalog.ts.
+ */
+
+import {
+  causeMessage,
+  DiagnosticError,
+  looksLikeOutOfMemory,
+  type DiagnosticContext,
+  type DiagnosticInfo,
+} from "@/lib/errors/diagnostic";
+
 export type WhisperStage =
   | "asset.prepare"
   | "tokenizer.load"
@@ -11,58 +29,41 @@ export type WhisperStage =
   | "lang.detect"
   | "lang.resolve";
 
-export type WhisperErrorCode =
-  | "ASSET_UNAVAILABLE"
-  | "ASSET_COPY_FAILED"
-  | "ASSET_INCOMPLETE"
-  | "TOKENIZER_LOAD_FAILED"
-  | "SESSION_ENCODER_FAILED"
-  | "SESSION_DECODER_FAILED"
-  | "ORT_NOT_REGISTERED"
-  | "LANGUAGE_UNSUPPORTED"
-  | "MEL_FAILED"
-  | "ENCODE_FAILED"
-  | "DECODE_FAILED"
-  | "DECODE_EMPTY"
-  | "ENGINE_LOAD_FAILED"
-  | "AUDIO_FAILED"
-  | "OUT_OF_MEMORY"
-  | "LANG_DETECT_FAILED"
-  | "LANG_DETECT_EMPTY"
-  | "LANG_DETECT_LOW_CONFIDENCE"
-  | "LANG_DETECT_AUDIO_TOO_SHORT"
-  | "LANG_DETECT_UNSUPPORTED";
+/** Runtime list so `check:errors` can prove every code is documented. */
+export const WHISPER_ERROR_CODES = [
+  "ASSET_UNAVAILABLE",
+  "ASSET_COPY_FAILED",
+  "ASSET_INCOMPLETE",
+  "TOKENIZER_LOAD_FAILED",
+  "SESSION_ENCODER_FAILED",
+  "SESSION_DECODER_FAILED",
+  "ORT_NOT_REGISTERED",
+  "LANGUAGE_UNSUPPORTED",
+  "MEL_FAILED",
+  "ENCODE_FAILED",
+  "DECODE_FAILED",
+  "DECODE_EMPTY",
+  "ENGINE_LOAD_FAILED",
+  "AUDIO_FAILED",
+  "OUT_OF_MEMORY",
+  "LANG_DETECT_FAILED",
+  "LANG_DETECT_EMPTY",
+  "LANG_DETECT_LOW_CONFIDENCE",
+  "LANG_DETECT_AUDIO_TOO_SHORT",
+  "LANG_DETECT_UNSUPPORTED",
+] as const;
 
-export type WhisperErrorInfo = {
-  code: WhisperErrorCode;
-  stage: WhisperStage;
-  message: string;
-  recoverable: boolean;
-  context?: Record<string, string | number | boolean>;
-};
+export type WhisperErrorCode = (typeof WHISPER_ERROR_CODES)[number];
 
-export class WhisperError extends Error {
-  readonly code: WhisperErrorCode;
-  readonly stage: WhisperStage;
-  readonly recoverable: boolean;
-  readonly context?: Record<string, string | number | boolean>;
+export type WhisperErrorInfo = DiagnosticInfo<WhisperErrorCode, WhisperStage>;
 
+export class WhisperError extends DiagnosticError<
+  WhisperErrorCode,
+  WhisperStage
+> {
   constructor(info: WhisperErrorInfo) {
-    super(info.message);
+    super("whisper", info);
     this.name = "WhisperError";
-    this.code = info.code;
-    this.stage = info.stage;
-    this.recoverable = info.recoverable;
-    this.context = info.context;
-  }
-
-  toDisplayString(): string {
-    const ctx = this.context
-      ? Object.entries(this.context)
-          .map(([k, v]) => `${k}=${v}`)
-          .join(", ")
-      : "";
-    return `[${this.code}@${this.stage}] ${this.message}${ctx ? ` (${ctx})` : ""}`;
   }
 }
 
@@ -70,19 +71,17 @@ export function isWhisperError(err: unknown): err is WhisperError {
   return err instanceof WhisperError;
 }
 
+/** OOM is never worth retrying, so it overrides the caller's recoverable flag. */
 export function wrapWhisperError(
   err: unknown,
   stage: WhisperStage,
   code: WhisperErrorCode,
   recoverable: boolean,
-  context?: Record<string, string | number | boolean>,
+  context?: DiagnosticContext,
 ): WhisperError {
   if (err instanceof WhisperError) return err;
-  const cause = err instanceof Error ? err.message : String(err);
-  const oom =
-    cause.includes("memory") ||
-    cause.includes("OOM") ||
-    cause.includes("allocate");
+  const cause = causeMessage(err);
+  const oom = looksLikeOutOfMemory(cause);
   return new WhisperError({
     code: oom ? "OUT_OF_MEMORY" : code,
     stage,

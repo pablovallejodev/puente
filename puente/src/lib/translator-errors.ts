@@ -1,3 +1,21 @@
+/**
+ * Failures in the ONNX Runtime translation pipeline Puente runs itself:
+ * tokenizer, encoder, and the greedy decode loop.
+ *
+ * Engines that translate through a native backend (llama.rn) raise EngineError
+ * instead; the translator hook handles both.
+ *
+ * Every code is documented in lib/errors/error-catalog.ts.
+ */
+
+import {
+  causeMessage,
+  DiagnosticError,
+  looksLikeOutOfMemory,
+  type DiagnosticContext,
+  type DiagnosticInfo,
+} from "@/lib/errors/diagnostic";
+
 export type TranslatorStage =
   | "asset.prepare"
   | "tokenizer.load"
@@ -7,53 +25,39 @@ export type TranslatorStage =
   | "decode.run"
   | "decode.output";
 
-export type TranslatorErrorCode =
-  | "ASSET_UNAVAILABLE"
-  | "ASSET_COPY_FAILED"
-  | "ASSET_INCOMPLETE"
-  | "TOKENIZER_LOAD_FAILED"
-  | "SESSION_ENCODER_FAILED"
-  | "SESSION_DECODER_FAILED"
-  | "ORT_NOT_REGISTERED"
-  | "LANGUAGE_UNSUPPORTED"
-  | "INPUT_TOO_LONG"
-  | "ENCODE_FAILED"
-  | "DECODE_FAILED"
-  | "DECODE_EMPTY"
-  | "ENGINE_LOAD_FAILED"
-  | "TRANSLATE_FAILED"
-  | "OUT_OF_MEMORY";
+/** Runtime list so `check:errors` can prove every code is documented. */
+export const TRANSLATOR_ERROR_CODES = [
+  "ASSET_UNAVAILABLE",
+  "ASSET_COPY_FAILED",
+  "ASSET_INCOMPLETE",
+  "TOKENIZER_LOAD_FAILED",
+  "SESSION_ENCODER_FAILED",
+  "SESSION_DECODER_FAILED",
+  "ORT_NOT_REGISTERED",
+  "LANGUAGE_UNSUPPORTED",
+  "INPUT_TOO_LONG",
+  "ENCODE_FAILED",
+  "DECODE_FAILED",
+  "DECODE_EMPTY",
+  "ENGINE_LOAD_FAILED",
+  "TRANSLATE_FAILED",
+  "OUT_OF_MEMORY",
+] as const;
 
-export type TranslatorErrorInfo = {
-  code: TranslatorErrorCode;
-  stage: TranslatorStage;
-  message: string;
-  recoverable: boolean;
-  context?: Record<string, string | number | boolean>;
-};
+export type TranslatorErrorCode = (typeof TRANSLATOR_ERROR_CODES)[number];
 
-export class TranslatorError extends Error {
-  readonly code: TranslatorErrorCode;
-  readonly stage: TranslatorStage;
-  readonly recoverable: boolean;
-  readonly context?: Record<string, string | number | boolean>;
+export type TranslatorErrorInfo = DiagnosticInfo<
+  TranslatorErrorCode,
+  TranslatorStage
+>;
 
+export class TranslatorError extends DiagnosticError<
+  TranslatorErrorCode,
+  TranslatorStage
+> {
   constructor(info: TranslatorErrorInfo) {
-    super(info.message);
+    super("translator", info);
     this.name = "TranslatorError";
-    this.code = info.code;
-    this.stage = info.stage;
-    this.recoverable = info.recoverable;
-    this.context = info.context;
-  }
-
-  toDisplayString(): string {
-    const ctx = this.context
-      ? Object.entries(this.context)
-          .map(([k, v]) => `${k}=${v}`)
-          .join(", ")
-      : "";
-    return `[${this.code}@${this.stage}] ${this.message}${ctx ? ` (${ctx})` : ""}`;
   }
 }
 
@@ -61,21 +65,22 @@ export function isTranslatorError(err: unknown): err is TranslatorError {
   return err instanceof TranslatorError;
 }
 
+/** OOM is never worth retrying, so it overrides the caller's recoverable flag. */
 export function wrapUnknownError(
   err: unknown,
   stage: TranslatorStage,
   code: TranslatorErrorCode,
   recoverable: boolean,
-  context?: Record<string, string | number | boolean>,
+  context?: DiagnosticContext,
 ): TranslatorError {
   if (err instanceof TranslatorError) return err;
-
-  const cause = err instanceof Error ? err.message : String(err);
+  const cause = causeMessage(err);
+  const oom = looksLikeOutOfMemory(cause);
   return new TranslatorError({
-    code,
+    code: oom ? "OUT_OF_MEMORY" : code,
     stage,
     message: cause,
-    recoverable,
+    recoverable: oom ? false : recoverable,
     context,
   });
 }
