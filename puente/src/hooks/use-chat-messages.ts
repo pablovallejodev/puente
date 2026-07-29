@@ -1,11 +1,15 @@
 import { useCallback, useRef, useState } from "react";
 
+export type TranslationStatus = "queued" | "translating" | "done" | "error";
+export type TranscriptionStatus = "pending" | "done";
+
 export type ChatMessage = {
   id: string;
   original: string;
   translated: string;
   isFinal: boolean;
-  isTranslating: boolean;
+  translationStatus: TranslationStatus;
+  transcriptionStatus: TranscriptionStatus;
   sourceLanguageId: string;
 };
 
@@ -16,65 +20,96 @@ function createId(): string {
 export function useChatMessages() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const messagesRef = useRef<ChatMessage[]>([]);
-  const activeIdRef = useRef<string | null>(null);
 
   const syncMessages = useCallback((next: ChatMessage[]) => {
     messagesRef.current = next;
     setMessages(next);
   }, []);
 
-  const onTranscriptUpdate = useCallback(
-    (text: string, isFinal: boolean, sourceLanguageId: string): string => {
-      if (!text.trim() && !isFinal) return activeIdRef.current ?? "";
+  /** Placeholder bubble while Whisper processes a chunk. */
+  const beginPendingTranscript = useCallback(
+    (sourceLanguageId: string): string => {
+      const messageId = createId();
+      syncMessages([
+        ...messagesRef.current,
+        {
+          id: messageId,
+          original: "",
+          translated: "",
+          isFinal: false,
+          translationStatus: "queued",
+          transcriptionStatus: "pending",
+          sourceLanguageId,
+        },
+      ]);
+      return messageId;
+    },
+    [syncMessages],
+  );
 
-      const prev = messagesRef.current;
-      let messageId = activeIdRef.current;
-      const activeMessage = messageId
-        ? prev.find((m) => m.id === messageId && !m.isFinal)
-        : undefined;
+  /** Fill a pending bubble with the accepted transcript. */
+  const completePendingTranscript = useCallback(
+    (
+      messageId: string,
+      text: string,
+      sourceLanguageId?: string,
+    ): boolean => {
+      const trimmed = text.trim();
+      if (!messageId || !trimmed) return false;
 
-      if (!activeMessage) {
-        messageId = createId();
-        activeIdRef.current = messageId;
-        syncMessages([
-          ...prev,
-          {
-            id: messageId,
-            original: text,
-            translated: "",
-            isFinal: false,
-            isTranslating: true,
-            sourceLanguageId,
-          },
-        ]);
-      } else {
-        syncMessages(
-          prev.map((m) =>
-            m.id === messageId
-              ? {
-                  ...m,
-                  original: text,
-                  isTranslating: true,
-                  // Freeze source language once set for an in-progress utterance.
-                  sourceLanguageId: m.sourceLanguageId || sourceLanguageId,
-                }
-              : m,
-          ),
-        );
-      }
+      let found = false;
+      syncMessages(
+        messagesRef.current.map((m) => {
+          if (m.id !== messageId) return m;
+          found = true;
+          return {
+            ...m,
+            original: trimmed,
+            isFinal: true,
+            transcriptionStatus: "done" as const,
+            ...(sourceLanguageId ? { sourceLanguageId } : {}),
+          };
+        }),
+      );
+      return found;
+    },
+    [syncMessages],
+  );
 
-      if (isFinal && messageId) {
-        syncMessages(
-          messagesRef.current.map((m) =>
-            m.id === messageId
-              ? { ...m, isFinal: true, isTranslating: true }
-              : m,
-          ),
-        );
-        activeIdRef.current = null;
-      }
+  /** Drop a pending bubble when the chunk produced no usable text. */
+  const discardPendingTranscript = useCallback(
+    (messageId: string) => {
+      if (!messageId) return;
+      syncMessages(
+        messagesRef.current.filter(
+          (m) =>
+            m.id !== messageId || m.transcriptionStatus !== "pending",
+        ),
+      );
+    },
+    [syncMessages],
+  );
 
-      return messageId ?? "";
+  /** Append a final, already-sanitized transcript as a new message. */
+  const appendFinalTranscript = useCallback(
+    (text: string, sourceLanguageId: string): string => {
+      const trimmed = text.trim();
+      if (!trimmed) return "";
+
+      const messageId = createId();
+      syncMessages([
+        ...messagesRef.current,
+        {
+          id: messageId,
+          original: trimmed,
+          translated: "",
+          isFinal: true,
+          translationStatus: "queued",
+          transcriptionStatus: "done",
+          sourceLanguageId,
+        },
+      ]);
+      return messageId;
     },
     [syncMessages],
   );
@@ -83,7 +118,7 @@ export function useChatMessages() {
     (
       messageId: string,
       text: string,
-      isTranslating: boolean,
+      status: TranslationStatus,
       options?: { force?: boolean },
     ) => {
       if (!messageId) return;
@@ -97,13 +132,17 @@ export function useChatMessages() {
             !options?.force &&
             m.isFinal &&
             m.translated &&
-            !m.isTranslating &&
+            m.translationStatus === "done" &&
             text
           ) {
             return m;
           }
 
-          return { ...m, translated: text, isTranslating };
+          return {
+            ...m,
+            translated: text,
+            translationStatus: status,
+          };
         }),
       );
     },
@@ -112,12 +151,14 @@ export function useChatMessages() {
 
   const resetMessages = useCallback(() => {
     syncMessages([]);
-    activeIdRef.current = null;
   }, [syncMessages]);
 
   return {
     messages,
-    onTranscriptUpdate,
+    beginPendingTranscript,
+    completePendingTranscript,
+    discardPendingTranscript,
+    appendFinalTranscript,
     onTranslationUpdate,
     resetMessages,
   };

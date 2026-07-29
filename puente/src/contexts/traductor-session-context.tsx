@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -31,6 +32,7 @@ import {
 type TraductorSessionContextValue = {
   inputLanguage: InputLanguageSelection;
   outputLanguage: TraductorLanguage;
+  baseHydrated: boolean;
   onDeviceSttAvailable: boolean;
   selectUniversalInput: () => void;
   selectFixedInputLanguage: (lang: TraductorLanguage) => void;
@@ -54,6 +56,7 @@ export function TraductorSessionProvider({ children }: { children: ReactNode }) 
     FALLBACK_OUTPUT_LANGUAGE,
   );
   const [baseHydrated, setBaseHydrated] = useState(false);
+  const userTouchedOutputRef = useRef(false);
 
   const {
     getDownloadState,
@@ -70,12 +73,15 @@ export function TraductorSessionProvider({ children }: { children: ReactNode }) 
       try {
         const savedId = await readSelectedBaseLanguageId();
         if (cancelled) return;
-        const fromPref = savedId ? findTraductorLanguageById(savedId) : null;
-        setOutputLanguageState(
-          fromPref ?? resolveDeviceTraductorLanguage(getDeviceLocaleTag()),
-        );
+        // Do not clobber a selection the user already made during boot.
+        if (!userTouchedOutputRef.current) {
+          const fromPref = savedId ? findTraductorLanguageById(savedId) : null;
+          setOutputLanguageState(
+            fromPref ?? resolveDeviceTraductorLanguage(getDeviceLocaleTag()),
+          );
+        }
       } catch {
-        if (cancelled) return;
+        if (cancelled || userTouchedOutputRef.current) return;
         setOutputLanguageState(
           resolveDeviceTraductorLanguage(getDeviceLocaleTag()),
         );
@@ -97,6 +103,7 @@ export function TraductorSessionProvider({ children }: { children: ReactNode }) 
   }, []);
 
   const setOutputLanguage = useCallback((lang: TraductorLanguage) => {
+    userTouchedOutputRef.current = true;
     setOutputLanguageState(lang);
     void setSelectedBaseLanguageId(lang.id).catch(() => {
       /* prefs best-effort */
@@ -107,6 +114,7 @@ export function TraductorSessionProvider({ children }: { children: ReactNode }) 
     () => ({
       inputLanguage,
       outputLanguage,
+      baseHydrated,
       onDeviceSttAvailable,
       selectUniversalInput,
       selectFixedInputLanguage,
@@ -120,6 +128,7 @@ export function TraductorSessionProvider({ children }: { children: ReactNode }) 
     [
       inputLanguage,
       outputLanguage,
+      baseHydrated,
       onDeviceSttAvailable,
       selectUniversalInput,
       selectFixedInputLanguage,
@@ -129,7 +138,6 @@ export function TraductorSessionProvider({ children }: { children: ReactNode }) 
       refreshInstalledLocales,
       checkLocale,
       isLocaleDownloadable,
-      baseHydrated,
     ],
   );
 
