@@ -36,6 +36,7 @@ const config: ExpoConfig = {
   },
   plugins: [
     "./plugins/with-large-heap",
+    "./plugins/with-ort-sherpa-packaging",
     "expo-router",
     [
       "expo-splash-screen",
@@ -71,6 +72,9 @@ const config: ExpoConfig = {
     "expo-font",
     "expo-router",
     "expo-secure-store",
+    // Native GGUF runtime (llama.cpp). Without this plugin the TurboModule is
+    // not linked and every llama catalog entry fails with ENGINE_MODULE_UNAVAILABLE.
+    "llama.rn",
   ],
   experiments: {
     typedRoutes: true,

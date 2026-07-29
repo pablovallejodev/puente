@@ -1,6 +1,9 @@
 allowBuilds:
   dtrace-provider: true
   esbuild: true
+  # Its install script fetches the prebuilt llama.cpp native artifacts; without
+  # it the Android and iOS builds have no library to link against.
+  llama.rn: true
   msgpackr-extract: true
   onnxruntime-node: true
   unrs-resolver: true
