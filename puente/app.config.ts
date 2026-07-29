@@ -7,7 +7,7 @@ const config: ExpoConfig = {
   orientation: "portrait",
   icon: "./assets/icon.png",
   scheme: "puente",
-  userInterfaceStyle: "automatic",
+  userInterfaceStyle: "light",
   ios: {
     icon: "./assets/icon.png",
     infoPlist: {
@@ -21,7 +21,7 @@ const config: ExpoConfig = {
   android: {
     adaptiveIcon: {
       foregroundImage: "./assets/icon.png",
-      backgroundColor: "#E6F4FE",
+      backgroundColor: "#F2F6D0",
     },
     permissions: [
       "android.permission.INTERNET",
@@ -33,7 +33,6 @@ const config: ExpoConfig = {
   },
   web: {
     output: "static",
-    favicon: "./assets/images/favicon.png",
   },
   plugins: [
     "./plugins/with-large-heap",
@@ -41,7 +40,7 @@ const config: ExpoConfig = {
     [
       "expo-splash-screen",
       {
-        backgroundColor: "#208AEF",
+        backgroundColor: "#F2F6D0",
         android: {
           image: "./assets/icon.png",
           imageWidth: 76,

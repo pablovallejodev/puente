@@ -1,19 +1,22 @@
 import React from "react"
 import { StatusBar } from "react-native";
+import { theme } from "@/constants/theme";
 
 export const StatusBarHiddenComponent = React.memo(() =>
     <StatusBar
         hidden={true}
-        backgroundColor={"white"}
+        backgroundColor={theme.colors.background}
         translucent
     />
 );
+StatusBarHiddenComponent.displayName = "StatusBarHiddenComponent";
 
 export const StatusBarDarkComponent = React.memo(() =>
     <StatusBar
         hidden={false}
         barStyle="dark-content"
-        backgroundColor={"white"}
-        translucent
+        backgroundColor={theme.colors.background}
+        translucent={false}
     />
 );
+StatusBarDarkComponent.displayName = "StatusBarDarkComponent";
