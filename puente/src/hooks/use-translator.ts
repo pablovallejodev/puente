@@ -8,12 +8,16 @@ import {
   type NllbEngine,
 } from "@/lib/nllb-engine";
 import {
+  LatestFirstPreserveScheduler,
+  translationJobKey,
+} from "@/lib/translation-scheduler";
+import {
   isTranslatorError,
   type TranslatorErrorInfo,
   TranslatorError,
 } from "@/lib/translator-errors";
+import type { TranslationStatus } from "@/hooks/use-chat-messages";
 
-const DEBOUNCE_MS = 600;
 const MAX_TRANSLATE_RETRIES = 1;
 
 export type TranslatorStatus = "loading" | "ready" | "error";
@@ -21,16 +25,17 @@ export type TranslatorStatus = "loading" | "ready" | "error";
 export type TranslatorDiagnostics = TranslatorErrorInfo & {
   attempt?: number;
   elapsedMs?: number;
+  messageId?: string;
 };
 
-export type TranslationTarget = {
+export type TranslateRequest = {
   messageId: string;
   text: string;
-  isFinal: boolean;
   inputLocale: string;
+  outputLanguage: string;
 };
 
-let finalTranslateChain: Promise<void> = Promise.resolve();
+type TranslateJob = TranslateRequest & { id: string; key: string };
 
 function localeToFloresOrThrow(
   locale: string,
@@ -53,6 +58,7 @@ function toDiagnostics(
   err: unknown,
   attempt?: number,
   elapsedMs?: number,
+  messageId?: string,
 ): TranslatorDiagnostics {
   if (isTranslatorError(err)) {
     return {
@@ -63,6 +69,7 @@ function toDiagnostics(
       context: err.context,
       attempt,
       elapsedMs,
+      messageId,
     };
   }
   const message = err instanceof Error ? err.message : "Error desconocido";
@@ -73,26 +80,15 @@ function toDiagnostics(
     recoverable: true,
     attempt,
     elapsedMs,
+    messageId,
   };
 }
 
-function translationKey(
-  messageId: string,
-  text: string,
-  inputLocale: string,
-  outputLanguage: string,
-  isFinal: boolean,
-): string {
-  return `${messageId}:${text.trim()}:${inputLocale}:${outputLanguage}:${isFinal ? "f" : "p"}`;
-}
-
 export function useTranslator(
-  target: TranslationTarget | null,
-  outputLanguage: string,
   onTranslation: (
     messageId: string,
     translated: string,
-    isTranslating: boolean,
+    status: TranslationStatus,
   ) => void,
 ) {
   const [status, setStatus] = useState<TranslatorStatus>("loading");
@@ -100,32 +96,37 @@ export function useTranslator(
   const [diagnostics, setDiagnostics] = useState<TranslatorDiagnostics | null>(
     null,
   );
-  const [retryToken, setRetryToken] = useState(0);
+  const [activeMessageId, setActiveMessageId] = useState<string | null>(null);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [isTranslating, setIsTranslating] = useState(false);
 
   const engineRef = useRef<NllbEngine | null>(null);
   const engineReadyRef = useRef(false);
   const loadAttemptsRef = useRef(0);
   const onTranslationRef = useRef(onTranslation);
-  /** Per-message generation — stale completions for older gens are discarded. */
-  const messageGenRef = useRef<Map<string, number>>(new Map());
-  /** Last completed key per messageId — avoids re-running identical work. */
-  const lastKeyByMessageRef = useRef<Map<string, string>>(new Map());
-  /** Only used to retry the engine-load case for the latest target. */
-  const latestTargetRef = useRef<TranslationTarget | null>(null);
+  const mountedRef = useRef(true);
+  const lastFailedJobRef = useRef<TranslateJob | null>(null);
+  const schedulerRef = useRef<LatestFirstPreserveScheduler<TranslateJob> | null>(
+    null,
+  );
 
   onTranslationRef.current = onTranslation;
 
-  const bumpGeneration = useCallback((messageId: string): number => {
-    const next = (messageGenRef.current.get(messageId) ?? 0) + 1;
-    messageGenRef.current.set(messageId, next);
-    return next;
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      schedulerRef.current?.clear();
+    };
   }, []);
 
-  const isCurrentGeneration = useCallback(
-    (messageId: string, generation: number): boolean =>
-      messageGenRef.current.get(messageId) === generation,
-    [],
-  );
+  const syncQueueUi = useCallback(() => {
+    const scheduler = schedulerRef.current;
+    if (!scheduler || !mountedRef.current) return;
+    setPendingCount(scheduler.pendingCount);
+    setActiveMessageId(scheduler.activeJob?.id ?? null);
+    setIsTranslating(scheduler.activeJob !== null);
+  }, []);
 
   const loadModel = useCallback(async (forceRetry = false) => {
     setStatus("loading");
@@ -139,10 +140,12 @@ export function useTranslator(
 
     try {
       const engine = await loadEngine(forceRetry);
+      if (!mountedRef.current) return;
       engineRef.current = engine;
       engineReadyRef.current = true;
       setStatus("ready");
     } catch (err) {
+      if (!mountedRef.current) return;
       engineReadyRef.current = false;
       engineRef.current = null;
       loadAttemptsRef.current += 1;
@@ -158,147 +161,151 @@ export function useTranslator(
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-
-    void loadModel().finally(() => {
-      if (cancelled) return;
-    });
-
-    return () => {
-      cancelled = true;
-    };
+    void loadModel();
   }, [loadModel]);
 
   useEffect(() => {
-    if (target?.messageId && target.text.trim()) {
-      latestTargetRef.current = target;
-    }
-  }, [target]);
+    schedulerRef.current = new LatestFirstPreserveScheduler<TranslateJob>({
+      onState: (job, state) => {
+        if (!mountedRef.current) return;
+        // Only status transitions — execute owns the translated text for done/error.
+        if (state === "queued" || state === "translating") {
+          onTranslationRef.current(job.id, "", state);
+        }
+        syncQueueUi();
+      },
+      execute: async (job, isCancelled) => {
+        const engine = engineRef.current;
+        if (!engine || !engineReadyRef.current) {
+          if (!isCancelled()) {
+            lastFailedJobRef.current = job;
+            onTranslationRef.current(job.id, "", "error");
+            if (mountedRef.current) {
+              setError("Motor de traducción no listo");
+              setDiagnostics({
+                code: "ENGINE_LOAD_FAILED",
+                stage: "asset.prepare",
+                message: "Motor de traducción no listo",
+                recoverable: true,
+                messageId: job.id,
+              });
+            }
+          }
+          return false;
+        }
 
-  useEffect(() => {
-    if (!engineReadyRef.current || !engineRef.current) return;
+        let srcLang: string;
+        let tgtLang: string;
+        try {
+          srcLang = localeToFloresOrThrow(job.inputLocale, "input");
+          tgtLang = localeToFloresOrThrow(job.outputLanguage, "output");
+        } catch (err) {
+          if (isCancelled()) return false;
+          const diag = toDiagnostics(err, undefined, undefined, job.id);
+          lastFailedJobRef.current = job;
+          onTranslationRef.current(job.id, "", "error");
+          if (mountedRef.current) {
+            setDiagnostics(diag);
+            setError(
+              isTranslatorError(err) ? err.toDisplayString() : diag.message,
+            );
+          }
+          return false;
+        }
 
-    // Only translate the explicit current target — never a stale pending from
-    // a previous message when languages/status change.
-    const current = target;
-    if (!current?.messageId) return;
-
-    const trimmed = current.text.trim();
-    if (!trimmed) return;
-
-    const inputLocale = current.inputLocale;
-    if (!inputLocale) return;
-
-    const messageId = current.messageId;
-    const key = translationKey(
-      messageId,
-      trimmed,
-      inputLocale,
-      outputLanguage,
-      current.isFinal,
-    );
-
-    const lastKey = lastKeyByMessageRef.current.get(messageId);
-    if (key === lastKey && retryToken === 0) return;
-
-    const generation = bumpGeneration(messageId);
-    lastKeyByMessageRef.current.set(messageId, key);
-    onTranslationRef.current(messageId, "", true);
-
-    let srcLang: string;
-    let tgtLang: string;
-    try {
-      srcLang = localeToFloresOrThrow(inputLocale, "input");
-      tgtLang = localeToFloresOrThrow(outputLanguage, "output");
-    } catch (err) {
-      if (!isCurrentGeneration(messageId, generation)) return;
-      const diag = toDiagnostics(err);
-      setDiagnostics(diag);
-      setError(isTranslatorError(err) ? err.toDisplayString() : diag.message);
-      setStatus("error");
-      onTranslationRef.current(messageId, "", false);
-      return;
-    }
-
-    if (srcLang === tgtLang) {
-      onTranslationRef.current(messageId, trimmed, false);
-      setError(null);
-      setDiagnostics(null);
-      setStatus("ready");
-      return;
-    }
-
-    const timer = setTimeout(() => {
-      void (async () => {
-        if (!isCurrentGeneration(messageId, generation)) return;
+        if (srcLang === tgtLang) {
+          if (isCancelled()) return false;
+          onTranslationRef.current(job.id, job.text, "done");
+          if (mountedRef.current) {
+            setError(null);
+            setDiagnostics(null);
+            setStatus("ready");
+          }
+          return true;
+        }
 
         const started = Date.now();
-        onTranslationRef.current(messageId, "", true);
+        const run = async (attempt: number): Promise<boolean> => {
+          if (isCancelled()) return false;
+          try {
+            const result = await engine.translate(
+              job.text,
+              srcLang,
+              tgtLang,
+              { shouldCancel: isCancelled },
+            );
+            if (isCancelled() || result === null) return false;
 
-        const runTranslate = async (): Promise<void> => {
-          if (!isCurrentGeneration(messageId, generation)) return;
-
-          const run = async (attempt: number): Promise<void> => {
-            try {
-              const result = await engineRef.current!.translate(
-                trimmed,
-                srcLang,
-                tgtLang,
-              );
-              if (!isCurrentGeneration(messageId, generation)) return;
-
-              onTranslationRef.current(messageId, result, false);
+            onTranslationRef.current(job.id, result, "done");
+            if (mountedRef.current) {
               setError(null);
               setDiagnostics(null);
               setStatus("ready");
-            } catch (err) {
-              if (!isCurrentGeneration(messageId, generation)) return;
+            }
+            lastFailedJobRef.current = null;
+            return true;
+          } catch (err) {
+            if (isCancelled()) return false;
 
-              const diag = toDiagnostics(err, attempt, Date.now() - started);
+            const diag = toDiagnostics(
+              err,
+              attempt,
+              Date.now() - started,
+              job.id,
+            );
+            if (
+              isTranslatorError(err) &&
+              err.recoverable &&
+              attempt < MAX_TRANSLATE_RETRIES
+            ) {
+              return run(attempt + 1);
+            }
+
+            lastFailedJobRef.current = job;
+            if (mountedRef.current) {
               setDiagnostics(diag);
-
-              if (
-                isTranslatorError(err) &&
-                err.recoverable &&
-                attempt < MAX_TRANSLATE_RETRIES
-              ) {
-                await run(attempt + 1);
-                return;
-              }
-
               setError(
                 isTranslatorError(err)
                   ? err.toDisplayString()
                   : `[TRANSLATE_FAILED] ${diag.message}`,
               );
-              onTranslationRef.current(messageId, "", false);
               setStatus("ready");
             }
-          };
-
-          await run(0);
+            onTranslationRef.current(job.id, "", "error");
+            return false;
+          }
         };
 
-        if (current.isFinal) {
-          finalTranslateChain = finalTranslateChain
-            .then(runTranslate)
-            .catch(() => undefined);
-          await finalTranslateChain;
-        } else {
-          await runTranslate();
-        }
-      })();
-    }, DEBOUNCE_MS);
+        return run(0);
+      },
+    });
 
-    return () => clearTimeout(timer);
-  }, [
-    target,
-    outputLanguage,
-    status,
-    retryToken,
-    bumpGeneration,
-    isCurrentGeneration,
-  ]);
+    return () => {
+      schedulerRef.current?.clear();
+      schedulerRef.current = null;
+    };
+  }, [syncQueueUi]);
+
+  const enqueueTranslation = useCallback((request: TranslateRequest) => {
+    const trimmed = request.text.trim();
+    if (!trimmed || !request.messageId) return;
+    if (!request.inputLocale || !request.outputLanguage) return;
+
+    const job: TranslateJob = {
+      ...request,
+      text: trimmed,
+      id: request.messageId,
+      key: translationJobKey(
+        request.messageId,
+        trimmed,
+        request.inputLocale,
+        request.outputLanguage,
+      ),
+    };
+
+    schedulerRef.current?.enqueue(job);
+    syncQueueUi();
+  }, [syncQueueUi]);
 
   const retry = useCallback(() => {
     const canRetryEngine =
@@ -310,24 +317,24 @@ export function useTranslator(
       return;
     }
 
-    if (engineReadyRef.current) {
-      const latest = latestTargetRef.current;
-      if (latest?.messageId) {
-        lastKeyByMessageRef.current.delete(latest.messageId);
-      }
+    const failed = lastFailedJobRef.current;
+    if (failed && engineReadyRef.current) {
       setError(null);
       setDiagnostics(null);
-      setStatus("ready");
-      setRetryToken((n) => n + 1);
+      schedulerRef.current?.enqueue(failed);
+      syncQueueUi();
     }
-  }, [loadModel, status, diagnostics]);
+  }, [loadModel, status, diagnostics, syncQueueUi]);
 
   return {
     status,
-    isTranslating: false,
+    isTranslating,
+    activeMessageId,
+    pendingCount,
     error,
     diagnostics,
     ready: status === "ready" && engineReadyRef.current,
+    enqueueTranslation,
     retry,
     canRetryLoad:
       diagnostics?.recoverable !== false &&
