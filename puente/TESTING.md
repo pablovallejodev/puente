@@ -37,6 +37,8 @@ npx expo run:android
 3. Tras listo → Traductor. **Idioma input = Universal** (default). **Idioma base** ≈ locale del teléfono.
 4. Hablar ES/CA/IT/FR (u otro de la lista) en Universal → transcript en ese idioma → NLLB al idioma base.
 5. Si la transcripción falla: tocar Idioma input → elegir idioma fijo (override). Volver a Universal restaura auto-detect.
+
+Catálogo de producto = **Whisper ∩ NLLB** (~97 idiomas) en origen fijo y destino. Universal solo detecta entre un subconjunto curado (en/es/ca/eu/it/de/fr/sq/th). Whisper-only sin NLLB (`la`, `br`, `haw`) no aparecen en la UI.
 6. Icono ⚙ → Modelos. Modo avión tras descarga OK.
 7. Errores: `[CODE@stage] …` (tablas abajo).
 

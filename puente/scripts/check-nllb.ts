@@ -152,9 +152,9 @@ async function main(): Promise<void> {
     });
     const ms = Date.now() - t0;
 
-    if (result.length < fixture.minOutputLen) {
+    if (result === null || result.length < fixture.minOutputLen) {
       throw new Error(
-        `${fixture.name}: output too short (${result.length} chars): "${result}"`,
+        `${fixture.name}: output too short (${result?.length ?? 0} chars): "${result}"`,
       );
     }
 

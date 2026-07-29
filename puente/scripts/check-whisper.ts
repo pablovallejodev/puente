@@ -206,6 +206,7 @@ async function main(): Promise<void> {
   console.log(`✓ jfk.wav (${ms}ms)`);
   console.log(`  out: ${text}`);
   console.log(`  lang: ${result.language} (forced)`);
+  console.log(`  noSpeechProb: ${result.noSpeechProb.toFixed(3)}`);
 
   const lower = text.toLowerCase();
   const ok =
@@ -216,6 +217,31 @@ async function main(): Promise<void> {
     text.length >= 8;
   if (!ok) {
     throw new Error(`Unexpected transcript: "${text}"`);
+  }
+  if (result.noSpeech) {
+    throw new Error("jfk.wav incorrectly classified as no_speech");
+  }
+
+  console.log("silence probe…");
+  const silence = new Float32Array(16000);
+  const silentResult = await transcribePcm({
+    pcm: silence,
+    language: "en",
+    tokenizer,
+    encoderSession,
+    decoderSession,
+    modelConfig,
+    generationConfig,
+    preprocessor,
+    TensorCtor: Tensor as unknown as import("../src/lib/nllb-inference").TensorConstructor,
+  });
+  console.log(
+    `  silence noSpeech=${silentResult.noSpeech} prob=${silentResult.noSpeechProb.toFixed(3)} text="${silentResult.text}"`,
+  );
+  if (!silentResult.noSpeech && silentResult.text.trim()) {
+    throw new Error(
+      `silence produced speech text: "${silentResult.text}" (prob=${silentResult.noSpeechProb})`,
+    );
   }
 
   encoderSession.release();
