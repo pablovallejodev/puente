@@ -9,6 +9,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter, type Href } from "expo-router";
+import * as Haptics from "expo-haptics";
 import {
   activateKeepAwakeAsync,
   deactivateKeepAwake,
@@ -27,11 +28,19 @@ import { useChatMessages } from "@/hooks/use-chat-messages";
 import {
   useSpeechTranscriptor,
   type SpeechInputMode,
+  type TranscriptionOutcome,
 } from "@/hooks/use-speech-transcriptor";
 import { useTranslator } from "@/hooks/use-translator";
 import { STANDARD_HORIZONTAL_PADDING } from "@/constants/ui";
 import { StatusBarDarkComponent } from "@/utils/statusbar";
 import { theme } from "@/constants/theme";
+
+const directionArrowIcon = require("@/assets/icons/arrows/white/right.png");
+const micOnIcon = require("@/assets/icons/mic/white.png");
+const micOffIcon = require("@/assets/icons/mic/off.png");
+
+/** Soft transcription errors stay visible briefly, then leave the list. */
+const TRANSCRIPTION_ERROR_DISMISS_MS = 2500;
 
 function sourceIdFromLocale(locale: string): string {
   const byLocale = findTraductorLanguageByLocale(locale);
@@ -48,6 +57,7 @@ function sourceIdFromLocale(locale: string): string {
 export default function TraductorComponent() {
   const router = useRouter();
   const [isFocused, setIsFocused] = useState(true);
+  const [micPaused, setMicPaused] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -67,21 +77,64 @@ export default function TraductorComponent() {
     beginPendingTranscript,
     completePendingTranscript,
     discardPendingTranscript,
+    failPendingTranscript,
+    removeMessage,
     appendFinalTranscript,
     onTranslationUpdate,
   } = useChatMessages();
 
   const flatListRef = useRef<FlatList>(null);
   const pendingIdRef = useRef<string | null>(null);
-  const latestMessageId = messages.at(-1)?.id ?? null;
+  const errorTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(
+    new Map(),
+  );
+  // Accent + scroll track the last completed transcript, not ephemeral pending/error.
+  const latestMessageId = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].transcriptionStatus === "done") return messages[i].id;
+    }
+    return null;
+  }, [messages]);
   const prevLatestIdRef = useRef<string | null>(null);
+
+  const clearErrorTimer = useCallback((messageId: string) => {
+    const timer = errorTimersRef.current.get(messageId);
+    if (timer) clearTimeout(timer);
+    errorTimersRef.current.delete(messageId);
+  }, []);
+
+  const failPendingWithDismiss = useCallback(
+    (messageId: string, message: string) => {
+      failPendingTranscript(messageId, message);
+      clearErrorTimer(messageId);
+      const timer = setTimeout(() => {
+        errorTimersRef.current.delete(messageId);
+        removeMessage(messageId);
+      }, TRANSCRIPTION_ERROR_DISMISS_MS);
+      errorTimersRef.current.set(messageId, timer);
+    },
+    [clearErrorTimer, failPendingTranscript, removeMessage],
+  );
+
+  useEffect(() => {
+    const timers = errorTimersRef.current;
+    return () => {
+      for (const timer of timers.values()) clearTimeout(timer);
+      timers.clear();
+    };
+  }, []);
 
   const speechInput: SpeechInputMode = useMemo(() => {
     if (inputLanguage.kind === "universal") return { mode: "auto" };
     return { mode: "fixed", locale: inputLanguage.language.speechLocale };
   }, [inputLanguage]);
 
-  const speechEnabled = isFocused && baseHydrated;
+  const speechEnabled = isFocused && baseHydrated && !micPaused;
+
+  const toggleMicPaused = useCallback(() => {
+    setMicPaused((prev) => !prev);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }, []);
 
   const handleTranslation = useCallback(
     (
@@ -113,11 +166,25 @@ export default function TraductorComponent() {
     pendingIdRef.current = beginPendingTranscript(sourceLanguageId);
   }, [beginPendingTranscript, inputLanguage]);
 
-  const handleTranscriptionCancel = useCallback(() => {
-    const id = pendingIdRef.current;
-    pendingIdRef.current = null;
-    if (id) discardPendingTranscript(id);
-  }, [discardPendingTranscript]);
+  const handleTranscriptionEnd = useCallback(
+    (outcome: TranscriptionOutcome) => {
+      const id = pendingIdRef.current;
+      pendingIdRef.current = null;
+      if (!id) return;
+
+      if (outcome.type === "cancel") {
+        clearErrorTimer(id);
+        discardPendingTranscript(id);
+        return;
+      }
+
+      failPendingWithDismiss(
+        id,
+        outcome.type === "empty" ? "No se entendió" : "No se pudo transcribir",
+      );
+    },
+    [clearErrorTimer, discardPendingTranscript, failPendingWithDismiss],
+  );
 
   const handleFinalTranscript = useCallback(
     (text: string, _isFinal: boolean, detectedLocale?: string) => {
@@ -128,13 +195,16 @@ export default function TraductorComponent() {
           : "");
       const trimmed = text.trim();
       if (!locale || !trimmed) {
-        handleTranscriptionCancel();
+        const id = pendingIdRef.current;
+        pendingIdRef.current = null;
+        if (id) failPendingWithDismiss(id, "No se entendió");
         return;
       }
 
       const sourceLanguageId = sourceIdFromLocale(locale);
       const pendingId = pendingIdRef.current;
       pendingIdRef.current = null;
+      if (pendingId) clearErrorTimer(pendingId);
 
       const messageId = pendingId
         ? completePendingTranscript(pendingId, trimmed, sourceLanguageId)
@@ -152,9 +222,10 @@ export default function TraductorComponent() {
     },
     [
       appendFinalTranscript,
+      clearErrorTimer,
       completePendingTranscript,
       enqueueTranslation,
-      handleTranscriptionCancel,
+      failPendingWithDismiss,
       inputLanguage,
       outputLanguage.speechLocale,
     ],
@@ -165,10 +236,11 @@ export default function TraductorComponent() {
     checkingPermissions,
     isListening,
     isTranscribing,
+    backlogDropped,
   } = useSpeechTranscriptor(speechInput, {
     requiresOnDeviceRecognition: true,
     onTranscriptionStart: handleTranscriptionStart,
-    onTranscriptionCancel: handleTranscriptionCancel,
+    onTranscriptionEnd: handleTranscriptionEnd,
     onInterimTranscript: handleFinalTranscript,
     enabled: speechEnabled,
   });
@@ -199,17 +271,21 @@ export default function TraductorComponent() {
           ? "Error de reconocimiento"
           : status === "error"
             ? "Error"
-            : isTranscribing
-              ? "Entendiendo…"
-              : isTranslating
-                ? pendingCount > 0
-                  ? `Traduciendo… (+${pendingCount} en cola)`
-                  : "Traduciendo…"
-                : isListening
-                  ? "Escuchando"
-                  : ready
-                    ? "Listo en el dispositivo"
-                    : "Error";
+            : micPaused
+              ? "Micrófono pausado"
+              : backlogDropped
+                ? "Algunos fragmentos se omitieron"
+                : isTranscribing
+                  ? "Entendiendo…"
+                  : isTranslating
+                    ? pendingCount > 0
+                      ? `Traduciendo… (+${pendingCount} en cola)`
+                      : "Traduciendo…"
+                    : isListening
+                      ? "Escuchando"
+                      : ready
+                        ? "Listo en el dispositivo"
+                        : "Error";
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -290,9 +366,30 @@ export default function TraductorComponent() {
       ) : null}
 
       <View style={styles.bottomPanel}>
-        <View style={styles.panelHeading}>
-          <Text style={styles.panelEyebrow}>CONVERSACIÓN</Text>
-          <Text style={styles.panelHint}>Toca un idioma para cambiarlo</Text>
+        <View style={styles.micRow}>
+          <Pressable
+            style={({ pressed }) => [
+              styles.micButton,
+              micPaused && styles.micButtonPaused,
+              pressed && styles.micButtonPressed,
+            ]}
+            onPress={toggleMicPaused}
+            accessibilityRole="button"
+            accessibilityState={{ checked: !micPaused }}
+            accessibilityLabel={
+              micPaused ? "Reanudar micrófono" : "Pausar micrófono"
+            }
+            hitSlop={8}
+          >
+            <Image
+              source={micPaused ? micOffIcon : micOnIcon}
+              style={[
+                styles.micIcon,
+                micPaused && styles.micIconPaused,
+              ]}
+              accessibilityIgnoresInvertColors
+            />
+          </Pressable>
         </View>
         <View style={styles.languagePair}>
           {inputLanguage.kind === "universal" ? (
@@ -305,7 +402,11 @@ export default function TraductorComponent() {
             />
           )}
           <View style={styles.directionMark} accessibilityElementsHidden>
-            <Text style={styles.directionArrow}>→</Text>
+            <Image
+              source={directionArrowIcon}
+              style={styles.directionArrowIcon}
+              accessibilityIgnoresInvertColors
+            />
           </View>
           <LanguageSlotButton slot="output" language={outputLanguage} />
         </View>
@@ -456,23 +557,35 @@ const styles = StyleSheet.create({
     borderBottomWidth: 0,
     borderColor: theme.colors.hairline,
   },
-  panelHeading: {
-    flexDirection: "row",
+  micRow: {
     alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: theme.spacing.ml,
-    paddingHorizontal: theme.spacing.xs,
+    marginBottom: theme.spacing.sm,
   },
-  panelEyebrow: {
-    fontFamily: theme.font.heading,
-    fontSize: theme.type.micro,
-    letterSpacing: 1.2,
-    color: theme.colors.text,
+  micButton: {
+    width: 36,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: theme.radius.pill,
+    backgroundColor: theme.colors.background,
+    borderWidth: 1,
+    borderColor: theme.colors.hairline,
   },
-  panelHint: {
-    fontFamily: theme.font.body,
-    fontSize: theme.type.micro,
-    color: theme.colors.text,
+  micButtonPaused: {
+    backgroundColor: theme.colors.surfaceStone,
+  },
+  micButtonPressed: {
+    backgroundColor: theme.colors.pressed,
+    transform: [{ scale: 0.96 }],
+  },
+  micIcon: {
+    width: 16,
+    height: 16,
+    tintColor: theme.colors.text,
+  },
+  micIconPaused: {
+    tintColor: theme.colors.textMuted,
+    opacity: 0.85,
   },
   languagePair: {
     flexDirection: "row",
@@ -487,11 +600,10 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.pill,
     backgroundColor: theme.colors.action,
   },
-  directionArrow: {
-    marginTop: -1,
-    fontFamily: theme.font.heading,
-    fontSize: 13,
-    color: theme.colors.onAction,
+  directionArrowIcon: {
+    width: 13,
+    height: 13,
+    tintColor: theme.colors.onAction,
   },
   helperText: {
     fontFamily: theme.font.body,

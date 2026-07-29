@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 
 export type TranslationStatus = "queued" | "translating" | "done" | "error";
-export type TranscriptionStatus = "pending" | "done";
+export type TranscriptionStatus = "pending" | "done" | "error";
 
 export type ChatMessage = {
   id: string;
@@ -10,6 +10,8 @@ export type ChatMessage = {
   isFinal: boolean;
   translationStatus: TranslationStatus;
   transcriptionStatus: TranscriptionStatus;
+  /** Short UI copy when transcriptionStatus is "error". */
+  transcriptionError?: string;
   sourceLanguageId: string;
 };
 
@@ -26,7 +28,7 @@ export function useChatMessages() {
     setMessages(next);
   }, []);
 
-  /** Placeholder bubble while Whisper processes a chunk. */
+  /** Placeholder bubble while ASR processes a chunk. */
   const beginPendingTranscript = useCallback(
     (sourceLanguageId: string): string => {
       const messageId = createId();
@@ -67,6 +69,7 @@ export function useChatMessages() {
             original: trimmed,
             isFinal: true,
             transcriptionStatus: "done" as const,
+            transcriptionError: undefined,
             ...(sourceLanguageId ? { sourceLanguageId } : {}),
           };
         }),
@@ -76,7 +79,7 @@ export function useChatMessages() {
     [syncMessages],
   );
 
-  /** Drop a pending bubble when the chunk produced no usable text. */
+  /** Drop a pending bubble (session cancel / stop — not a user-facing failure). */
   const discardPendingTranscript = useCallback(
     (messageId: string) => {
       if (!messageId) return;
@@ -86,6 +89,36 @@ export function useChatMessages() {
             m.id !== messageId || m.transcriptionStatus !== "pending",
         ),
       );
+    },
+    [syncMessages],
+  );
+
+  /** Turn a pending bubble into a brief error (same id). */
+  const failPendingTranscript = useCallback(
+    (messageId: string, message: string) => {
+      if (!messageId) return;
+      const copy = message.trim() || "No se entendió";
+      syncMessages(
+        messagesRef.current.map((m) => {
+          if (m.id !== messageId || m.transcriptionStatus !== "pending") {
+            return m;
+          }
+          return {
+            ...m,
+            transcriptionStatus: "error" as const,
+            transcriptionError: copy,
+          };
+        }),
+      );
+    },
+    [syncMessages],
+  );
+
+  /** Remove any message by id (error auto-dismiss). */
+  const removeMessage = useCallback(
+    (messageId: string) => {
+      if (!messageId) return;
+      syncMessages(messagesRef.current.filter((m) => m.id !== messageId));
     },
     [syncMessages],
   );
@@ -127,13 +160,24 @@ export function useChatMessages() {
         messagesRef.current.map((m) => {
           if (m.id !== messageId) return m;
 
-          // Never overwrite a completed final translation unless forced.
+          // Queue / in-flight: status only — never wipe translated text.
+          // A completed translation must not regress when a newer job preempts.
+          if (status === "queued" || status === "translating") {
+            if (
+              !options?.force &&
+              m.translationStatus === "done" &&
+              m.translated
+            ) {
+              return m;
+            }
+            return { ...m, translationStatus: status };
+          }
+
+          // Freeze a finished translation against empty clears and replacements.
           if (
             !options?.force &&
-            m.isFinal &&
-            m.translated &&
             m.translationStatus === "done" &&
-            text
+            m.translated
           ) {
             return m;
           }
@@ -158,6 +202,8 @@ export function useChatMessages() {
     beginPendingTranscript,
     completePendingTranscript,
     discardPendingTranscript,
+    failPendingTranscript,
+    removeMessage,
     appendFinalTranscript,
     onTranslationUpdate,
     resetMessages,

@@ -54,10 +54,25 @@ function ChatMessageItemComponent({
   if (message.transcriptionStatus === "pending") {
     return (
       <View
-        style={[styles.container, styles.latestContainer, styles.pendingBody]}
+        style={[styles.container, styles.pendingBody]}
         accessibilityLiveRegion="polite"
       >
         <VoiceLoader accessibilityLabel="Transcribiendo" />
+      </View>
+    );
+  }
+
+  if (message.transcriptionStatus === "error") {
+    return (
+      <View
+        style={[styles.container, styles.errorBody]}
+        accessibilityLiveRegion="polite"
+        accessibilityRole="text"
+      >
+        <Text style={styles.transcriptionError}>
+          <Text style={styles.transcriptionErrorIcon}>⚠ </Text>
+          {message.transcriptionError ?? "No se entendió"}
+        </Text>
       </View>
     );
   }
@@ -135,6 +150,18 @@ const styles = StyleSheet.create({
     minHeight: 88,
     alignItems: "center",
     justifyContent: "center",
+  },
+  errorBody: {
+    minHeight: 56,
+    justifyContent: "center",
+  },
+  transcriptionError: {
+    fontFamily: theme.font.body,
+    fontSize: theme.type.caption,
+    color: theme.colors.textMuted,
+  },
+  transcriptionErrorIcon: {
+    color: theme.colors.error,
   },
   originalRow: {
     flexDirection: "row",

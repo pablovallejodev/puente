@@ -182,7 +182,8 @@ export function useTranslator(
     schedulerRef.current = new LatestFirstPreserveScheduler<TranslateJob>({
       onState: (job, state) => {
         if (!mountedRef.current) return;
-        // Only status transitions — execute owns the translated text for done/error.
+        // Status only — execute owns translated text for done/error.
+        // Passing "" here must not wipe a finished translation (see onTranslationUpdate).
         if (state === "queued" || state === "translating") {
           onTranslationRef.current(job.id, "", state);
         }

@@ -27,13 +27,22 @@ export type SpeechInputMode =
   | { mode: "auto" }
   | { mode: "fixed"; locale: string };
 
+/** Why a started chunk did not produce an accepted transcript. */
+export type TranscriptionOutcome =
+  | { type: "cancel" }
+  | { type: "empty" }
+  | { type: "error"; code: string; message: string };
+
 export type SpeechTranscriptorOptions = {
   /** Ignored: Whisper is always on-device. Kept for API compatibility. */
   requiresOnDeviceRecognition?: boolean;
   /** Fired when Whisper starts processing a VAD chunk (before result). */
   onTranscriptionStart?: () => void;
-  /** Fired when a chunk yields no usable transcript (or was cancelled). */
-  onTranscriptionCancel?: () => void;
+  /**
+   * Fired when a started chunk ends without an accepted transcript.
+   * `cancel` = session/stop; `empty` = noSpeech/filter; `error` = engine throw.
+   */
+  onTranscriptionEnd?: (outcome: TranscriptionOutcome) => void;
   onInterimTranscript?: (
     text: string,
     isFinal: boolean,
@@ -107,7 +116,7 @@ export function useSpeechTranscriptor(
 ) {
   const {
     onTranscriptionStart,
-    onTranscriptionCancel,
+    onTranscriptionEnd,
     onInterimTranscript,
     enabled = true,
   } = options;
@@ -127,7 +136,7 @@ export function useSpeechTranscriptor(
   const permissionsGrantedRef = useRef(false);
   const inputRef = useRef(input);
   const onStartRef = useRef(onTranscriptionStart);
-  const onCancelRef = useRef(onTranscriptionCancel);
+  const onEndRef = useRef(onTranscriptionEnd);
   const onInterimRef = useRef(onInterimTranscript);
   const engineRef = useRef<AsrEngine | null>(null);
   const segmenterRef = useRef<SpeechSegmenter | null>(null);
@@ -144,13 +153,13 @@ export function useSpeechTranscriptor(
   useEffect(() => {
     inputRef.current = input;
     onStartRef.current = onTranscriptionStart;
-    onCancelRef.current = onTranscriptionCancel;
+    onEndRef.current = onTranscriptionEnd;
     onInterimRef.current = onInterimTranscript;
     enabledRef.current = enabled;
   }, [
     input,
     onTranscriptionStart,
-    onTranscriptionCancel,
+    onTranscriptionEnd,
     onInterimTranscript,
     enabled,
   ]);
@@ -182,6 +191,7 @@ export function useSpeechTranscriptor(
         setIsTranscribing(true);
         onStartRef.current?.();
         let acceptedThisChunk = false;
+        let endOutcome: TranscriptionOutcome = { type: "empty" };
 
         try {
           const current = inputRef.current;
@@ -225,13 +235,20 @@ export function useSpeechTranscriptor(
             chunk.sessionId !== sessionIdRef.current ||
             !enabledRef.current
           ) {
+            endOutcome = { type: "cancel" };
             continue;
           }
 
-          if (result.noSpeech || !result.text.trim()) continue;
+          if (result.noSpeech || !result.text.trim()) {
+            endOutcome = { type: "empty" };
+            continue;
+          }
 
           const accepted = acceptTranscript(result.text);
-          if (!accepted) continue;
+          if (!accepted) {
+            endOutcome = { type: "empty" };
+            continue;
+          }
 
           if (
             current.mode === "auto" &&
@@ -265,6 +282,7 @@ export function useSpeechTranscriptor(
             !isMountedRef.current ||
             chunk.sessionId !== sessionIdRef.current
           ) {
+            endOutcome = { type: "cancel" };
             continue;
           }
           if (isWhisperError(err) || isEngineError(err)) {
@@ -272,13 +290,19 @@ export function useSpeechTranscriptor(
               code: err.code,
               message: err.toDisplayString(),
             });
+            endOutcome = {
+              type: "error",
+              code: err.code,
+              message: err.toDisplayString(),
+            };
           } else {
             const message = err instanceof Error ? err.message : String(err);
             setError({ code: "asr_failed", message });
+            endOutcome = { type: "error", code: "asr_failed", message };
           }
         } finally {
           if (isMountedRef.current) {
-            if (!acceptedThisChunk) onCancelRef.current?.();
+            if (!acceptedThisChunk) onEndRef.current?.(endOutcome);
             setIsTranscribing(false);
           }
         }
@@ -393,6 +417,21 @@ export function useSpeechTranscriptor(
 
   const requestPermissionsAndLoad = useCallback(async () => {
     try {
+      // Fast resume: engine already warm (e.g. unmute). Avoid permission
+      // flicker and "Cargando reconocimiento…" on every re-enable.
+      if (permissionsGrantedRef.current && engineRef.current) {
+        setCheckingPermissions(false);
+        setEngineReady(true);
+        await setAudioModeAsync({
+          playsInSilentMode: true,
+          allowsRecording: true,
+        });
+        if (enabledRef.current) {
+          await startListeningInternal();
+        }
+        return;
+      }
+
       setCheckingPermissions(true);
 
       const mic = await requestRecordingPermissionsAsync();
