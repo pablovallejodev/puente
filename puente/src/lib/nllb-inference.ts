@@ -1,4 +1,9 @@
-import { TranslatorError } from "@/lib/translator-errors";
+import {
+  detectLoopPeriod,
+  selectNextToken,
+  TRANSLATION_GUARDS,
+} from "@/lib/ort/decode-guards";
+import { TranslatorError, wrapUnknownError } from "@/lib/translator-errors";
 
 export type OrtTensor = {
   dims: readonly number[];
@@ -144,25 +149,6 @@ export function updatePastFeeds(
   return next;
 }
 
-export function argmaxLastToken(logits: OrtTensor, vocabSize: number): number {
-  const dims = logits.dims;
-  const seqLen = dims.length >= 2 ? Number(dims[1]) : 1;
-  const logitsVocabSize = dims.length >= 3 ? Number(dims[2]) : vocabSize;
-  const data = logits.data as Float32Array;
-  const offset = (seqLen - 1) * logitsVocabSize;
-
-  let bestId = 0;
-  let bestValue = -Infinity;
-  for (let i = 0; i < logitsVocabSize; i++) {
-    const value = data[offset + i];
-    if (value > bestValue) {
-      bestValue = value;
-      bestId = i;
-    }
-  }
-  return bestId;
-}
-
 export type TranslateParams = {
   text: string;
   srcLang: string;
@@ -268,13 +254,28 @@ export async function translateText(
 
     if (shouldCancel?.()) return null;
 
-    const nextTokenId = argmaxLastToken(
+    const nextTokenId = selectNextToken(
       decoderOutputs.logits as OrtTensor,
       modelConfig.vocab_size,
+      generatedIds,
+      TRANSLATION_GUARDS,
     );
     if (nextTokenId === eosTokenId) break;
 
     generatedIds.push(nextTokenId);
+
+    // NLLB loops when the source is a single word it cannot place. Cut the
+    // repeated block and return what came before rather than burning the whole
+    // token budget on it.
+    const loopPeriod = detectLoopPeriod(generatedIds, TRANSLATION_GUARDS);
+    if (loopPeriod !== null) {
+      generatedIds.length = Math.max(
+        0,
+        generatedIds.length - loopPeriod * TRANSLATION_GUARDS.loopRepeats,
+      );
+      break;
+    }
+
     pastFeeds = updatePastFeeds(
       pastFeeds,
       decoderOutputs as Record<string, OrtTensor>,
@@ -306,20 +307,5 @@ function wrapTranslateError(
   code: "ENCODE_FAILED" | "DECODE_FAILED",
   context?: Record<string, string | number | boolean>,
 ): TranslatorError {
-  const message = err instanceof Error ? err.message : String(err);
-  const oom =
-    message.includes("memory") ||
-    message.includes("OOM") ||
-    message.includes("allocate");
-  return new TranslatorError({
-    code: oom ? "OUT_OF_MEMORY" : code,
-    stage,
-    message,
-    recoverable: !oom,
-    context,
-  });
+  return wrapUnknownError(err, stage, code, true, context);
 }
-
-export const SESSION_OPTIONS = {
-  graphOptimizationLevel: "basic" as const,
-};

@@ -3,7 +3,6 @@ import {
   whisperLangToSpeechLocale,
 } from "@/constants/whisper-languages";
 import {
-  argmaxLastToken,
   boolTensor,
   buildEmptyPastFeeds,
   updatePastFeeds,
@@ -12,6 +11,11 @@ import {
   type TensorConstructor,
   type TokenizerLike,
 } from "@/lib/nllb-inference";
+import {
+  detectLoopPeriod,
+  selectNextToken,
+  WHISPER_GUARDS,
+} from "@/lib/ort/decode-guards";
 import {
   DEFAULT_PREPROCESSOR,
   extractWhisperMel,
@@ -35,10 +39,6 @@ export type WhisperGenerationConfig = {
   no_speech_token_id?: number;
   task_to_id: { transcribe: number; translate?: number };
   lang_to_id: Record<string, number>;
-};
-
-export const WHISPER_SESSION_OPTIONS = {
-  graphOptimizationLevel: "basic" as const,
 };
 
 export const MAX_NEW_TOKENS = 224;
@@ -368,6 +368,7 @@ async function decodeTranscript(params: {
   let useCacheBranch = false;
   let pastFeeds = buildEmptyPastFeeds(numLayers, numHeads, headDim, TensorCtor);
   const generatedIds: number[] = [];
+  let loopTruncated = false;
 
   for (let step = 0; step < MAX_NEW_TOKENS; step++) {
     if (shouldCancel?.()) return null;
@@ -388,13 +389,29 @@ async function decodeTranscript(params: {
 
     if (shouldCancel?.()) return null;
 
-    const nextTokenId = argmaxLastToken(
+    const nextTokenId = selectNextToken(
       decoderOutputs.logits as OrtTensor,
       modelConfig.vocab_size,
+      generatedIds,
+      WHISPER_GUARDS,
     );
     if (nextTokenId === eos) break;
 
     generatedIds.push(nextTokenId);
+
+    // A loop here means the model started hallucinating on silence or noise
+    // instead of transcribing. Drop exactly the repeated block and keep what
+    // came before it: the start of the chunk is usually real speech.
+    const loopPeriod = detectLoopPeriod(generatedIds, WHISPER_GUARDS);
+    if (loopPeriod !== null) {
+      generatedIds.length = Math.max(
+        0,
+        generatedIds.length - loopPeriod * WHISPER_GUARDS.loopRepeats,
+      );
+      loopTruncated = true;
+      break;
+    }
+
     pastFeeds = updatePastFeeds(
       pastFeeds,
       decoderOutputs as Record<string, OrtTensor>,
@@ -406,6 +423,10 @@ async function decodeTranscript(params: {
   }
 
   if (generatedIds.length === 0) {
+    // A chunk that was nothing but a hallucination loop is a normal outcome of
+    // listening to a noisy room, not a fault: return empty text and let the
+    // caller drop the chunk silently.
+    if (loopTruncated) return "";
     throw new WhisperError({
       code: "DECODE_EMPTY",
       stage: "decode.output",
