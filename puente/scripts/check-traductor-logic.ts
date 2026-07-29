@@ -38,18 +38,34 @@ import {
 } from "../src/lib/transcript-filter";
 import {
   ENERGY_FLOOR,
-  FRAME_SAMPLES,
+  ENERGY_FRAME_SAMPLES,
+  EnergyDetector,
+} from "../src/lib/vad/energy-detector";
+import type { SpeechDetector } from "../src/lib/vad/detector";
+import {
   MAX_CHUNK_MS,
-  MIN_ACTIVE_FRAMES,
-  WhisperAudioEndpoint,
-  WHISPER_SAMPLE_RATE,
+  MIN_SPEECH_MS,
   msToSamples,
-} from "../src/lib/whisper-audio-endpoint";
+  SAMPLE_RATE,
+  SILENCE_MS,
+  SpeechSegmenter,
+} from "../src/lib/vad/segmenter";
+import {
+  detectLoopPeriod,
+  selectNextToken,
+  TRANSLATION_GUARDS,
+  WHISPER_GUARDS,
+} from "../src/lib/ort/decode-guards";
 import {
   LatestFirstPreserveScheduler,
   translationJobKey,
 } from "../src/lib/translation-scheduler";
 import { DEFAULT_PREPROCESSOR, extractWhisperMel } from "../src/lib/whisper-mel";
+import {
+  lookupPhrase,
+  normalizePhrase,
+  phrasePairCount,
+} from "../src/lib/mt/phrase-lookup";
 
 function testLocaleMatching(): void {
   assert.equal(normalizeLocale("en_US"), "en-us");
@@ -83,6 +99,10 @@ function testTranscriptFilter(): void {
   assert.equal(acceptTranscript("你好"), "你好");
 }
 
+const FRAME_SAMPLES = ENERGY_FRAME_SAMPLES;
+const FRAME_MS = (FRAME_SAMPLES * 1000) / SAMPLE_RATE;
+const MIN_ACTIVE_FRAMES = Math.ceil(msToSamples(MIN_SPEECH_MS) / FRAME_SAMPLES);
+
 function tone(frames: number, amplitude: number): Float32Array {
   const n = frames * FRAME_SAMPLES;
   const out = new Float32Array(n);
@@ -96,35 +116,45 @@ function silence(frames: number): Float32Array {
   return new Float32Array(frames * FRAME_SAMPLES);
 }
 
-function testEndpointRejectsBriefNoise(): void {
-  const chunks: Float32Array[] = [];
-  const ep = new WhisperAudioEndpoint({
+/**
+ * The segmenter pump awaits the detector once per frame, so even a synchronous
+ * detector finishes on the microtask queue. A macrotask tick drains all of it.
+ */
+function settle(): Promise<void> {
+  return new Promise((r) => setTimeout(r, 0));
+}
+
+function energySegmenter(chunks: Float32Array[]): SpeechSegmenter {
+  return new SpeechSegmenter(new EnergyDetector(), {
     onSpeechChunk: (pcm) => chunks.push(pcm),
   });
+}
+
+async function testSegmenterRejectsBriefNoise(): Promise<void> {
+  const chunks: Float32Array[] = [];
+  const seg = energySegmenter(chunks);
   // One loud frame then silence — below MIN_ACTIVE_FRAMES.
-  ep.push(tone(1, 0.2));
-  ep.push(silence(30));
+  seg.push(tone(1, 0.2));
+  seg.push(silence(30));
+  await settle();
   assert.equal(chunks.length, 0, "brief spike must not form a chunk");
 }
 
-function testEndpointAcceptsSustainedSpeech(): void {
+async function testSegmenterAcceptsSustainedSpeech(): Promise<void> {
   const chunks: Float32Array[] = [];
-  const ep = new WhisperAudioEndpoint({
-    onSpeechChunk: (pcm) => chunks.push(pcm),
-  });
-  ep.push(tone(MIN_ACTIVE_FRAMES + 2, 0.15));
-  ep.push(silence(Math.ceil(900 / 50) + 2));
+  const seg = energySegmenter(chunks);
+  seg.push(tone(MIN_ACTIVE_FRAMES + 2, 0.15));
+  seg.push(silence(Math.ceil(SILENCE_MS / FRAME_MS) + 2));
+  await settle();
   assert.equal(chunks.length, 1, "sustained speech must form a chunk");
-  assert.ok(chunks[0].length >= msToSamples(350));
+  assert.ok(chunks[0].length >= msToSamples(MIN_SPEECH_MS));
 }
 
-function testEndpointKeepsRemainderAndCapsMax(): void {
+async function testSegmenterCapsMaxChunk(): Promise<void> {
   const chunks: Float32Array[] = [];
-  const ep = new WhisperAudioEndpoint({
-    onSpeechChunk: (pcm) => chunks.push(pcm),
-  });
-  const maxFrames = Math.ceil(MAX_CHUNK_MS / 50) + 4;
-  ep.push(tone(maxFrames, 0.15));
+  const seg = energySegmenter(chunks);
+  seg.push(tone(Math.ceil(MAX_CHUNK_MS / FRAME_MS) + 4, 0.15));
+  await settle();
   assert.ok(chunks.length >= 1, "max length must cut");
   for (const c of chunks) {
     assert.ok(
@@ -134,18 +164,129 @@ function testEndpointKeepsRemainderAndCapsMax(): void {
   }
 }
 
-function testEndpointFlushRequiresActiveSpeech(): void {
+async function testSegmenterFlushRequiresActiveSpeech(): Promise<void> {
   const chunks: Float32Array[] = [];
-  const ep = new WhisperAudioEndpoint({
-    onSpeechChunk: (pcm) => chunks.push(pcm),
-  });
-  ep.push(tone(1, 0.2));
-  ep.flush();
+  const seg = energySegmenter(chunks);
+  seg.push(tone(1, 0.2));
+  await seg.flush();
   assert.equal(chunks.length, 0, "flush of brief noise must discard");
 
-  ep.push(tone(MIN_ACTIVE_FRAMES + 1, 0.15));
-  ep.flush();
+  seg.push(tone(MIN_ACTIVE_FRAMES + 1, 0.15));
+  await seg.flush();
   assert.equal(chunks.length, 1, "flush of real speech must emit");
+}
+
+/**
+ * Drive the state machine from a scripted verdict list instead of audio, so the
+ * segmentation logic is checked independently of whichever detector produced
+ * the scores. This is the path a real Silero detector takes: async scoring.
+ */
+class ScriptedDetector implements SpeechDetector {
+  readonly id = "silero" as const;
+  readonly frameSamples = 512;
+  readonly startThreshold = 0.5;
+  readonly continueThreshold = 0.35;
+  resets = 0;
+  private index = 0;
+
+  constructor(private readonly scores: number[]) {}
+
+  async score(): Promise<number> {
+    const value = this.scores[this.index] ?? 0;
+    this.index += 1;
+    return value;
+  }
+
+  reset(): void {
+    this.resets += 1;
+  }
+
+  dispose(): void {}
+}
+
+async function testSegmenterHysteresisAndReset(): Promise<void> {
+  const framesFor = (ms: number) => Math.ceil(msToSamples(ms) / 512);
+  const speech = framesFor(MIN_SPEECH_MS) + 2;
+  const trailing = framesFor(SILENCE_MS) + 2;
+
+  const scores = [
+    ...Array<number>(4).fill(0.1), // leading silence
+    ...Array<number>(speech).fill(0.9), // speech
+    0.4, // below start, above continue: must NOT end the utterance
+    ...Array<number>(trailing).fill(0.05), // real silence
+  ];
+  const detector = new ScriptedDetector(scores);
+  const chunks: Float32Array[] = [];
+  const seg = new SpeechSegmenter(detector, {
+    onSpeechChunk: (pcm) => chunks.push(pcm),
+  });
+
+  seg.push(new Float32Array(scores.length * 512));
+  await settle();
+
+  assert.equal(chunks.length, 1, "one utterance expected");
+  // 0.4 sits between the two thresholds, so it counted as speech and did not
+  // restart the silence timer; the chunk therefore spans it.
+  assert.ok(
+    chunks[0].length >= msToSamples(MIN_SPEECH_MS) + 512,
+    "mid-utterance dip must not split the chunk",
+  );
+  assert.ok(detector.resets >= 1, "recurrent state must reset per utterance");
+}
+
+function testLoopDetection(): void {
+  assert.equal(detectLoopPeriod([1, 2, 3, 4, 5], WHISPER_GUARDS), null);
+  // "Thank you." repeated: period 2, three times.
+  assert.equal(detectLoopPeriod([9, 8, 7, 7, 7, 7], WHISPER_GUARDS), 1);
+  assert.equal(detectLoopPeriod([9, 1, 2, 1, 2, 1, 2], WHISPER_GUARDS), 2);
+  // Repeated once earlier but not looping now.
+  assert.equal(detectLoopPeriod([1, 2, 1, 2, 5, 6], WHISPER_GUARDS), null);
+  // Truncating by period * loopRepeats leaves exactly the pre-loop text.
+  const generated = [9, 1, 2, 1, 2, 1, 2];
+  const period = detectLoopPeriod(generated, WHISPER_GUARDS)!;
+  assert.deepEqual(
+    generated.slice(0, generated.length - period * WHISPER_GUARDS.loopRepeats),
+    [9],
+  );
+}
+
+function logitsOf(values: number[]): OrtTensor {
+  return { dims: [1, 1, values.length], data: Float32Array.from(values) };
+}
+
+function testDecodeGuards(): void {
+  const flat = logitsOf([1, 2, 3, 4]);
+  assert.equal(selectNextToken(flat, 4, [], WHISPER_GUARDS), 3);
+
+  // Repetition penalty only demotes; it must not ban. Token 3 wins on its own
+  // even penalised, because the runner-up is far behind.
+  assert.equal(selectNextToken(flat, 4, [3], WHISPER_GUARDS), 3);
+  // With a near-tie, the penalty flips the winner to the unseen token.
+  const tie = logitsOf([1, 1, 3.0, 3.1]);
+  assert.equal(selectNextToken(tie, 4, [3], WHISPER_GUARDS), 2);
+
+  // no-repeat n-gram is a hard ban: after [1,2,3] -> 0, the prefix [1,2,3]
+  // recurring must not pick 0 again even though it has the top logit.
+  const guards = { ...WHISPER_GUARDS, repetitionPenalty: 1 };
+  const banned = selectNextToken(
+    logitsOf([10, 1, 2, 3]),
+    4,
+    [1, 2, 3, 0, 1, 2, 3],
+    guards,
+  );
+  assert.notEqual(banned, 0, "n-gram continuation must be banned");
+
+  // Every token banned is survivable: fall back to raw argmax.
+  const all = selectNextToken(logitsOf([5, 1]), 2, [0, 1, 0, 1, 0, 1], {
+    repetitionPenalty: 1,
+    noRepeatNgramSize: 2,
+    loopRepeats: 3,
+    maxLoopPeriod: 8,
+  });
+  assert.ok(all === 0 || all === 1);
+
+  assert.ok(TRANSLATION_GUARDS.noRepeatNgramSize > WHISPER_GUARDS.noRepeatNgramSize);
+  assert.ok(TRANSLATION_GUARDS.repetitionPenalty < WHISPER_GUARDS.repetitionPenalty);
 }
 
 function testSessionGuard(): void {
@@ -419,7 +560,7 @@ function testMelSelfCheck(): void {
   assert.ok(nonzero > 100);
   assert.ok(max > min);
   assert.ok(ENERGY_FLOOR > 0);
-  assert.ok(WHISPER_SAMPLE_RATE === 16000);
+  assert.ok(SAMPLE_RATE === 16000);
 }
 
 function testLatestMessageIdDerivation(): void {
@@ -432,10 +573,13 @@ function testLatestMessageIdDerivation(): void {
 async function main(): Promise<void> {
   testLocaleMatching();
   testTranscriptFilter();
-  testEndpointRejectsBriefNoise();
-  testEndpointAcceptsSustainedSpeech();
-  testEndpointKeepsRemainderAndCapsMax();
-  testEndpointFlushRequiresActiveSpeech();
+  await testSegmenterRejectsBriefNoise();
+  await testSegmenterAcceptsSustainedSpeech();
+  await testSegmenterCapsMaxChunk();
+  await testSegmenterFlushRequiresActiveSpeech();
+  await testSegmenterHysteresisAndReset();
+  testLoopDetection();
+  testDecodeGuards();
   testSessionGuard();
   await testLatestFirstPreserve();
   testTranslationJobKey();
@@ -452,8 +596,31 @@ async function main(): Promise<void> {
   testFormatSttError();
   testMelSelfCheck();
   testLatestMessageIdDerivation();
+  testPhraseLookup();
 
   console.log("check:traductor-logic ok");
+}
+
+function testPhraseLookup(): void {
+  assert.ok(phrasePairCount() > 50, "phrase seed table is too thin");
+  assert.equal(normalizePhrase("¡Hola!"), "hola");
+  assert.equal(normalizePhrase("  Thank   you. "), "thank you");
+  assert.equal(lookupPhrase("hello", "en-US", "es-ES"), "hola");
+  assert.equal(lookupPhrase("¡Hola!", "es-ES", "en-US"), "hello");
+  assert.equal(lookupPhrase("gràcies", "ca-ES", "es-ES"), "gracias");
+  // Long sentences must fall through to the neural model.
+  assert.equal(
+    lookupPhrase(
+      "hello my friend how are you doing today",
+      "en-US",
+      "es-ES",
+    ),
+    null,
+  );
+  // Unknown phrases fall through.
+  assert.equal(lookupPhrase("xylophone", "en-US", "es-ES"), null);
+  // Same language: no override.
+  assert.equal(lookupPhrase("hello", "en-US", "en-GB"), null);
 }
 
 main().catch((err) => {
