@@ -8,6 +8,8 @@ import {
 
 import type { TraductorLanguage } from "@/constants/traductor-languages";
 import type { SttDownloadState } from "@/hooks/use-offline-stt-download";
+import { LanguageFlag } from "@/components/shared/language-flag";
+import { theme } from "@/constants/theme";
 
 type LanguageDownloadRowProps = {
   language: TraductorLanguage;
@@ -56,11 +58,17 @@ export function LanguageDownloadRow({
         pressed && styles.rowPressed,
       ]}
       onPress={onSelect}
+      accessibilityRole={showDownload ? "button" : "radio"}
+      accessibilityState={showDownload ? undefined : { selected }}
     >
-      <Text style={styles.flag}>{language.flagEmoji}</Text>
+      <View style={styles.flagWrap}>
+        <LanguageFlag language={language} size={24} />
+      </View>
       <View style={styles.labelColumn}>
         <Text style={styles.label}>{language.label}</Text>
-        <Text style={styles.locale}>{language.speechLocale}</Text>
+        {showDownload ? (
+          <Text style={styles.locale}>{language.speechLocale}</Text>
+        ) : null}
         {downloadState.status === "error" && downloadState.error ? (
           <>
             <Text style={styles.error}>{downloadState.error}</Text>
@@ -72,7 +80,11 @@ export function LanguageDownloadRow({
       </View>
 
       <View style={styles.actionColumn}>
-        {showDownload && !isInstalled ? (
+        {selected ? (
+          <View style={styles.selectedMark}>
+            <Text style={styles.selectedMarkText}>✓</Text>
+          </View>
+        ) : showDownload && !isInstalled ? (
           <Pressable
             style={({ pressed }) => [
               styles.downloadButton,
@@ -86,7 +98,7 @@ export function LanguageDownloadRow({
             hitSlop={8}
           >
             {isBusy ? (
-              <ActivityIndicator size="small" color="#000" />
+              <ActivityIndicator size="small" color={theme.colors.text} />
             ) : (
               <Text style={styles.downloadIcon}>↓</Text>
             )}
@@ -106,48 +118,54 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#E5E5E5",
-    backgroundColor: "#FFFFFF",
+    minHeight: 72,
+    marginHorizontal: theme.spacing.md,
+    marginBottom: theme.spacing.sm,
+    paddingVertical: theme.spacing.ml,
+    paddingHorizontal: theme.spacing.md,
+    borderWidth: 1,
+    borderColor: theme.colors.hairline,
+    borderRadius: theme.radius.lg,
+    backgroundColor: theme.colors.surface,
   },
   rowSelected: {
-    backgroundColor: "#F5F5F5",
+    borderColor: theme.colors.action,
+    borderWidth: 2,
   },
   rowPressed: {
-    opacity: 0.85,
+    backgroundColor: theme.colors.pressed,
+    transform: [{ scale: 0.99 }],
   },
-  flag: {
-    fontSize: 22,
+  flagWrap: {
     width: 32,
-    textAlign: "center",
+    alignItems: "center",
+    justifyContent: "center",
   },
   labelColumn: {
     flex: 1,
-    marginLeft: 8,
+    marginLeft: theme.spacing.ml,
   },
   label: {
-    fontFamily: "Mulish_800ExtraBold",
-    fontSize: 16,
-    color: "#000000",
+    fontFamily: theme.font.heading,
+    fontSize: theme.type.body,
+    color: theme.colors.text,
   },
   locale: {
-    fontFamily: "Mulish_500Medium",
-    fontSize: 11,
-    color: "#666666",
+    fontFamily: theme.font.body,
+    fontSize: theme.type.micro,
+    color: theme.colors.text,
     marginTop: 2,
   },
   error: {
-    fontFamily: "Mulish_500Medium",
+    fontFamily: theme.font.body,
     fontSize: 11,
-    color: "#CC0000",
+    color: theme.colors.error,
     marginTop: 4,
   },
   errorCode: {
-    fontFamily: "Mulish_500Medium",
+    fontFamily: theme.font.body,
     fontSize: 10,
-    color: "#666666",
+    color: theme.colors.text,
     marginTop: 2,
   },
   actionColumn: {
@@ -157,34 +175,47 @@ const styles = StyleSheet.create({
     minWidth: 40,
     justifyContent: "flex-end",
   },
+  selectedMark: {
+    width: 28,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: theme.radius.pill,
+    backgroundColor: theme.colors.action,
+  },
+  selectedMarkText: {
+    fontFamily: theme.font.heading,
+    fontSize: theme.type.caption,
+    color: theme.colors.onAction,
+  },
   downloadButton: {
     width: 32,
     height: 32,
     borderWidth: 1,
-    borderColor: "#000000",
-    borderRadius: 6,
+    borderColor: theme.colors.action,
+    borderRadius: theme.radius.pill,
     alignItems: "center",
     justifyContent: "center",
   },
   downloadButtonPressed: {
-    backgroundColor: "#F5F5F5",
+    backgroundColor: theme.colors.pressed,
   },
   downloadButtonDisabled: {
     opacity: 0.6,
   },
   downloadIcon: {
-    fontFamily: "Mulish_800ExtraBold",
+    fontFamily: theme.font.heading,
     fontSize: 16,
-    color: "#000000",
+    color: theme.colors.text,
   },
   installedMark: {
-    fontFamily: "Mulish_800ExtraBold",
+    fontFamily: theme.font.heading,
     fontSize: 14,
-    color: "#000000",
+    color: theme.colors.text,
   },
   status: {
-    fontFamily: "Mulish_500Medium",
+    fontFamily: theme.font.body,
     fontSize: 11,
-    color: "#666666",
+    color: theme.colors.text,
   },
 });
