@@ -2,6 +2,8 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 
 import type { TraductorLanguage } from "@/constants/traductor-languages";
+import { LanguageFlag } from "@/components/shared/language-flag";
+import { theme } from "@/constants/theme";
 
 type LanguageSlotButtonProps =
   | {
@@ -32,66 +34,80 @@ export function LanguageSlotButton(props: LanguageSlotButtonProps) {
         ? props.language
         : undefined;
 
-  const flag = isUniversal ? "🌐" : (language?.flagEmoji ?? "🌐");
   const label = isUniversal ? "Universal" : (language?.label ?? "—");
-  const slotLabel = props.slot === "input" ? "Idioma input" : "Idioma base";
+  const slotLabel = props.slot === "input" ? "Origen" : "Traduce a";
 
   return (
     <Pressable
       style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
       onPress={goToLanguages}
+      accessibilityRole="button"
+      accessibilityLabel={`${slotLabel}: ${label}`}
     >
-      <Text style={styles.flag}>{flag}</Text>
+      <View style={styles.flagWrap}>
+        {isUniversal || !language ? (
+          <Text style={styles.globe}>🌐</Text>
+        ) : (
+          <LanguageFlag language={language} size={24} />
+        )}
+      </View>
       <View style={styles.labelColumn}>
         <Text style={styles.slotLabel}>{slotLabel}</Text>
         <Text style={styles.label}>{label}</Text>
       </View>
-      <Text style={styles.chevron}>▼</Text>
+      <Text style={styles.chevron}>⌄</Text>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   row: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    minHeight: 78,
+    paddingVertical: theme.spacing.ml,
+    paddingHorizontal: theme.spacing.ml,
     borderWidth: 1,
-    borderColor: "#E5E5E5",
-    borderRadius: 8,
-    marginBottom: 8,
-    backgroundColor: "#FFFFFF",
+    borderColor: theme.colors.hairline,
+    borderRadius: theme.radius.lg,
+    backgroundColor: theme.colors.background,
   },
   rowPressed: {
-    opacity: 0.85,
+    backgroundColor: theme.colors.pressed,
+    transform: [{ scale: 0.985 }],
   },
-  flag: {
-    fontSize: 22,
-    width: 32,
+  flagWrap: {
+    width: 30,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  globe: {
+    fontSize: 20,
     textAlign: "center",
   },
   labelColumn: {
     flex: 1,
-    marginLeft: 8,
+    marginLeft: theme.spacing.sm,
   },
   slotLabel: {
-    fontFamily: "Mulish_500Medium",
-    fontSize: 11,
-    color: "#666666",
+    fontFamily: theme.font.body,
+    fontSize: theme.type.micro,
+    color: theme.colors.textMuted,
     textTransform: "uppercase",
-    letterSpacing: 0.5,
+    letterSpacing: 1,
   },
   label: {
-    fontFamily: "Mulish_800ExtraBold",
-    fontSize: 16,
-    color: "#000000",
-    marginTop: 2,
+    fontFamily: theme.font.heading,
+    fontSize: 14,
+    color: theme.colors.text,
+    marginTop: theme.spacing.xs,
   },
   chevron: {
-    fontFamily: "Mulish_500Medium",
-    fontSize: 10,
-    color: "#666666",
-    marginLeft: 8,
+    fontFamily: theme.font.heading,
+    fontSize: 16,
+    color: theme.colors.textMuted,
+    marginLeft: theme.spacing.xs,
+    marginTop: -4,
   },
 });

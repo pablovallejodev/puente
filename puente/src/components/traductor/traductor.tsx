@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   FlatList,
+  Image,
   Pressable,
   StyleSheet,
   Text,
@@ -27,12 +28,10 @@ import {
   useSpeechTranscriptor,
   type SpeechInputMode,
 } from "@/hooks/use-speech-transcriptor";
-import {
-  useTranslator,
-  type TranslationTarget,
-} from "@/hooks/use-translator";
+import { useTranslator } from "@/hooks/use-translator";
 import { STANDARD_HORIZONTAL_PADDING } from "@/constants/ui";
-import { StatusBarHiddenComponent } from "@/utils/statusbar";
+import { StatusBarDarkComponent } from "@/utils/statusbar";
+import { theme } from "@/constants/theme";
 
 function sourceIdFromLocale(locale: string): string {
   const byLocale = findTraductorLanguageByLocale(locale);
@@ -61,67 +60,118 @@ export default function TraductorComponent() {
     }, []),
   );
 
-  const { inputLanguage, outputLanguage } = useTraductorSession();
+  const { inputLanguage, outputLanguage, baseHydrated } = useTraductorSession();
 
-  const { messages, onTranscriptUpdate, onTranslationUpdate } =
-    useChatMessages();
+  const {
+    messages,
+    beginPendingTranscript,
+    completePendingTranscript,
+    discardPendingTranscript,
+    appendFinalTranscript,
+    onTranslationUpdate,
+  } = useChatMessages();
 
   const flatListRef = useRef<FlatList>(null);
-  const [translationTarget, setTranslationTarget] =
-    useState<TranslationTarget | null>(null);
+  const pendingIdRef = useRef<string | null>(null);
+  const latestMessageId = messages.at(-1)?.id ?? null;
+  const prevLatestIdRef = useRef<string | null>(null);
 
   const speechInput: SpeechInputMode = useMemo(() => {
     if (inputLanguage.kind === "universal") return { mode: "auto" };
     return { mode: "fixed", locale: inputLanguage.language.speechLocale };
   }, [inputLanguage]);
 
-  const speechEnabled = isFocused;
+  const speechEnabled = isFocused && baseHydrated;
 
-  const handleInterim = useCallback(
-    (text: string, isFinal: boolean, detectedLocale?: string) => {
+  const handleTranslation = useCallback(
+    (
+      messageId: string,
+      translated: string,
+      status: "queued" | "translating" | "done" | "error",
+    ) => {
+      onTranslationUpdate(messageId, translated, status);
+    },
+    [onTranslationUpdate],
+  );
+
+  const {
+    status,
+    error,
+    diagnostics,
+    ready,
+    retry,
+    canRetryLoad,
+    isTranslating,
+    pendingCount,
+    enqueueTranslation,
+  } = useTranslator(handleTranslation);
+
+  const handleTranscriptionStart = useCallback(() => {
+    if (pendingIdRef.current) return;
+    const sourceLanguageId =
+      inputLanguage.kind === "fixed" ? inputLanguage.language.id : "und";
+    pendingIdRef.current = beginPendingTranscript(sourceLanguageId);
+  }, [beginPendingTranscript, inputLanguage]);
+
+  const handleTranscriptionCancel = useCallback(() => {
+    const id = pendingIdRef.current;
+    pendingIdRef.current = null;
+    if (id) discardPendingTranscript(id);
+  }, [discardPendingTranscript]);
+
+  const handleFinalTranscript = useCallback(
+    (text: string, _isFinal: boolean, detectedLocale?: string) => {
       const locale =
         detectedLocale ??
         (inputLanguage.kind === "fixed"
           ? inputLanguage.language.speechLocale
           : "");
-      if (!locale) return;
+      const trimmed = text.trim();
+      if (!locale || !trimmed) {
+        handleTranscriptionCancel();
+        return;
+      }
 
       const sourceLanguageId = sourceIdFromLocale(locale);
-      const messageId = onTranscriptUpdate(text, isFinal, sourceLanguageId);
-      if (!messageId || !text.trim()) return;
+      const pendingId = pendingIdRef.current;
+      pendingIdRef.current = null;
 
-      setTranslationTarget({
+      const messageId = pendingId
+        ? completePendingTranscript(pendingId, trimmed, sourceLanguageId)
+          ? pendingId
+          : appendFinalTranscript(trimmed, sourceLanguageId)
+        : appendFinalTranscript(trimmed, sourceLanguageId);
+      if (!messageId) return;
+
+      enqueueTranslation({
         messageId,
-        text,
-        isFinal,
+        text: trimmed,
         inputLocale: locale,
+        outputLanguage: outputLanguage.speechLocale,
       });
     },
-    [onTranscriptUpdate, inputLanguage],
-  );
-
-  const handleTranslation = useCallback(
-    (messageId: string, translated: string, isTranslating: boolean) => {
-      onTranslationUpdate(messageId, translated, isTranslating);
-    },
-    [onTranslationUpdate],
-  );
-
-  const { status, error, diagnostics, ready, retry, canRetryLoad } =
-    useTranslator(
-      translationTarget,
+    [
+      appendFinalTranscript,
+      completePendingTranscript,
+      enqueueTranslation,
+      handleTranscriptionCancel,
+      inputLanguage,
       outputLanguage.speechLocale,
-      handleTranslation,
-    );
-
-  const { error: speechError, checkingPermissions } = useSpeechTranscriptor(
-    speechInput,
-    {
-      requiresOnDeviceRecognition: true,
-      onInterimTranscript: handleInterim,
-      enabled: speechEnabled,
-    },
+    ],
   );
+
+  const {
+    error: speechError,
+    checkingPermissions,
+    isListening,
+    isTranscribing,
+  } = useSpeechTranscriptor(speechInput, {
+    requiresOnDeviceRecognition: true,
+    onTranscriptionStart: handleTranscriptionStart,
+    onTranscriptionCancel: handleTranscriptionCancel,
+    onInterimTranscript: handleFinalTranscript,
+    enabled: speechEnabled,
+  });
 
   const { isReady: modelsReady, booting: modelsBooting } = useModelCatalog();
 
@@ -133,30 +183,58 @@ export default function TraductorComponent() {
   }, [modelsBooting, modelsReady, router]);
 
   useEffect(() => {
-    if (messages.length === 0) return;
+    if (!latestMessageId) return;
+    if (prevLatestIdRef.current === latestMessageId) return;
+    prevLatestIdRef.current = latestMessageId;
     flatListRef.current?.scrollToEnd({ animated: true });
-  }, [messages]);
+  }, [latestMessageId]);
 
-  const statusLabel =
-    status === "loading"
+  const statusLabel = !baseHydrated
+    ? "Preparando preferencias…"
+    : status === "loading"
       ? "Cargando motor de traducción…"
       : checkingPermissions
         ? "Cargando reconocimiento (Whisper)…"
-        : ready
-          ? inputLanguage.kind === "universal"
-            ? "Listo · Whisper Universal"
-            : `Listo · Whisper (${inputLanguage.language.id})`
-          : "Error";
+        : speechError
+          ? "Error de reconocimiento"
+          : status === "error"
+            ? "Error"
+            : isTranscribing
+              ? "Entendiendo…"
+              : isTranslating
+                ? pendingCount > 0
+                  ? `Traduciendo… (+${pendingCount} en cola)`
+                  : "Traduciendo…"
+                : isListening
+                  ? "Escuchando"
+                  : ready
+                    ? "Listo en el dispositivo"
+                    : "Error";
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBarHiddenComponent />
+      <StatusBarDarkComponent />
       <ChatHeadComponent
         titleText="Traductor"
         onSettingsPress={() => router.push("/modelos" as Href)}
       />
 
-      <Text style={styles.statusText}>{statusLabel}</Text>
+      <View style={styles.statusRow}>
+        <View
+          style={styles.statusPill}
+          accessibilityLiveRegion="polite"
+        >
+          <View
+            style={[
+              styles.statusDot,
+              (isListening || isTranscribing || isTranslating) &&
+                styles.statusDotActive,
+              (speechError || status === "error") && styles.statusDotError,
+            ]}
+          />
+          <Text style={styles.statusText}>{statusLabel}</Text>
+        </View>
+      </View>
 
       <FlatList
         ref={flatListRef}
@@ -164,21 +242,33 @@ export default function TraductorComponent() {
         contentContainerStyle={styles.listContent}
         data={messages}
         keyExtractor={(item) => item.id}
-        renderItem={({ item }) => <ChatMessageItem message={item} />}
+        renderItem={({ item }) => (
+          <ChatMessageItem
+            message={item}
+            isLatest={item.id === latestMessageId}
+          />
+        )}
         ListEmptyComponent={
           <View style={styles.empty}>
+            <View style={styles.emptyMarkFrame}>
+              <Image
+                source={require("@/assets/icon.png")}
+                style={styles.emptyMark}
+                accessibilityIgnoresInvertColors
+              />
+            </View>
+            <Text style={styles.emptyTitle}>Habla. Escucha. Entiende.</Text>
             <Text style={styles.emptyText}>
-              Habla para empezar a traducir…
+              Empieza a hablar y Puente traducirá la conversación aquí, sin
+              sacar tu voz del teléfono.
             </Text>
+            <Text style={styles.emptyPrivacy}>TU VOZ NO SALE DEL TELÉFONO</Text>
           </View>
-        }
-        onContentSizeChange={() =>
-          flatListRef.current?.scrollToEnd({ animated: true })
         }
       />
 
       {error ? (
-        <View style={styles.errorBox}>
+        <View style={styles.errorBox} accessibilityLiveRegion="assertive">
           <Text style={styles.errorText}>{error}</Text>
           {diagnostics ? (
             <Text style={styles.errorMeta}>
@@ -194,27 +284,34 @@ export default function TraductorComponent() {
       ) : null}
 
       {speechError ? (
-        <View style={styles.errorBox}>
+        <View style={styles.errorBox} accessibilityLiveRegion="assertive">
           <Text style={styles.errorText}>{speechError.message}</Text>
         </View>
       ) : null}
 
       <View style={styles.bottomPanel}>
-        {inputLanguage.kind === "universal" ? (
-          <LanguageSlotButton slot="input" kind="universal" />
-        ) : (
-          <LanguageSlotButton
-            slot="input"
-            kind="fixed"
-            language={inputLanguage.language}
-          />
-        )}
+        <View style={styles.panelHeading}>
+          <Text style={styles.panelEyebrow}>CONVERSACIÓN</Text>
+          <Text style={styles.panelHint}>Toca un idioma para cambiarlo</Text>
+        </View>
+        <View style={styles.languagePair}>
+          {inputLanguage.kind === "universal" ? (
+            <LanguageSlotButton slot="input" kind="universal" />
+          ) : (
+            <LanguageSlotButton
+              slot="input"
+              kind="fixed"
+              language={inputLanguage.language}
+            />
+          )}
+          <View style={styles.directionMark} accessibilityElementsHidden>
+            <Text style={styles.directionArrow}>→</Text>
+          </View>
+          <LanguageSlotButton slot="output" language={outputLanguage} />
+        </View>
         <Text style={styles.helperText}>
-          ¿Se está transcribiendo mal? Puedes seleccionar el idioma input para
-          hacerlo mejor.
+          Si la detección automática falla, fija el idioma de entrada.
         </Text>
-        <Text style={styles.arrowDown}>↓</Text>
-        <LanguageSlotButton slot="output" language={outputLanguage} />
       </View>
     </SafeAreaView>
   );
@@ -223,90 +320,186 @@ export default function TraductorComponent() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: theme.colors.background,
+  },
+  statusRow: {
+    alignItems: "center",
+    paddingVertical: theme.spacing.sm,
+    paddingHorizontal: STANDARD_HORIZONTAL_PADDING,
+  },
+  statusPill: {
+    minHeight: 28,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: theme.spacing.ml,
+    borderRadius: theme.radius.pill,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.hairline,
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    marginRight: theme.spacing.sm,
+    borderRadius: theme.radius.pill,
+    backgroundColor: theme.colors.textMuted,
+  },
+  statusDotActive: {
+    backgroundColor: theme.colors.action,
+  },
+  statusDotError: {
+    backgroundColor: theme.colors.error,
   },
   statusText: {
-    fontFamily: "Mulish_500Medium",
-    fontSize: 11,
-    color: "#666666",
-    textAlign: "center",
-    paddingVertical: 4,
-    paddingHorizontal: STANDARD_HORIZONTAL_PADDING,
+    fontFamily: theme.font.heading,
+    fontSize: theme.type.micro,
+    letterSpacing: 0.3,
+    color: theme.colors.text,
   },
   list: {
     flex: 1,
   },
   listContent: {
     flexGrow: 1,
-    paddingBottom: 8,
+    paddingBottom: theme.spacing.sm,
   },
   empty: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    paddingTop: 80,
+    paddingHorizontal: theme.spacing.xl,
+    paddingVertical: theme.spacing.xl,
+  },
+  emptyMarkFrame: {
+    width: 88,
+    height: 88,
+    padding: 5,
+    borderRadius: theme.radius.lg,
+    backgroundColor: theme.colors.surfaceStone,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: theme.colors.hairline,
+  },
+  emptyMark: {
+    width: "100%",
+    height: "100%",
+    borderRadius: theme.radius.md,
+  },
+  emptyTitle: {
+    marginTop: theme.spacing.lg,
+    fontFamily: theme.font.heading,
+    fontSize: theme.type.title,
+    color: theme.colors.text,
+    textAlign: "center",
   },
   emptyText: {
-    fontFamily: "Mulish_500Medium",
-    fontSize: 14,
-    color: "#666666",
+    maxWidth: 300,
+    marginTop: theme.spacing.sm,
+    fontFamily: theme.font.body,
+    fontSize: theme.type.body,
+    lineHeight: 22,
+    color: theme.colors.textMuted,
+    textAlign: "center",
+  },
+  emptyPrivacy: {
+    marginTop: theme.spacing.md,
+    fontFamily: theme.font.heading,
+    fontSize: theme.type.micro,
+    letterSpacing: 1.1,
+    color: theme.colors.text,
+    textAlign: "center",
   },
   errorBox: {
     marginHorizontal: STANDARD_HORIZONTAL_PADDING,
     marginBottom: 8,
     padding: 12,
-    borderRadius: 8,
+    borderRadius: theme.radius.md,
     borderWidth: 1,
-    borderColor: "#E5E5E5",
-    backgroundColor: "#F5F5F5",
+    borderColor: theme.colors.error,
+    backgroundColor: theme.colors.surface,
   },
   errorText: {
-    fontFamily: "Mulish_500Medium",
+    fontFamily: theme.font.body,
     fontSize: 13,
-    color: "#000000",
+    color: theme.colors.error,
   },
   errorMeta: {
-    fontFamily: "Mulish_500Medium",
+    fontFamily: theme.font.body,
     fontSize: 11,
-    color: "#666666",
+    color: theme.colors.text,
     marginTop: 4,
   },
   retryButton: {
+    minHeight: 44,
     marginTop: 10,
     alignSelf: "flex-start",
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 8,
+    justifyContent: "center",
     borderWidth: 1,
-    borderColor: "#000000",
-    borderRadius: 6,
+    borderColor: theme.colors.action,
+    borderRadius: theme.radius.sm,
   },
   retryText: {
-    fontFamily: "Mulish_800ExtraBold",
+    fontFamily: theme.font.heading,
     fontSize: 12,
-    color: "#000000",
+    color: theme.colors.text,
   },
   bottomPanel: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "#E5E5E5",
+    borderTopLeftRadius: theme.radius.xl,
+    borderTopRightRadius: theme.radius.xl,
     paddingHorizontal: STANDARD_HORIZONTAL_PADDING,
-    paddingTop: 12,
-    paddingBottom: 8,
-    backgroundColor: "#FFFFFF",
+    paddingTop: theme.spacing.md,
+    paddingBottom: theme.spacing.ml,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderBottomWidth: 0,
+    borderColor: theme.colors.hairline,
+  },
+  panelHeading: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: theme.spacing.ml,
+    paddingHorizontal: theme.spacing.xs,
+  },
+  panelEyebrow: {
+    fontFamily: theme.font.heading,
+    fontSize: theme.type.micro,
+    letterSpacing: 1.2,
+    color: theme.colors.text,
+  },
+  panelHint: {
+    fontFamily: theme.font.body,
+    fontSize: theme.type.micro,
+    color: theme.colors.text,
+  },
+  languagePair: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing.sm,
+  },
+  directionMark: {
+    width: 28,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: theme.radius.pill,
+    backgroundColor: theme.colors.action,
+  },
+  directionArrow: {
+    marginTop: -1,
+    fontFamily: theme.font.heading,
+    fontSize: 13,
+    color: theme.colors.onAction,
   },
   helperText: {
-    fontFamily: "Mulish_500Medium",
-    fontSize: 11,
-    color: "#666666",
-    lineHeight: 15,
-    marginTop: -4,
-    marginBottom: 4,
-    paddingHorizontal: 4,
-  },
-  arrowDown: {
-    fontFamily: "Mulish_500Medium",
-    fontSize: 16,
-    color: "#666666",
+    fontFamily: theme.font.body,
+    fontSize: theme.type.micro,
+    color: theme.colors.text,
+    lineHeight: 14,
+    marginTop: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.xs,
     textAlign: "center",
-    marginVertical: 2,
   },
 });
