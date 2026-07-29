@@ -9,13 +9,13 @@ import {
 
 import { acceptTranscript } from "@/lib/transcript-filter";
 import {
-  WHISPER_SAMPLE_RATE,
-  WhisperAudioEndpoint,
-} from "@/lib/whisper-audio-endpoint";
-import {
-  loadWhisperEngine,
-  type WhisperEngine,
-} from "@/lib/whisper-engine";
+  createSpeechDetector,
+  SAMPLE_RATE as WHISPER_SAMPLE_RATE,
+  SpeechSegmenter,
+} from "@/lib/vad";
+import { loadAsrEngine, type AsrEngine } from "@/lib/engines";
+import { speechLocaleToWhisperLang } from "@/constants/whisper-languages";
+import { EngineError, isEngineError } from "@/lib/engine-errors";
 import { isWhisperError } from "@/lib/whisper-errors";
 
 export type SpeechError = {
@@ -129,8 +129,8 @@ export function useSpeechTranscriptor(
   const onStartRef = useRef(onTranscriptionStart);
   const onCancelRef = useRef(onTranscriptionCancel);
   const onInterimRef = useRef(onInterimTranscript);
-  const engineRef = useRef<WhisperEngine | null>(null);
-  const endpointRef = useRef<WhisperAudioEndpoint | null>(null);
+  const engineRef = useRef<AsrEngine | null>(null);
+  const segmenterRef = useRef<SpeechSegmenter | null>(null);
   const enabledRef = useRef(enabled);
   const prevModeKeyRef = useRef(modeKey);
   const stickyLangRef = useRef<{ language: string; at: number } | null>(null);
@@ -141,11 +141,19 @@ export function useSpeechTranscriptor(
   const cancelActiveRef = useRef(false);
   const pumpQueueRef = useRef<() => Promise<void>>(async () => {});
 
-  inputRef.current = input;
-  onStartRef.current = onTranscriptionStart;
-  onCancelRef.current = onTranscriptionCancel;
-  onInterimRef.current = onInterimTranscript;
-  enabledRef.current = enabled;
+  useEffect(() => {
+    inputRef.current = input;
+    onStartRef.current = onTranscriptionStart;
+    onCancelRef.current = onTranscriptionCancel;
+    onInterimRef.current = onInterimTranscript;
+    enabledRef.current = enabled;
+  }, [
+    input,
+    onTranscriptionStart,
+    onTranscriptionCancel,
+    onInterimTranscript,
+    enabled,
+  ]);
 
   const bumpSession = useCallback(() => {
     sessionIdRef.current += 1;
@@ -153,11 +161,11 @@ export function useSpeechTranscriptor(
     queueRef.current = [];
     seqRef.current = 0;
     stickyLangRef.current = null;
-    endpointRef.current?.reset();
+    segmenterRef.current?.reset();
     setBacklogDropped(false);
   }, []);
 
-  pumpQueueRef.current = async () => {
+  const pumpQueue = useCallback(async () => {
     if (pumpingRef.current) return;
     pumpingRef.current = true;
 
@@ -177,6 +185,22 @@ export function useSpeechTranscriptor(
 
         try {
           const current = inputRef.current;
+          if (
+            engine.languageDetection === "none" &&
+            current.mode === "auto"
+          ) {
+            // Transducers (Parakeet) never name the language. Running them in
+            // Universal mode would produce text the translator cannot target.
+            throw new EngineError({
+              code: "ENGINE_NO_LANGUAGE_DETECTION",
+              stage: "asr.language",
+              message:
+                "Este modelo no detecta el idioma. Fija el idioma de entrada o elige un modelo Whisper / SenseVoice.",
+              recoverable: false,
+              context: { modelId: engine.modelId },
+            });
+          }
+
           const sticky =
             current.mode === "auto" &&
             stickyLangRef.current &&
@@ -184,17 +208,17 @@ export function useSpeechTranscriptor(
               ? stickyLangRef.current.language
               : null;
 
-          const result = await engine.transcribe(
-            chunk.pcm,
-            current.mode === "auto" ? "auto" : current.locale,
-            {
-              stickyLanguage: sticky,
-              shouldCancel: () =>
-                cancelActiveRef.current ||
-                chunk.sessionId !== sessionIdRef.current ||
-                !enabledRef.current,
-            },
-          );
+          const result = await engine.transcribe(chunk.pcm, {
+            language:
+              current.mode === "auto"
+                ? "auto"
+                : speechLocaleToWhisperLang(current.locale),
+            stickyLanguage: sticky,
+            shouldCancel: () =>
+              cancelActiveRef.current ||
+              chunk.sessionId !== sessionIdRef.current ||
+              !enabledRef.current,
+          });
 
           if (
             !isMountedRef.current ||
@@ -233,7 +257,7 @@ export function useSpeechTranscriptor(
 
           acceptedThisChunk = true;
           setTranscript(accepted);
-          onInterimRef.current?.(accepted, true, result.speechLocale);
+          onInterimRef.current?.(accepted, true, result.speechLocale || undefined);
           setTranscript("");
           setError(null);
         } catch (err) {
@@ -243,14 +267,14 @@ export function useSpeechTranscriptor(
           ) {
             continue;
           }
-          if (isWhisperError(err)) {
+          if (isWhisperError(err) || isEngineError(err)) {
             setError({
               code: err.code,
               message: err.toDisplayString(),
             });
           } else {
             const message = err instanceof Error ? err.message : String(err);
-            setError({ code: "whisper_failed", message });
+            setError({ code: "asr_failed", message });
           }
         } finally {
           if (isMountedRef.current) {
@@ -269,7 +293,11 @@ export function useSpeechTranscriptor(
         void pumpQueueRef.current();
       }
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    pumpQueueRef.current = pumpQueue;
+  }, [pumpQueue]);
 
   const enqueueChunk = useCallback((pcm: Float32Array) => {
     if (!enabledRef.current || !isMountedRef.current) return;
@@ -288,15 +316,30 @@ export function useSpeechTranscriptor(
     void pumpQueueRef.current();
   }, []);
 
+  // Detector selection is async (it may load the Silero graph), so audio that
+  // arrives before it resolves is simply dropped: that is the first few hundred
+  // milliseconds after mount, before anyone has started speaking.
   useEffect(() => {
-    endpointRef.current = new WhisperAudioEndpoint({
-      onSpeechChunk: (pcm) => {
-        enqueueChunk(pcm);
-      },
-    });
+    let cancelled = false;
+    let segmenter: SpeechSegmenter | null = null;
+
+    void (async () => {
+      const detector = await createSpeechDetector();
+      if (cancelled) {
+        detector.dispose();
+        return;
+      }
+      segmenter = new SpeechSegmenter(detector, {
+        onSpeechChunk: enqueueChunk,
+      });
+      segmenterRef.current = segmenter;
+      if (__DEV__) console.info("[vad] detector", detector.id);
+    })();
+
     return () => {
-      endpointRef.current?.reset();
-      endpointRef.current = null;
+      cancelled = true;
+      segmenterRef.current = null;
+      segmenter?.dispose();
     };
   }, [enqueueChunk]);
 
@@ -304,7 +347,7 @@ export function useSpeechTranscriptor(
     if (!enabledRef.current || !permissionsGrantedRef.current) return;
     const floatBuf = bufferToFloat32(buffer);
     const pcm = resampleTo16k(floatBuf, buffer.sampleRate);
-    endpointRef.current?.push(pcm);
+    segmenterRef.current?.push(pcm);
   }, []);
 
   const { stream, isStreaming } = useAudioStream({
@@ -320,7 +363,7 @@ export function useSpeechTranscriptor(
     } catch {
       /* ignore */
     }
-    endpointRef.current?.flush();
+    void segmenterRef.current?.flush();
     setIsListening(false);
   }, [stream]);
 
@@ -329,7 +372,7 @@ export function useSpeechTranscriptor(
     if (!engineRef.current) return;
 
     try {
-      endpointRef.current?.reset();
+      segmenterRef.current?.reset();
       await stream.start();
       setIsListening(true);
       setError(null);
@@ -372,7 +415,7 @@ export function useSpeechTranscriptor(
       setHasPermissions(true);
       permissionsGrantedRef.current = true;
 
-      const engine = await loadWhisperEngine();
+      const engine = await loadAsrEngine();
       if (!isMountedRef.current) return;
       engineRef.current = engine;
       setEngineReady(true);
@@ -387,14 +430,14 @@ export function useSpeechTranscriptor(
       permissionsGrantedRef.current = false;
       setEngineReady(false);
       setCheckingPermissions(false);
-      if (isWhisperError(err)) {
+      if (isWhisperError(err) || isEngineError(err)) {
         setError({
           code: err.code,
           message: err.toDisplayString(),
         });
       } else {
         const message = err instanceof Error ? err.message : String(err);
-        setError({ code: "whisper_load_failed", message });
+        setError({ code: "asr_load_failed", message });
       }
     }
   }, [startListeningInternal]);
@@ -411,7 +454,7 @@ export function useSpeechTranscriptor(
       } catch {
         /* ignore */
       }
-      endpointRef.current?.reset();
+      segmenterRef.current?.reset();
       void setAudioModeAsync({
         playsInSilentMode: true,
         allowsRecording: false,
@@ -421,8 +464,12 @@ export function useSpeechTranscriptor(
 
   useEffect(() => {
     if (!enabled) {
-      bumpSession();
-      stopListening();
+      // Defer session reset: bumpSession setStates; sync call inside the
+      // effect would cascade into the same commit under React Compiler.
+      queueMicrotask(() => {
+        bumpSession();
+        stopListening();
+      });
       void setAudioModeAsync({
         playsInSilentMode: true,
         allowsRecording: false,
@@ -430,6 +477,9 @@ export function useSpeechTranscriptor(
       return;
     }
 
+    // Intentional mount/enable load: permissions + ASR engine. The lint rule
+    // flags any setState reached from an effect; here it is the bootstrap path.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- engine bootstrap on enable
     void requestPermissionsAndLoad();
   }, [enabled, requestPermissionsAndLoad, stopListening, bumpSession]);
 

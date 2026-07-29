@@ -12,7 +12,13 @@ import {
 } from "@/lib/model-paths";
 import { ModelError } from "@/lib/model-errors";
 
-/** Allow ±1% or 4 KiB, whichever is larger (HF vs FS rounding). */
+/**
+ * Allow ±1% or 4 KiB, whichever is larger.
+ *
+ * Hugging Face reports exact byte counts, but the filesystem can round and a
+ * transparent proxy may re-encode; anything outside this band is a genuinely
+ * truncated or substituted file, not measurement noise.
+ */
 function sizeMatches(expected: number, actual: number): boolean {
   const slack = Math.max(4096, Math.floor(expected * 0.01));
   return Math.abs(expected - actual) <= slack;
@@ -22,13 +28,13 @@ export async function isModelInstalled(modelId: string): Promise<boolean> {
   const spec = getModelSpec(modelId);
   if (!spec) return false;
 
-  const marker = getCompleteMarkerPath(spec.family, modelId);
-  const markerInfo = await FileSystem.getInfoAsync(marker);
+  const markerInfo = await FileSystem.getInfoAsync(getCompleteMarkerPath(spec));
   if (!markerInfo.exists) return false;
 
   for (const file of spec.files) {
-    const path = getModelFilePath(spec.family, modelId, file.relativePath);
-    const info = await FileSystem.getInfoAsync(path);
+    const info = await FileSystem.getInfoAsync(
+      getModelFilePath(spec, file.relativePath),
+    );
     if (!info.exists || info.size == null) return false;
     if (!sizeMatches(file.expectedBytes, info.size)) return false;
   }
@@ -47,21 +53,21 @@ export async function assertModelInstalled(modelId: string): Promise<ModelSpec> 
     });
   }
 
-  const marker = getCompleteMarkerPath(spec.family, modelId);
-  const markerInfo = await FileSystem.getInfoAsync(marker);
+  const markerInfo = await FileSystem.getInfoAsync(getCompleteMarkerPath(spec));
   if (!markerInfo.exists) {
     throw new ModelError({
       code: "MODEL_NOT_INSTALLED",
       stage: "install.check",
       message: `El modelo ${modelId} no está instalado`,
       recoverable: true,
-      context: { modelId, family: spec.family },
+      context: { modelId, task: spec.task, engine: spec.runtime.engine },
     });
   }
 
   for (const file of spec.files) {
-    const path = getModelFilePath(spec.family, modelId, file.relativePath);
-    const info = await FileSystem.getInfoAsync(path);
+    const info = await FileSystem.getInfoAsync(
+      getModelFilePath(spec, file.relativePath),
+    );
     if (!info.exists) {
       throw new ModelError({
         code: "MODEL_INCOMPLETE",
@@ -103,6 +109,5 @@ export async function listInstalledModelIds(): Promise<string[]> {
 export async function removeModelInstall(modelId: string): Promise<void> {
   const spec = getModelSpec(modelId);
   if (!spec) return;
-  const dir = getModelDir(spec.family, modelId);
-  await FileSystem.deleteAsync(dir, { idempotent: true });
+  await FileSystem.deleteAsync(getModelDir(spec), { idempotent: true });
 }

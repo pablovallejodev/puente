@@ -8,9 +8,9 @@ import {
 import { assertModelInstalled } from "@/lib/model-install-state";
 import {
   getCompleteMarkerPath,
-  getFamilyDir,
   getModelDir,
   getModelPartialDir,
+  getStorageDir,
 } from "@/lib/model-paths";
 import { ModelError, wrapModelError } from "@/lib/model-errors";
 
@@ -94,12 +94,12 @@ export async function downloadModel(
 
   await assertOnline(modelId);
 
-  const familyDir = getFamilyDir(spec.family);
-  const partialDir = getModelPartialDir(spec.family, modelId);
-  const finalDir = getModelDir(spec.family, modelId);
-  const marker = getCompleteMarkerPath(spec.family, modelId);
+  const storageDir = getStorageDir(spec.storage);
+  const partialDir = getModelPartialDir(spec);
+  const finalDir = getModelDir(spec);
+  const marker = getCompleteMarkerPath(spec);
 
-  await ensureDir(familyDir);
+  await ensureDir(storageDir);
   await FileSystem.deleteAsync(partialDir, { idempotent: true });
   await ensureDir(partialDir);
 

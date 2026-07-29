@@ -16,6 +16,7 @@ import {
   StandardHeadComponent,
 } from "@/components/basics/headers";
 import {
+  ENGINE_LABEL,
   formatBytes,
   type ModelSpec,
 } from "@/constants/model-catalog";
@@ -37,7 +38,11 @@ function ModelCard({
   const lowRam =
     ramBytes != null && ramBytes < spec.minRecommendedRamBytes;
   const isRecommended =
-    spec.id === recommended.whisperId || spec.id === recommended.nllbId;
+    spec.id === recommended.asrId ||
+    spec.id === recommended.mtId ||
+    spec.id === recommended.vadId;
+  // The VAD is used whenever it is installed, so it has no "select" step.
+  const selectable = spec.task !== "vad";
 
   const onDownload = useCallback(async () => {
     setBusy(true);
@@ -77,6 +82,13 @@ function ModelCard({
         ) : null}
       </View>
       <Text style={styles.cardTag}>{spec.qualityTag}</Text>
+      <View style={styles.badges}>
+        <Text style={styles.badge}>
+          {ENGINE_LABEL[spec.runtime.engine]}
+        </Text>
+        <Text style={styles.badge}>{spec.license.label}</Text>
+        <Text style={styles.badge}>{spec.languageIds.length} idiomas</Text>
+      </View>
       <View style={styles.metrics}>
         <View style={styles.metric}>
           <Text style={styles.metricLabel}>DESCARGA</Text>
@@ -89,9 +101,24 @@ function ModelCard({
       </View>
       {lowRam ? (
         <Text style={styles.warn}>
-          Tu teléfono tiene menos RAM de la recomendada
+          Tu teléfono tiene menos RAM de la recomendada (
+          {formatBytes(spec.minRecommendedRamBytes)})
         </Text>
       ) : null}
+      {spec.task === "asr" && spec.languageDetection === "none" ? (
+        <Text style={styles.warn}>
+          No identifica el idioma: úsalo con un idioma de entrada fijo, no en
+          modo Universal
+        </Text>
+      ) : null}
+      {spec.task === "asr" && spec.languageDetection === "fixed-single" ? (
+        <Text style={styles.warn}>
+          Solo {spec.languageIds.join(", ").toUpperCase()}: fíjalo como idioma
+          de entrada
+        </Text>
+      ) : null}
+
+      <Text style={styles.sourceNote}>{spec.sourceNote}</Text>
 
       <Pressable
         onPress={() => void Linking.openURL(spec.hfRepoUrl)}
@@ -124,7 +151,7 @@ function ModelCard({
           >
             <Text style={styles.buttonText}>Descargar</Text>
           </Pressable>
-        ) : selected ? (
+        ) : selected || !selectable ? (
           <View style={[styles.button, styles.buttonSelected]}>
             <Text style={[styles.buttonText, styles.buttonTextSelected]}>
               ✓ En uso
@@ -154,8 +181,9 @@ export default function ModelosComponent() {
     lastError,
     clearError,
     downloadRecommended,
-    whisperModels,
-    nllbModels,
+    asrModels,
+    mtModels,
+    vadModels,
   } = useModelCatalog();
 
   const [recBusy, setRecBusy] = useState(false);
@@ -269,11 +297,12 @@ export default function ModelosComponent() {
         <View style={styles.columns}>
           <View style={styles.column}>
             <Text style={styles.columnEyebrow}>01 · ESCUCHA</Text>
-            <Text style={styles.columnTitle}>Whisper</Text>
+            <Text style={styles.columnTitle}>Transcripción</Text>
             <Text style={styles.columnHint}>
               Elige entre velocidad y precisión según la memoria disponible.
+              Cada modelo dice qué motor lo ejecuta y cuántos idiomas cubre.
             </Text>
-            {whisperModels.map((spec) => (
+            {asrModels.map((spec) => (
               <ModelCard
                 key={spec.id}
                 spec={spec}
@@ -283,11 +312,28 @@ export default function ModelosComponent() {
           </View>
           <View style={styles.column}>
             <Text style={styles.columnEyebrow}>02 · TRADUCCIÓN</Text>
-            <Text style={styles.columnTitle}>NLLB</Text>
+            <Text style={styles.columnTitle}>Traducción</Text>
             <Text style={styles.columnHint}>
-              Un solo tamaño apto para móvil (600M destilado, Q8 validado).
+              NLLB cubre todos los idiomas de la app; los modelos GGUF traducen
+              mejor en su ámbito, pero piden bastante más memoria.
             </Text>
-            {nllbModels.map((spec) => (
+            {mtModels.map((spec) => (
+              <ModelCard
+                key={spec.id}
+                spec={spec}
+                ramBytes={totalMemoryBytes}
+              />
+            ))}
+          </View>
+          <View style={styles.column}>
+            <Text style={styles.columnEyebrow}>03 · DETECCIÓN DE VOZ</Text>
+            <Text style={styles.columnTitle}>Opcional, muy recomendable</Text>
+            <Text style={styles.columnHint}>
+              Sin esto, Puente decide que hay voz midiendo el volumen, y un
+              ventilador supera cualquier umbral: el transcriptor recibe ruido y
+              responde inventando frases. Se usa solo con tenerlo instalado.
+            </Text>
+            {vadModels.map((spec) => (
               <ModelCard
                 key={spec.id}
                 spec={spec}
@@ -299,8 +345,8 @@ export default function ModelosComponent() {
 
         {!isReady ? (
           <Text style={styles.gateFooter}>
-            Necesitas al menos un Whisper y el traductor NLLB descargados y
-            seleccionados para continuar.
+            Necesitas un modelo de transcripción y uno de traducción,
+            descargados y seleccionados, para continuar.
           </Text>
         ) : (
           <Pressable style={styles.continueButton} onPress={goTraductor}>
@@ -485,6 +531,30 @@ const styles = StyleSheet.create({
     fontSize: theme.type.caption,
     color: theme.colors.text,
     marginTop: theme.spacing.xs,
+  },
+  badges: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: theme.spacing.xs,
+    marginTop: theme.spacing.sm,
+  },
+  badge: {
+    fontFamily: theme.font.heading,
+    fontSize: 9,
+    letterSpacing: 0.6,
+    color: theme.colors.textMuted,
+    paddingVertical: 3,
+    paddingHorizontal: theme.spacing.sm,
+    borderRadius: theme.radius.pill,
+    borderWidth: 1,
+    borderColor: theme.colors.hairline,
+  },
+  sourceNote: {
+    fontFamily: theme.font.body,
+    fontSize: theme.type.micro,
+    color: theme.colors.textMuted,
+    marginTop: theme.spacing.ml,
+    lineHeight: 16,
   },
   metrics: {
     flexDirection: "row",

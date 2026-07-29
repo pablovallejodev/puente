@@ -1,20 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { mapSpeechLocaleToFlores } from "@/constants/languages";
 import {
-  loadEngine,
+  isSameLanguage,
+  loadMtEngine,
   MAX_ENGINE_LOAD_ATTEMPTS,
-  resetEngine,
-  type NllbEngine,
-} from "@/lib/nllb-engine";
+  resetMtEngine,
+  type MtEngine,
+} from "@/lib/engines";
 import {
   LatestFirstPreserveScheduler,
   translationJobKey,
 } from "@/lib/translation-scheduler";
+import { isEngineError } from "@/lib/engine-errors";
+import { lookupPhrase } from "@/lib/mt/phrase-lookup";
 import {
   isTranslatorError,
   type TranslatorErrorInfo,
-  TranslatorError,
 } from "@/lib/translator-errors";
 import type { TranslationStatus } from "@/hooks/use-chat-messages";
 
@@ -37,23 +38,6 @@ export type TranslateRequest = {
 
 type TranslateJob = TranslateRequest & { id: string; key: string };
 
-function localeToFloresOrThrow(
-  locale: string,
-  role: "input" | "output",
-): string {
-  const flores = mapSpeechLocaleToFlores(locale);
-  if (!flores) {
-    throw new TranslatorError({
-      code: "LANGUAGE_UNSUPPORTED",
-      stage: "tokenizer.load",
-      message: `Locale no soportado (${role}): ${locale}`,
-      recoverable: false,
-      context: { locale, role },
-    });
-  }
-  return flores;
-}
-
 function toDiagnostics(
   err: unknown,
   attempt?: number,
@@ -72,6 +56,18 @@ function toDiagnostics(
       messageId,
     };
   }
+  if (isEngineError(err)) {
+    return {
+      code: "TRANSLATE_FAILED",
+      stage: "decode.run",
+      message: err.toDisplayString(),
+      recoverable: err.recoverable,
+      context: { engineCode: err.code, ...err.context },
+      attempt,
+      elapsedMs,
+      messageId,
+    };
+  }
   const message = err instanceof Error ? err.message : "Error desconocido";
   return {
     code: "TRANSLATE_FAILED",
@@ -82,6 +78,18 @@ function toDiagnostics(
     elapsedMs,
     messageId,
   };
+}
+
+function formatLoadError(err: unknown, diag: TranslatorDiagnostics): string {
+  if (isTranslatorError(err)) return err.toDisplayString();
+  if (isEngineError(err)) return err.toDisplayString();
+  return `[ENGINE_LOAD_FAILED] ${diag.message}`;
+}
+
+function formatTranslateError(err: unknown, diag: TranslatorDiagnostics): string {
+  if (isTranslatorError(err)) return err.toDisplayString();
+  if (isEngineError(err)) return err.toDisplayString();
+  return `[TRANSLATE_FAILED] ${diag.message}`;
 }
 
 export function useTranslator(
@@ -99,10 +107,10 @@ export function useTranslator(
   const [activeMessageId, setActiveMessageId] = useState<string | null>(null);
   const [pendingCount, setPendingCount] = useState(0);
   const [isTranslating, setIsTranslating] = useState(false);
+  const [loadAttempts, setLoadAttempts] = useState(0);
 
-  const engineRef = useRef<NllbEngine | null>(null);
+  const engineRef = useRef<MtEngine | null>(null);
   const engineReadyRef = useRef(false);
-  const loadAttemptsRef = useRef(0);
   const onTranslationRef = useRef(onTranslation);
   const mountedRef = useRef(true);
   const lastFailedJobRef = useRef<TranslateJob | null>(null);
@@ -110,7 +118,9 @@ export function useTranslator(
     null,
   );
 
-  onTranslationRef.current = onTranslation;
+  useEffect(() => {
+    onTranslationRef.current = onTranslation;
+  }, [onTranslation]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -134,12 +144,12 @@ export function useTranslator(
     setDiagnostics(null);
 
     if (forceRetry) {
-      resetEngine();
-      loadAttemptsRef.current = 0;
+      resetMtEngine();
+      setLoadAttempts(0);
     }
 
     try {
-      const engine = await loadEngine(forceRetry);
+      const engine = await loadMtEngine(forceRetry);
       if (!mountedRef.current) return;
       engineRef.current = engine;
       engineReadyRef.current = true;
@@ -148,20 +158,24 @@ export function useTranslator(
       if (!mountedRef.current) return;
       engineReadyRef.current = false;
       engineRef.current = null;
-      loadAttemptsRef.current += 1;
-      const diag = toDiagnostics(err, loadAttemptsRef.current);
+      setLoadAttempts((n) => n + 1);
+      const diag = toDiagnostics(err);
       setDiagnostics(diag);
-      setError(
-        isTranslatorError(err)
-          ? err.toDisplayString()
-          : `[ENGINE_LOAD_FAILED] ${diag.message}`,
-      );
+      setError(formatLoadError(err, diag));
       setStatus("error");
     }
   }, []);
 
   useEffect(() => {
-    void loadModel();
+    // Defer so the effect does not cascade setState into the same commit
+    // (React Compiler rule). Loading still starts on the next microtask.
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) void loadModel();
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [loadModel]);
 
   useEffect(() => {
@@ -194,26 +208,9 @@ export function useTranslator(
           return false;
         }
 
-        let srcLang: string;
-        let tgtLang: string;
-        try {
-          srcLang = localeToFloresOrThrow(job.inputLocale, "input");
-          tgtLang = localeToFloresOrThrow(job.outputLanguage, "output");
-        } catch (err) {
-          if (isCancelled()) return false;
-          const diag = toDiagnostics(err, undefined, undefined, job.id);
-          lastFailedJobRef.current = job;
-          onTranslationRef.current(job.id, "", "error");
-          if (mountedRef.current) {
-            setDiagnostics(diag);
-            setError(
-              isTranslatorError(err) ? err.toDisplayString() : diag.message,
-            );
-          }
-          return false;
-        }
-
-        if (srcLang === tgtLang) {
+        // Same language in and out: the engine would paraphrase rather than
+        // translate, so hand the text back untouched.
+        if (isSameLanguage(job.inputLocale, job.outputLanguage)) {
           if (isCancelled()) return false;
           onTranslationRef.current(job.id, job.text, "done");
           if (mountedRef.current) {
@@ -224,14 +221,61 @@ export function useTranslator(
           return true;
         }
 
+        // Short greetings and courtesy phrases: NLLB invents context for these.
+        // A human table is cheaper and more accurate than any model here.
+        const phraseHit = lookupPhrase(
+          job.text,
+          job.inputLocale,
+          job.outputLanguage,
+        );
+        if (phraseHit !== null) {
+          if (isCancelled()) return false;
+          onTranslationRef.current(job.id, phraseHit, "done");
+          if (mountedRef.current) {
+            setError(null);
+            setDiagnostics(null);
+            setStatus("ready");
+          }
+          lastFailedJobRef.current = null;
+          return true;
+        }
+
+        if (
+          !engine.supportsLocale(job.inputLocale) ||
+          !engine.supportsLocale(job.outputLanguage)
+        ) {
+          if (isCancelled()) return false;
+          lastFailedJobRef.current = job;
+          const unsupported =
+            !engine.supportsLocale(job.inputLocale)
+              ? job.inputLocale
+              : job.outputLanguage;
+          if (mountedRef.current) {
+            setDiagnostics({
+              code: "LANGUAGE_UNSUPPORTED",
+              stage: "tokenizer.load",
+              message: `El modelo activo no admite este idioma: ${unsupported}`,
+              recoverable: false,
+              messageId: job.id,
+              context: { locale: unsupported, modelId: engine.modelId },
+            });
+            setError(
+              `El modelo activo no admite este idioma: ${unsupported}`,
+            );
+            setStatus("ready");
+          }
+          onTranslationRef.current(job.id, "", "error");
+          return false;
+        }
+
         const started = Date.now();
         const run = async (attempt: number): Promise<boolean> => {
           if (isCancelled()) return false;
           try {
             const result = await engine.translate(
               job.text,
-              srcLang,
-              tgtLang,
+              job.inputLocale,
+              job.outputLanguage,
               { shouldCancel: isCancelled },
             );
             if (isCancelled() || result === null) return false;
@@ -253,22 +297,18 @@ export function useTranslator(
               Date.now() - started,
               job.id,
             );
-            if (
-              isTranslatorError(err) &&
+            const recoverable =
+              (isTranslatorError(err) || isEngineError(err)) &&
               err.recoverable &&
-              attempt < MAX_TRANSLATE_RETRIES
-            ) {
+              attempt < MAX_TRANSLATE_RETRIES;
+            if (recoverable) {
               return run(attempt + 1);
             }
 
             lastFailedJobRef.current = job;
             if (mountedRef.current) {
               setDiagnostics(diag);
-              setError(
-                isTranslatorError(err)
-                  ? err.toDisplayString()
-                  : `[TRANSLATE_FAILED] ${diag.message}`,
-              );
+              setError(formatTranslateError(err, diag));
               setStatus("ready");
             }
             onTranslationRef.current(job.id, "", "error");
@@ -310,7 +350,7 @@ export function useTranslator(
   const retry = useCallback(() => {
     const canRetryEngine =
       diagnostics?.recoverable !== false &&
-      loadAttemptsRef.current < MAX_ENGINE_LOAD_ATTEMPTS;
+      loadAttempts < MAX_ENGINE_LOAD_ATTEMPTS;
 
     if (status === "error" && canRetryEngine) {
       void loadModel(true);
@@ -324,7 +364,7 @@ export function useTranslator(
       schedulerRef.current?.enqueue(failed);
       syncQueueUi();
     }
-  }, [loadModel, status, diagnostics, syncQueueUi]);
+  }, [loadModel, status, diagnostics, syncQueueUi, loadAttempts]);
 
   return {
     status,
@@ -333,11 +373,11 @@ export function useTranslator(
     pendingCount,
     error,
     diagnostics,
-    ready: status === "ready" && engineReadyRef.current,
+    ready: status === "ready",
     enqueueTranslation,
     retry,
     canRetryLoad:
       diagnostics?.recoverable !== false &&
-      loadAttemptsRef.current < MAX_ENGINE_LOAD_ATTEMPTS,
+      loadAttempts < MAX_ENGINE_LOAD_ATTEMPTS,
   };
 }

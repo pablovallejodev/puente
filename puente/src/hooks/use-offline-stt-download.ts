@@ -1,6 +1,6 @@
 /**
- * STT offline state for Whisper — available when a Whisper model is selected
- * and installed via the model catalog.
+ * Offline STT availability: true once any transcription model — whichever
+ * engine runs it — is selected and installed through the model catalog.
  */
 import { useCallback, useMemo } from "react";
 
@@ -23,23 +23,23 @@ export type SttDownloadState = {
 };
 
 export function useOfflineSttDownload() {
-  const { selectedWhisperId, getModelState } = useModelCatalog();
+  const { selected, getModelState } = useModelCatalog();
 
-  const whisperReady =
-    !!selectedWhisperId &&
-    (getModelState(selectedWhisperId).status === "selected" ||
-      getModelState(selectedWhisperId).status === "installed");
+  const asrReady =
+    !!selected.asr &&
+    (getModelState(selected.asr).status === "selected" ||
+      getModelState(selected.asr).status === "installed");
 
   const getDownloadState = useCallback(
     (_locale: string): SttDownloadState => {
-      if (whisperReady) return { status: "installed" };
+      if (asrReady) return { status: "installed" };
       return {
         status: "not_installed",
         code: "STT_OFFLINE_MODELS_MISSING",
-        error: "Descarga un modelo Whisper en Ajustes de modelos",
+        error: "Descarga un modelo de transcripción en Ajustes de modelos",
       };
     },
-    [whisperReady],
+    [asrReady],
   );
 
   const downloadSttModel = useCallback(async (_locale: string) => {
@@ -63,7 +63,7 @@ export function useOfflineSttDownload() {
       refreshInstalledLocales,
       checkLocale,
       isLocaleDownloadable,
-      onDeviceSttAvailable: whisperReady,
+      onDeviceSttAvailable: asrReady,
     }),
     [
       getDownloadState,
@@ -71,7 +71,7 @@ export function useOfflineSttDownload() {
       refreshInstalledLocales,
       checkLocale,
       isLocaleDownloadable,
-      whisperReady,
+      asrReady,
     ],
   );
 }

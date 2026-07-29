@@ -11,11 +11,15 @@ import * as Device from "expo-device";
 
 import {
   ALL_MODELS,
-  NLLB_MODELS,
-  WHISPER_MODELS,
+  ASR_MODELS,
   getModelSpec,
+  MT_MODELS,
   recommendForDevice,
-  type ModelSpec,
+  VAD_MODELS,
+  type AsrModelSpec,
+  type ModelRecommendation,
+  type MtModelSpec,
+  type VadModelSpec,
 } from "@/constants/model-catalog";
 import {
   cancelModelDownload,
@@ -25,16 +29,16 @@ import {
 import { isModelInstalled } from "@/lib/model-install-state";
 import {
   readModelPreferences,
-  setSelectedNllbModelId,
-  setSelectedWhisperModelId,
+  setSelectedModelId,
+  type ModelPreferences,
+  type SelectableTask,
 } from "@/lib/model-preferences";
 import {
   isModelError,
   ModelError,
   wrapModelError,
 } from "@/lib/model-errors";
-import { resetWhisperEngine } from "@/lib/whisper-engine";
-import { resetEngine as resetNllbEngine } from "@/lib/nllb-engine";
+import { resetAsrEngine, resetMtEngine } from "@/lib/engines";
 
 export type ModelInstallUiStatus =
   | "not_installed"
@@ -53,8 +57,9 @@ type ModelCatalogContextValue = {
   booting: boolean;
   deviceModelName: string | null;
   totalMemoryBytes: number | null;
-  selectedWhisperId: string | null;
-  selectedNllbId: string | null;
+  /** Chosen model per selectable task. */
+  selected: ModelPreferences;
+  /** True once a transcriber and a translator are installed and selected. */
   isReady: boolean;
   lastError: ModelError | null;
   clearError: () => void;
@@ -63,15 +68,18 @@ type ModelCatalogContextValue = {
   cancelDownload: (modelId: string) => Promise<void>;
   select: (modelId: string) => Promise<void>;
   downloadRecommended: () => Promise<void>;
-  recommended: { whisperId: string; nllbId: string };
-  whisperModels: ModelSpec[];
-  nllbModels: ModelSpec[];
+  recommended: ModelRecommendation;
+  asrModels: AsrModelSpec[];
+  mtModels: MtModelSpec[];
+  vadModels: VadModelSpec[];
   refresh: () => Promise<void>;
 };
 
 const ModelCatalogContext = createContext<ModelCatalogContextValue | null>(
   null,
 );
+
+const NO_SELECTION: ModelPreferences = { asr: null, mt: null };
 
 function emptyStates(): Record<string, ModelUiState> {
   const out: Record<string, ModelUiState> = {};
@@ -81,13 +89,16 @@ function emptyStates(): Record<string, ModelUiState> {
   return out;
 }
 
+/** Reload the engine slot that this task feeds, so the next call picks it up. */
+function resetEngineForTask(task: SelectableTask): void {
+  if (task === "asr") resetAsrEngine();
+  else resetMtEngine();
+}
+
 export function ModelCatalogProvider({ children }: { children: ReactNode }) {
   const [booting, setBooting] = useState(true);
   const [ready, setReady] = useState(false);
-  const [selectedWhisperId, setSelectedWhisperId] = useState<string | null>(
-    null,
-  );
-  const [selectedNllbId, setSelectedNllbId] = useState<string | null>(null);
+  const [selected, setSelected] = useState<ModelPreferences>(NO_SELECTION);
   const [states, setStates] = useState<Record<string, ModelUiState>>(emptyStates);
   const [lastError, setLastError] = useState<ModelError | null>(null);
 
@@ -100,23 +111,22 @@ export function ModelCatalogProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     const prefs = await readModelPreferences();
+    const chosen = new Set(
+      [prefs.asr, prefs.mt].filter((id): id is string => id != null),
+    );
     const next = emptyStates();
     for (const m of ALL_MODELS) {
       const installed = await isModelInstalled(m.id);
-      let status: ModelInstallUiStatus = installed
-        ? "installed"
-        : "not_installed";
-      if (
-        installed &&
-        (m.id === prefs.selectedWhisperModelId ||
-          m.id === prefs.selectedNllbModelId)
-      ) {
-        status = "selected";
-      }
-      next[m.id] = { status, progress: installed ? 1 : 0 };
+      next[m.id] = {
+        status: !installed
+          ? "not_installed"
+          : chosen.has(m.id)
+            ? "selected"
+            : "installed",
+        progress: installed ? 1 : 0,
+      };
     }
-    setSelectedWhisperId(prefs.selectedWhisperModelId);
-    setSelectedNllbId(prefs.selectedNllbModelId);
+    setSelected(prefs);
     setStates(next);
     setReady(true);
   }, []);
@@ -144,14 +154,13 @@ export function ModelCatalogProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   const isReady = useMemo(() => {
-    if (!selectedWhisperId || !selectedNllbId) return false;
-    const w = states[selectedWhisperId];
-    const n = states[selectedNllbId];
-    return (
-      (w?.status === "installed" || w?.status === "selected") &&
-      (n?.status === "installed" || n?.status === "selected")
-    );
-  }, [selectedWhisperId, selectedNllbId, states]);
+    const usable = (id: string | null) => {
+      if (!id) return false;
+      const status = states[id]?.status;
+      return status === "installed" || status === "selected";
+    };
+    return usable(selected.asr) && usable(selected.mt);
+  }, [selected, states]);
 
   const getModelState = useCallback(
     (modelId: string): ModelUiState =>
@@ -159,20 +168,35 @@ export function ModelCatalogProvider({ children }: { children: ReactNode }) {
     [states],
   );
 
+  /** Resolve a spec or raise the error the UI already knows how to show. */
+  const requireSpec = useCallback((modelId: string) => {
+    const spec = getModelSpec(modelId);
+    if (!spec) {
+      const err = new ModelError({
+        code: "MODEL_UNKNOWN_ID",
+        stage: "catalog.resolve",
+        message: `Modelo desconocido: ${modelId}`,
+        recoverable: false,
+        context: { modelId },
+      });
+      setLastError(err);
+      throw err;
+    }
+    return spec;
+  }, []);
+
+  const applySelection = useCallback(
+    async (task: SelectableTask, modelId: string) => {
+      await setSelectedModelId(task, modelId);
+      resetEngineForTask(task);
+      setSelected((prev) => ({ ...prev, [task]: modelId }));
+    },
+    [],
+  );
+
   const download = useCallback(
     async (modelId: string) => {
-      const spec = getModelSpec(modelId);
-      if (!spec) {
-        const err = new ModelError({
-          code: "MODEL_UNKNOWN_ID",
-          stage: "catalog.resolve",
-          message: `Modelo desconocido: ${modelId}`,
-          recoverable: false,
-          context: { modelId },
-        });
-        setLastError(err);
-        throw err;
-      }
+      const spec = requireSpec(modelId);
 
       setLastError(null);
       setStates((prev) => ({
@@ -184,28 +208,16 @@ export function ModelCatalogProvider({ children }: { children: ReactNode }) {
         await downloadModel(modelId, (p: DownloadProgress) => {
           setStates((prev) => ({
             ...prev,
-            [modelId]: {
-              status: "downloading",
-              progress: p.progress,
-            },
+            [modelId]: { status: "downloading", progress: p.progress },
           }));
         });
 
-        // Auto-select after successful download if none selected for family
-        if (spec.family === "whisper") {
+        // First model downloaded for a task becomes the active one, so the
+        // common case needs no second tap. The VAD has no selection: it is
+        // used whenever it is installed.
+        if (spec.task !== "vad") {
           const prefs = await readModelPreferences();
-          if (!prefs.selectedWhisperModelId) {
-            await setSelectedWhisperModelId(modelId);
-            resetWhisperEngine();
-            setSelectedWhisperId(modelId);
-          }
-        } else {
-          const prefs = await readModelPreferences();
-          if (!prefs.selectedNllbModelId) {
-            await setSelectedNllbModelId(modelId);
-            resetNllbEngine();
-            setSelectedNllbId(modelId);
-          }
+          if (!prefs[spec.task]) await applySelection(spec.task, modelId);
         }
 
         await refresh();
@@ -231,7 +243,7 @@ export function ModelCatalogProvider({ children }: { children: ReactNode }) {
         throw modelErr;
       }
     },
-    [refresh],
+    [applySelection, refresh, requireSpec],
   );
 
   const cancelDownload = useCallback(async (modelId: string) => {
@@ -240,21 +252,20 @@ export function ModelCatalogProvider({ children }: { children: ReactNode }) {
 
   const select = useCallback(
     async (modelId: string) => {
-      const spec = getModelSpec(modelId);
-      if (!spec) {
+      const spec = requireSpec(modelId);
+      if (spec.task === "vad") {
         const err = new ModelError({
-          code: "MODEL_UNKNOWN_ID",
-          stage: "catalog.resolve",
-          message: `Modelo desconocido: ${modelId}`,
+          code: "MODEL_SELECT_FAILED",
+          stage: "select.apply",
+          message: `${spec.label} se usa automáticamente; no se selecciona`,
           recoverable: false,
-          context: { modelId },
+          context: { modelId, task: spec.task },
         });
         setLastError(err);
         throw err;
       }
 
-      const installed = await isModelInstalled(modelId);
-      if (!installed) {
+      if (!(await isModelInstalled(modelId))) {
         const err = new ModelError({
           code: "MODEL_SELECT_NOT_INSTALLED",
           stage: "select.apply",
@@ -267,46 +278,34 @@ export function ModelCatalogProvider({ children }: { children: ReactNode }) {
       }
 
       try {
-        if (spec.family === "whisper") {
-          await setSelectedWhisperModelId(modelId);
-          resetWhisperEngine();
-          setSelectedWhisperId(modelId);
-        } else {
-          await setSelectedNllbModelId(modelId);
-          resetNllbEngine();
-          setSelectedNllbId(modelId);
-        }
+        await applySelection(spec.task, modelId);
         setLastError(null);
         await refresh();
       } catch (err) {
         const modelErr = isModelError(err)
           ? err
-          : wrapModelError(
-              err,
-              "select.apply",
-              "MODEL_SELECT_FAILED",
-              true,
-              { modelId },
-            );
+          : wrapModelError(err, "select.apply", "MODEL_SELECT_FAILED", true, {
+              modelId,
+            });
         setLastError(modelErr);
         throw modelErr;
       }
     },
-    [refresh],
+    [applySelection, refresh, requireSpec],
   );
 
   const downloadRecommended = useCallback(async () => {
-    const { whisperId, nllbId } = recommended;
     setLastError(null);
     try {
-      if (!(await isModelInstalled(whisperId))) {
-        await download(whisperId);
+      for (const modelId of [recommended.asrId, recommended.mtId]) {
+        if (!(await isModelInstalled(modelId))) await download(modelId);
+        await select(modelId);
       }
-      await select(whisperId);
-      if (!(await isModelInstalled(nllbId))) {
-        await download(nllbId);
+      // 2 MB that stop the transcriber inventing sentences over background
+      // noise. Never worth skipping, and it has nothing to select.
+      if (!(await isModelInstalled(recommended.vadId))) {
+        await download(recommended.vadId);
       }
-      await select(nllbId);
     } catch (err) {
       if (isModelError(err)) setLastError(err);
       throw err;
@@ -319,8 +318,7 @@ export function ModelCatalogProvider({ children }: { children: ReactNode }) {
       booting,
       deviceModelName,
       totalMemoryBytes,
-      selectedWhisperId,
-      selectedNllbId,
+      selected,
       isReady,
       lastError,
       clearError: () => setLastError(null),
@@ -330,8 +328,9 @@ export function ModelCatalogProvider({ children }: { children: ReactNode }) {
       select,
       downloadRecommended,
       recommended,
-      whisperModels: WHISPER_MODELS,
-      nllbModels: NLLB_MODELS,
+      asrModels: ASR_MODELS,
+      mtModels: MT_MODELS,
+      vadModels: VAD_MODELS,
       refresh,
     }),
     [
@@ -339,8 +338,7 @@ export function ModelCatalogProvider({ children }: { children: ReactNode }) {
       booting,
       deviceModelName,
       totalMemoryBytes,
-      selectedWhisperId,
-      selectedNllbId,
+      selected,
       isReady,
       lastError,
       getModelState,
