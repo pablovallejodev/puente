@@ -1,4 +1,5 @@
 allowBuilds:
+  dtrace-provider: true
   esbuild: true
   msgpackr-extract: true
   onnxruntime-node: true
