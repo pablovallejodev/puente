@@ -9,7 +9,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { router, type Href } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   ChatHeadComponent,
@@ -18,6 +18,7 @@ import {
 import {
   ENGINE_LABEL,
   formatBytes,
+  SILERO_VAD_MODEL_ID,
   type ModelSpec,
 } from "@/constants/model-catalog";
 import { STANDARD_HORIZONTAL_PADDING } from "@/constants/ui";
@@ -180,31 +181,59 @@ export default function ModelosComponent() {
     totalMemoryBytes,
     lastError,
     clearError,
+    download,
     downloadRecommended,
+    getModelState,
+    recommended,
+    selected,
     asrModels,
     mtModels,
-    vadModels,
   } = useModelCatalog();
 
+  // Freeze entry mode at mount: setup vs settings. isReady alone flips mid-setup.
+  const [isSetupFlow] = useState(() => !isReady);
   const [recBusy, setRecBusy] = useState(false);
+  const sileroKickoff = useRef(false);
 
   const ramGb =
     totalMemoryBytes != null
       ? (totalMemoryBytes / (1024 * 1024 * 1024)).toFixed(1)
       : null;
 
+  const asrInstalled =
+    getModelState(recommended.asrId).status === "installed" ||
+    getModelState(recommended.asrId).status === "selected";
+  const mtInstalled =
+    getModelState(recommended.mtId).status === "installed" ||
+    getModelState(recommended.mtId).status === "selected";
+  const recommendedActive =
+    selected.asr === recommended.asrId && selected.mt === recommended.mtId;
+  const needDownload = !asrInstalled || !mtInstalled;
+
+  // Silero (~2 MB): one attempt per visit; used whenever present, no select step.
+  useEffect(() => {
+    if (booting || sileroKickoff.current) return;
+    const status = getModelState(SILERO_VAD_MODEL_ID).status;
+    if (status !== "not_installed") return;
+    sileroKickoff.current = true;
+    void download(SILERO_VAD_MODEL_ID).catch(() => {
+      // Optional install — don't sticky-banner a background failure.
+      clearError();
+    });
+  }, [booting, download, getModelState, clearError]);
+
   const onRecommended = useCallback(async () => {
+    if (recommendedActive) return;
     setRecBusy(true);
     clearError();
     try {
       await downloadRecommended();
-      router.replace("/traductor" as Href);
     } catch {
       /* lastError */
     } finally {
       setRecBusy(false);
     }
-  }, [downloadRecommended, clearError]);
+  }, [recommendedActive, downloadRecommended, clearError]);
 
   const goTraductor = useCallback(() => {
     if (!isReady) return;
@@ -226,14 +255,14 @@ export default function ModelosComponent() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBarDarkComponent />
-      {isReady ? (
+      {isSetupFlow ? (
+        <ChatHeadComponent titleText="Modelos" />
+      ) : (
         <StandardHeadComponent
           titleText="Modelos"
           loading={false}
           onBack={() => router.back()}
         />
-      ) : (
-        <ChatHeadComponent titleText="Modelos" />
       )}
 
       <ScrollView
@@ -242,50 +271,51 @@ export default function ModelosComponent() {
       >
         <View style={styles.setupHero}>
           <Text style={styles.heroEyebrow}>
-            {isReady ? "MODELOS LOCALES" : "CONFIGURACIÓN INICIAL"}
-          </Text>
-          <Text style={styles.title}>
-            {isReady ? "El motor adecuado para tu teléfono." : "Prepara Puente."}
-          </Text>
-          <Text style={styles.subtitle}>
-            {isReady
-              ? "Puente escucha y traduce en el dispositivo. Puedes cambiar la combinación cuando quieras."
-              : "Descarga el transcriptor y el traductor que funcionarán en este teléfono. Después, no necesitarás internet."}
+            {isSetupFlow ? "CONFIGURACIÓN INICIAL" : "MODELOS LOCALES"}
           </Text>
 
-          <View style={styles.devicePill}>
-            <View style={styles.deviceDot} />
-            <Text style={styles.deviceLine}>
-              {deviceModelName ?? "Dispositivo"}
-              {ramGb != null ? ` · ${ramGb} GB RAM` : ""}
-            </Text>
-          </View>
+          <View style={styles.deviceRow}>
+            <View style={styles.devicePill}>
+              <View style={styles.deviceDot} />
+              <Text style={styles.deviceLine}>
+                {deviceModelName ?? "Dispositivo"}
+                {ramGb != null ? ` · ${ramGb} GB RAM` : ""}
+              </Text>
+            </View>
 
-          {!isReady ? (
-            <Pressable
-              style={[
-                styles.recommendButton,
-                recBusy && styles.buttonDisabled,
-              ]}
-              onPress={onRecommended}
-              disabled={recBusy}
-              accessibilityRole="button"
-            >
-              {recBusy ? (
-                <ActivityIndicator
-                  size="small"
-                  color={theme.colors.onAction}
-                />
-              ) : (
-                <>
+            {recommendedActive ? (
+              <View
+                style={styles.recommendButton}
+                accessibilityRole="button"
+                accessibilityState={{ disabled: true, selected: true }}
+              >
+                <Text style={styles.recommendButtonText}>✓ Recomendados</Text>
+              </View>
+            ) : (
+              <Pressable
+                style={[
+                  styles.recommendButton,
+                  recBusy && styles.buttonDisabled,
+                ]}
+                onPress={onRecommended}
+                disabled={recBusy}
+                accessibilityRole="button"
+              >
+                {recBusy ? (
+                  <ActivityIndicator
+                    size="small"
+                    color={theme.colors.onAction}
+                  />
+                ) : (
                   <Text style={styles.recommendButtonText}>
-                    Preparar mi teléfono
+                    {needDownload
+                      ? "Descargar recomendados"
+                      : "Seleccionar recomendados"}
                   </Text>
-                  <Text style={styles.recommendButtonArrow}>→</Text>
-                </>
-              )}
-            </Pressable>
-          ) : null}
+                )}
+              </Pressable>
+            )}
+          </View>
         </View>
 
         {lastError ? (
@@ -325,34 +355,20 @@ export default function ModelosComponent() {
               />
             ))}
           </View>
-          <View style={styles.column}>
-            <Text style={styles.columnEyebrow}>03 · DETECCIÓN DE VOZ</Text>
-            <Text style={styles.columnTitle}>Opcional, muy recomendable</Text>
-            <Text style={styles.columnHint}>
-              Sin esto, Puente decide que hay voz midiendo el volumen, y un
-              ventilador supera cualquier umbral: el transcriptor recibe ruido y
-              responde inventando frases. Se usa solo con tenerlo instalado.
-            </Text>
-            {vadModels.map((spec) => (
-              <ModelCard
-                key={spec.id}
-                spec={spec}
-                ramBytes={totalMemoryBytes}
-              />
-            ))}
-          </View>
         </View>
 
-        {!isReady ? (
-          <Text style={styles.gateFooter}>
-            Necesitas un modelo de transcripción y uno de traducción,
-            descargados y seleccionados, para continuar.
-          </Text>
-        ) : (
-          <Pressable style={styles.continueButton} onPress={goTraductor}>
-            <Text style={styles.continueButtonText}>Ir al traductor</Text>
-          </Pressable>
-        )}
+        {isSetupFlow ? (
+          !isReady ? (
+            <Text style={styles.gateFooter}>
+              Necesitas un modelo de transcripción y uno de traducción,
+              descargados y seleccionados, para continuar.
+            </Text>
+          ) : (
+            <Pressable style={styles.continueButton} onPress={goTraductor}>
+              <Text style={styles.continueButtonText}>Ir al traductor</Text>
+            </Pressable>
+          )
+        ) : null}
       </ScrollView>
     </SafeAreaView>
   );
@@ -395,63 +411,50 @@ const styles = StyleSheet.create({
     letterSpacing: 1.4,
     color: theme.colors.text,
   },
-  title: {
-    fontFamily: theme.font.heading,
-    fontSize: 26,
-    lineHeight: 31,
-    color: theme.colors.text,
-    marginTop: theme.spacing.sm,
-  },
-  subtitle: {
-    fontFamily: theme.font.body,
-    fontSize: theme.type.body,
-    color: theme.colors.text,
-    marginTop: theme.spacing.sm,
-    lineHeight: 22,
+  deviceRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: theme.spacing.sm,
+    marginTop: theme.spacing.md,
   },
   devicePill: {
-    alignSelf: "flex-start",
+    flexShrink: 1,
     flexDirection: "row",
     alignItems: "center",
-    marginTop: theme.spacing.md,
-    paddingVertical: 7,
-    paddingHorizontal: theme.spacing.ml,
+    paddingVertical: 10,
+    paddingHorizontal: theme.spacing.md,
     borderRadius: theme.radius.pill,
     backgroundColor: theme.colors.background,
     borderWidth: 1,
     borderColor: theme.colors.hairline,
   },
   deviceDot: {
-    width: 6,
-    height: 6,
+    width: 8,
+    height: 8,
     marginRight: theme.spacing.sm,
     borderRadius: theme.radius.pill,
     backgroundColor: theme.colors.action,
   },
   deviceLine: {
     fontFamily: theme.font.body,
-    fontSize: theme.type.caption,
+    fontSize: theme.type.body,
     color: theme.colors.text,
   },
   recommendButton: {
-    minHeight: 52,
+    minHeight: 44,
+    flexGrow: 1,
     flexDirection: "row",
-    justifyContent: "space-between",
+    justifyContent: "center",
     backgroundColor: theme.colors.action,
     borderRadius: theme.radius.lg,
-    paddingVertical: theme.spacing.ml,
+    paddingVertical: theme.spacing.sm,
     paddingHorizontal: theme.spacing.md,
     alignItems: "center",
-    marginTop: theme.spacing.md,
   },
   recommendButtonText: {
     fontFamily: theme.font.heading,
-    fontSize: theme.type.body,
-    color: theme.colors.onAction,
-  },
-  recommendButtonArrow: {
-    fontFamily: theme.font.heading,
-    fontSize: 18,
+    fontSize: theme.type.caption,
     color: theme.colors.onAction,
   },
   errorBox: {

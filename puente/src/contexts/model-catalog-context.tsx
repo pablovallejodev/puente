@@ -301,11 +301,6 @@ export function ModelCatalogProvider({ children }: { children: ReactNode }) {
         if (!(await isModelInstalled(modelId))) await download(modelId);
         await select(modelId);
       }
-      // 2 MB that stop the transcriber inventing sentences over background
-      // noise. Never worth skipping, and it has nothing to select.
-      if (!(await isModelInstalled(recommended.vadId))) {
-        await download(recommended.vadId);
-      }
     } catch (err) {
       if (isModelError(err)) setLastError(err);
       throw err;
