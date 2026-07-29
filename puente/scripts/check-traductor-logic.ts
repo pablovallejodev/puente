@@ -4,11 +4,16 @@ import {
   FALLBACK_OUTPUT_LANGUAGE,
   findTraductorLanguageById,
   findTraductorLanguageByLocale,
+  getRecommendedLanguages,
   resolveDeviceTraductorLanguage,
   TRADUCTOR_LANGUAGES,
   UNIVERSAL_INPUT,
   type InputLanguageSelection,
 } from "../src/constants/traductor-languages";
+import {
+  getTraductorLanguageDisplayName,
+  resolveUiLocale,
+} from "../src/lib/language-display-name";
 import {
   speechLocaleToWhisperLang,
   whisperLangToSpeechLocale,
@@ -376,18 +381,28 @@ function testFinalTranslationFreeze(): void {
   const apply = (
     m: Msg,
     text: string,
+    status: Msg["translationStatus"],
     options?: { force?: boolean },
   ): Msg => {
+    // Mirrors use-chat-messages.onTranslationUpdate
+    if (status === "queued" || status === "translating") {
+      if (
+        !options?.force &&
+        m.translationStatus === "done" &&
+        m.translated
+      ) {
+        return m;
+      }
+      return { ...m, translationStatus: status };
+    }
     if (
       !options?.force &&
-      m.isFinal &&
-      m.translated &&
       m.translationStatus === "done" &&
-      text
+      m.translated
     ) {
       return m;
     }
-    return { ...m, translated: text, translationStatus: "done" };
+    return { ...m, translated: text, translationStatus: status };
   };
 
   const frozen = apply(
@@ -398,8 +413,35 @@ function testFinalTranslationFreeze(): void {
       translationStatus: "done",
     },
     "Bonjour",
+    "done",
   );
   assert.equal(frozen.translated, "Hello");
+
+  const emptyWipe = apply(
+    {
+      id: "1",
+      isFinal: true,
+      translated: "Hello",
+      translationStatus: "done",
+    },
+    "",
+    "queued",
+  );
+  assert.equal(emptyWipe.translated, "Hello");
+  assert.equal(emptyWipe.translationStatus, "done");
+
+  const preemptStatusOnly = apply(
+    {
+      id: "1",
+      isFinal: true,
+      translated: "",
+      translationStatus: "translating",
+    },
+    "",
+    "queued",
+  );
+  assert.equal(preemptStatusOnly.translated, "");
+  assert.equal(preemptStatusOnly.translationStatus, "queued");
 
   const forced = apply(
     {
@@ -409,9 +451,70 @@ function testFinalTranslationFreeze(): void {
       translationStatus: "done",
     },
     "Bonjour",
+    "done",
     { force: true },
   );
   assert.equal(forced.translated, "Bonjour");
+}
+
+function testFailPendingAndRemove(): void {
+  type Msg = {
+    id: string;
+    original: string;
+    transcriptionStatus: "pending" | "done" | "error";
+    transcriptionError?: string;
+  };
+
+  let messages: Msg[] = [
+    { id: "a", original: "hola", transcriptionStatus: "done" },
+    { id: "b", original: "", transcriptionStatus: "pending" },
+  ];
+
+  const failPending = (messageId: string, message: string) => {
+    messages = messages.map((m) => {
+      if (m.id !== messageId || m.transcriptionStatus !== "pending") return m;
+      return {
+        ...m,
+        transcriptionStatus: "error" as const,
+        transcriptionError: message,
+      };
+    });
+  };
+
+  const remove = (messageId: string) => {
+    messages = messages.filter((m) => m.id !== messageId);
+  };
+
+  failPending("b", "No se entendió");
+  assert.equal(messages.find((m) => m.id === "b")?.transcriptionStatus, "error");
+  assert.equal(messages.find((m) => m.id === "b")?.transcriptionError, "No se entendió");
+  assert.equal(messages.find((m) => m.id === "a")?.transcriptionStatus, "done");
+
+  // Only pending can fail — done is untouched.
+  failPending("a", "x");
+  assert.equal(messages.find((m) => m.id === "a")?.transcriptionStatus, "done");
+
+  remove("b");
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].id, "a");
+}
+
+function testLatestDoneMessageId(): void {
+  type Msg = { id: string; transcriptionStatus: "pending" | "done" | "error" };
+  const messages: Msg[] = [
+    { id: "a", transcriptionStatus: "done" },
+    { id: "b", transcriptionStatus: "done" },
+    { id: "c", transcriptionStatus: "pending" },
+    { id: "d", transcriptionStatus: "error" },
+  ];
+  let latest: string | null = null;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].transcriptionStatus === "done") {
+      latest = messages[i].id;
+      break;
+    }
+  }
+  assert.equal(latest, "b");
 }
 
 function testOutputLanguageDoesNotAutoRetranslate(): void {
@@ -485,6 +588,47 @@ function testResolveDeviceTraductorLanguage(): void {
     resolveDeviceTraductorLanguage("xx-XX").id,
     FALLBACK_OUTPUT_LANGUAGE.id,
   );
+}
+
+function testRecommendedLanguages(): void {
+  assert.deepEqual(
+    getRecommendedLanguages("ca-ES").map((l) => l.id),
+    ["ca", "es", "en"],
+  );
+  assert.deepEqual(
+    getRecommendedLanguages("es-ES").map((l) => l.id),
+    ["es", "ca", "en"],
+  );
+  assert.deepEqual(
+    getRecommendedLanguages("en-US").map((l) => l.id),
+    ["en", "es", "ca"],
+  );
+  assert.deepEqual(
+    getRecommendedLanguages("fr-FR").map((l) => l.id),
+    ["fr", "es", "ca", "en"],
+  );
+  assert.deepEqual(
+    getRecommendedLanguages("xx-XX").map((l) => l.id),
+    ["es", "ca", "en"],
+  );
+}
+
+function testLanguageDisplayNames(): void {
+  assert.equal(resolveUiLocale("es-ES"), "es");
+  assert.equal(resolveUiLocale("ca-ES"), "ca");
+  assert.equal(resolveUiLocale("en-US"), "en");
+  assert.equal(resolveUiLocale("fr-FR"), "en");
+
+  const es = findTraductorLanguageById("es")!;
+  const ca = findTraductorLanguageById("ca")!;
+  const en = findTraductorLanguageById("en")!;
+  assert.equal(getTraductorLanguageDisplayName(es, "es"), "Castellano");
+  assert.equal(getTraductorLanguageDisplayName(es, "ca"), "Castellà");
+  assert.equal(getTraductorLanguageDisplayName(es, "en"), "Spanish");
+  assert.equal(getTraductorLanguageDisplayName(ca, "es"), "Catalán");
+  assert.equal(getTraductorLanguageDisplayName(ca, "ca"), "Català");
+  assert.equal(getTraductorLanguageDisplayName(en, "es"), "Inglés");
+  assert.equal(getTraductorLanguageDisplayName(en, "en"), "English");
 }
 
 function testInputSelectionShape(): void {
@@ -585,10 +729,13 @@ async function main(): Promise<void> {
   testTranslationJobKey();
   testMessageIsolation();
   testFinalTranslationFreeze();
+  testFailPendingAndRemove();
   testOutputLanguageDoesNotAutoRetranslate();
   testProductLanguagesIncludeSqTh();
   testWhisperNllbProductCatalog();
   testResolveDeviceTraductorLanguage();
+  testRecommendedLanguages();
+  testLanguageDisplayNames();
   testInputSelectionShape();
   testSoftmaxLangAmong();
   testNoSpeechProbFromLogits();
@@ -596,6 +743,7 @@ async function main(): Promise<void> {
   testFormatSttError();
   testMelSelfCheck();
   testLatestMessageIdDerivation();
+  testLatestDoneMessageId();
   testPhraseLookup();
 
   console.log("check:traductor-logic ok");
