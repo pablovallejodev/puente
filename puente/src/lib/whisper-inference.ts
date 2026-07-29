@@ -32,6 +32,7 @@ export type WhisperGenerationConfig = {
   eos_token_id: number;
   decoder_start_token_id: number;
   no_timestamps_token_id: number;
+  no_speech_token_id?: number;
   task_to_id: { transcribe: number; translate?: number };
   lang_to_id: Record<string, number>;
 };
@@ -48,12 +49,17 @@ export const LANG_DETECT_MIN_PROB = 0.45;
 /** PCM samples @ 16 kHz — below this, detection is unreliable. */
 export const LANG_DETECT_MIN_SAMPLES = Math.floor(16000 * 0.8);
 
+/** Softmax P(no_speech) above this → reject chunk (calibrate on-device). */
+export const NO_SPEECH_THRESHOLD = 0.6;
+
 export type WhisperTranscribeResult = {
   text: string;
   language: string;
   languageProb: number;
   speechLocale: string;
   usedSticky: boolean;
+  noSpeech: boolean;
+  noSpeechProb: number;
 };
 
 export type TranscribeParams = {
@@ -70,6 +76,8 @@ export type TranscribeParams = {
   candidateLangs?: readonly string[];
   /** Sticky from prior Universal utterance. */
   stickyLanguage?: string | null;
+  /** Cooperative cancel — checked between decoder steps. */
+  shouldCancel?: () => boolean;
 };
 
 function floatTensor(
@@ -144,6 +152,18 @@ function collectCandidateTokenIds(
   return { ids, codes };
 }
 
+function lastLogitsSlice(logits: OrtTensor): {
+  data: Float32Array;
+  offset: number;
+  vocabSize: number;
+} {
+  const dims = logits.dims;
+  const seqLen = dims.length >= 2 ? Number(dims[1]) : 1;
+  const vocabSize = dims.length >= 3 ? Number(dims[2]) : 0;
+  const data = logits.data as Float32Array;
+  return { data, offset: (seqLen - 1) * vocabSize, vocabSize };
+}
+
 /** Softmax over candidate language logits at the last decoder position. */
 export function softmaxLangAmong(
   logits: OrtTensor,
@@ -158,11 +178,7 @@ export function softmaxLangAmong(
     });
   }
 
-  const dims = logits.dims;
-  const seqLen = dims.length >= 2 ? Number(dims[1]) : 1;
-  const vocabSize = dims.length >= 3 ? Number(dims[2]) : 0;
-  const data = logits.data as Float32Array;
-  const offset = (seqLen - 1) * vocabSize;
+  const { data, offset } = lastLogitsSlice(logits);
 
   let maxLogit = -Infinity;
   for (const id of candidateIds) {
@@ -195,41 +211,49 @@ export function softmaxLangAmong(
   };
 }
 
-async function detectLanguageFromEncoder(
+export function resolveNoSpeechTokenId(
+  generationConfig: WhisperGenerationConfig,
+  tokenizer: TokenizerLike,
+): number | null {
+  if (typeof generationConfig.no_speech_token_id === "number") {
+    return generationConfig.no_speech_token_id;
+  }
+  return (
+    tokenizer.token_to_id("<|nospeech|>") ??
+    tokenizer.token_to_id("<|nocaptions|>") ??
+    null
+  );
+}
+
+/** Full-vocab softmax probability of no_speech at the last position. */
+export function noSpeechProbFromLogits(
+  logits: OrtTensor,
+  noSpeechId: number,
+): number {
+  const { data, offset, vocabSize } = lastLogitsSlice(logits);
+  if (noSpeechId < 0 || noSpeechId >= vocabSize) return 0;
+
+  let maxLogit = -Infinity;
+  for (let i = 0; i < vocabSize; i++) {
+    const v = data[offset + i];
+    if (v > maxLogit) maxLogit = v;
+  }
+
+  let sum = 0;
+  for (let i = 0; i < vocabSize; i++) {
+    sum += Math.exp(data[offset + i] - maxLogit);
+  }
+  return Math.exp(data[offset + noSpeechId] - maxLogit) / sum;
+}
+
+async function runSotProbe(
   encoderHiddenStates: OrtTensor,
   params: Pick<
     TranscribeParams,
-    | "decoderSession"
-    | "modelConfig"
-    | "generationConfig"
-    | "tokenizer"
-    | "TensorCtor"
-    | "candidateLangs"
+    "decoderSession" | "modelConfig" | "generationConfig" | "TensorCtor"
   >,
-): Promise<{ language: string; languageProb: number }> {
-  const {
-    decoderSession,
-    modelConfig,
-    generationConfig,
-    tokenizer,
-    TensorCtor,
-    candidateLangs = UNIVERSAL_CANDIDATE_LANGS,
-  } = params;
-
-  const { ids, codes } = collectCandidateTokenIds(
-    generationConfig,
-    tokenizer,
-    candidateLangs,
-  );
-  if (ids.length === 0) {
-    throw new WhisperError({
-      code: "LANG_DETECT_EMPTY",
-      stage: "lang.detect",
-      message: "lang_to_id vacío para candidatos Universal",
-      recoverable: false,
-    });
-  }
-
+): Promise<OrtTensor> {
+  const { decoderSession, modelConfig, generationConfig, TensorCtor } = params;
   const numLayers = modelConfig.decoder_layers;
   const numHeads = modelConfig.decoder_attention_heads;
   const headDim = modelConfig.d_model / numHeads;
@@ -262,9 +286,45 @@ async function detectLanguageFromEncoder(
       recoverable: true,
     });
   }
+  return logits;
+}
 
+async function detectLanguageFromEncoder(
+  encoderHiddenStates: OrtTensor,
+  params: Pick<
+    TranscribeParams,
+    | "decoderSession"
+    | "modelConfig"
+    | "generationConfig"
+    | "tokenizer"
+    | "TensorCtor"
+    | "candidateLangs"
+  >,
+  sotLogits?: OrtTensor,
+): Promise<{ language: string; languageProb: number; logits: OrtTensor }> {
+  const {
+    generationConfig,
+    tokenizer,
+    candidateLangs = UNIVERSAL_CANDIDATE_LANGS,
+  } = params;
+
+  const { ids, codes } = collectCandidateTokenIds(
+    generationConfig,
+    tokenizer,
+    candidateLangs,
+  );
+  if (ids.length === 0) {
+    throw new WhisperError({
+      code: "LANG_DETECT_EMPTY",
+      stage: "lang.detect",
+      message: "lang_to_id vacío para candidatos Universal",
+      recoverable: false,
+    });
+  }
+
+  const logits = sotLogits ?? (await runSotProbe(encoderHiddenStates, params));
   const { index, prob } = softmaxLangAmong(logits, ids);
-  return { language: codes[index], languageProb: prob };
+  return { language: codes[index], languageProb: prob, logits };
 }
 
 function capitalizeFirst(text: string): string {
@@ -281,7 +341,8 @@ async function decodeTranscript(params: {
   modelConfig: WhisperModelConfig;
   generationConfig: WhisperGenerationConfig;
   TensorCtor: TensorConstructor;
-}): Promise<string> {
+  shouldCancel?: () => boolean;
+}): Promise<string | null> {
   const {
     encoderHiddenStates,
     language,
@@ -290,6 +351,7 @@ async function decodeTranscript(params: {
     modelConfig,
     generationConfig,
     TensorCtor,
+    shouldCancel,
   } = params;
 
   const numLayers = modelConfig.decoder_layers;
@@ -308,6 +370,8 @@ async function decodeTranscript(params: {
   const generatedIds: number[] = [];
 
   for (let step = 0; step < MAX_NEW_TOKENS; step++) {
+    if (shouldCancel?.()) return null;
+
     let decoderOutputs: Record<string, OrtTensor | unknown>;
     try {
       decoderOutputs = await decoderSession.run({
@@ -321,6 +385,8 @@ async function decodeTranscript(params: {
         step,
       });
     }
+
+    if (shouldCancel?.()) return null;
 
     const nextTokenId = argmaxLastToken(
       decoderOutputs.logits as OrtTensor,
@@ -369,6 +435,24 @@ function resolveSpeechLocale(language: string): string {
   return locale;
 }
 
+function emptyResult(
+  language: string,
+  languageProb: number,
+  usedSticky: boolean,
+  noSpeechProb: number,
+  noSpeech: boolean,
+): WhisperTranscribeResult {
+  return {
+    text: "",
+    language,
+    languageProb,
+    speechLocale: resolveSpeechLocale(language),
+    usedSticky,
+    noSpeech,
+    noSpeechProb,
+  };
+}
+
 export async function transcribePcm(
   params: TranscribeParams,
 ): Promise<WhisperTranscribeResult> {
@@ -384,16 +468,15 @@ export async function transcribePcm(
     TensorCtor,
     candidateLangs = UNIVERSAL_CANDIDATE_LANGS,
     stickyLanguage = null,
+    shouldCancel,
   } = params;
 
   if (pcm.length === 0) {
-    return {
-      text: "",
-      language: stickyLanguage ?? "en",
-      languageProb: 0,
-      speechLocale: resolveSpeechLocale(stickyLanguage ?? "en"),
-      usedSticky: !!stickyLanguage,
-    };
+    return emptyResult(stickyLanguage ?? "en", 0, !!stickyLanguage, 0, true);
+  }
+
+  if (shouldCancel?.()) {
+    return emptyResult(stickyLanguage ?? "en", 0, !!stickyLanguage, 0, false);
   }
 
   let mel: Float32Array;
@@ -415,11 +498,40 @@ export async function transcribePcm(
     throw wrapWhisperError(err, "encode.run", "ENCODE_FAILED", true);
   }
 
+  if (shouldCancel?.()) {
+    return emptyResult(stickyLanguage ?? "en", 0, !!stickyLanguage, 0, false);
+  }
+
   const encoderHiddenStates = encoderOutputs.last_hidden_state as OrtTensor;
+  const noSpeechId = resolveNoSpeechTokenId(generationConfig, tokenizer);
 
   let language: string;
   let languageProb: number;
   let usedSticky = false;
+  let noSpeechProb = 0;
+  let sotLogits: OrtTensor | undefined;
+
+  // SOT probe: language logits + no_speech probability share one decoder step.
+  if (languageOpt === "auto" || noSpeechId !== null) {
+    sotLogits = await runSotProbe(encoderHiddenStates, {
+      decoderSession,
+      modelConfig,
+      generationConfig,
+      TensorCtor,
+    });
+    if (noSpeechId !== null) {
+      noSpeechProb = noSpeechProbFromLogits(sotLogits, noSpeechId);
+      if (noSpeechProb >= NO_SPEECH_THRESHOLD) {
+        return emptyResult(
+          stickyLanguage ?? (languageOpt === "auto" ? "en" : languageOpt),
+          0,
+          false,
+          noSpeechProb,
+          true,
+        );
+      }
+    }
+  }
 
   if (languageOpt === "auto") {
     if (pcm.length < LANG_DETECT_MIN_SAMPLES) {
@@ -437,14 +549,18 @@ export async function transcribePcm(
         });
       }
     } else {
-      const detected = await detectLanguageFromEncoder(encoderHiddenStates, {
-        decoderSession,
-        modelConfig,
-        generationConfig,
-        tokenizer,
-        TensorCtor,
-        candidateLangs,
-      });
+      const detected = await detectLanguageFromEncoder(
+        encoderHiddenStates,
+        {
+          decoderSession,
+          modelConfig,
+          generationConfig,
+          tokenizer,
+          TensorCtor,
+          candidateLangs,
+        },
+        sotLogits,
+      );
 
       if (detected.languageProb < LANG_DETECT_MIN_PROB) {
         if (stickyLanguage) {
@@ -473,6 +589,10 @@ export async function transcribePcm(
     languageProb = 1;
   }
 
+  if (shouldCancel?.()) {
+    return emptyResult(language, languageProb, usedSticky, noSpeechProb, false);
+  }
+
   const speechLocale = resolveSpeechLocale(language);
   const text = await decodeTranscript({
     encoderHiddenStates,
@@ -482,7 +602,12 @@ export async function transcribePcm(
     modelConfig,
     generationConfig,
     TensorCtor,
+    shouldCancel,
   });
+
+  if (text === null) {
+    return emptyResult(language, languageProb, usedSticky, noSpeechProb, false);
+  }
 
   return {
     text,
@@ -490,5 +615,7 @@ export async function transcribePcm(
     languageProb,
     speechLocale,
     usedSticky,
+    noSpeech: false,
+    noSpeechProb,
   };
 }

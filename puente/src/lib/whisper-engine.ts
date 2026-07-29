@@ -232,7 +232,10 @@ export class WhisperEngine {
   async transcribe(
     pcm: Float32Array,
     languageOrLocale: "auto" | string,
-    options?: { stickyLanguage?: string | null },
+    options?: {
+      stickyLanguage?: string | null;
+      shouldCancel?: () => boolean;
+    },
   ): Promise<WhisperTranscribeResult> {
     const language =
       languageOrLocale === "auto"
@@ -242,6 +245,7 @@ export class WhisperEngine {
       pcm,
       language,
       stickyLanguage: options?.stickyLanguage ?? null,
+      shouldCancel: options?.shouldCancel,
       tokenizer: this.tokenizer,
       encoderSession: this.encoderSession as unknown as import("@/lib/nllb-inference").OrtSession,
       decoderSession: this.decoderSession as unknown as import("@/lib/nllb-inference").OrtSession,

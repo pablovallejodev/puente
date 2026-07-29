@@ -204,7 +204,8 @@ export class NllbEngine {
     text: string,
     srcLang: string,
     tgtLang: string,
-  ): Promise<string> {
+    options?: { shouldCancel?: () => boolean },
+  ): Promise<string | null> {
     return translateText({
       text,
       srcLang,
@@ -215,6 +216,7 @@ export class NllbEngine {
       modelConfig: this.modelConfig,
       eosTokenId: this.eosTokenId,
       TensorCtor: Tensor as unknown as import("@/lib/nllb-inference").TensorConstructor,
+      shouldCancel: options?.shouldCancel,
     });
   }
 

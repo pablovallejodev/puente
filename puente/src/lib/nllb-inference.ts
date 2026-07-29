@@ -173,9 +173,14 @@ export type TranslateParams = {
   modelConfig: ModelConfig;
   eosTokenId: number;
   TensorCtor: TensorConstructor;
+  /** Cooperative cancel — checked between decoder steps. */
+  shouldCancel?: () => boolean;
 };
 
-export async function translateText(params: TranslateParams): Promise<string> {
+/** Cancelled runs return null so callers can re-queue without treating it as failure. */
+export async function translateText(
+  params: TranslateParams,
+): Promise<string | null> {
   const {
     text,
     srcLang,
@@ -186,10 +191,13 @@ export async function translateText(params: TranslateParams): Promise<string> {
     modelConfig,
     eosTokenId,
     TensorCtor,
+    shouldCancel,
   } = params;
 
   const trimmed = text.trim();
   if (!trimmed) return "";
+
+  if (shouldCancel?.()) return null;
 
   const srcLangId = tokenizer.token_to_id(srcLang);
   const tgtLangId = tokenizer.token_to_id(tgtLang);
@@ -232,6 +240,8 @@ export async function translateText(params: TranslateParams): Promise<string> {
     throw wrapTranslateError(err, "encode.run", "ENCODE_FAILED");
   }
 
+  if (shouldCancel?.()) return null;
+
   const encoderHiddenStates = encoderOutputs.last_hidden_state as OrtTensor;
   const encoderAttentionMask = int64Tensor(attentionMask, TensorCtor);
 
@@ -241,6 +251,8 @@ export async function translateText(params: TranslateParams): Promise<string> {
   const generatedIds: number[] = [];
 
   for (let step = 0; step < MAX_NEW_TOKENS; step++) {
+    if (shouldCancel?.()) return null;
+
     let decoderOutputs: Record<string, OrtTensor | unknown>;
     try {
       decoderOutputs = await decoderSession.run({
@@ -253,6 +265,8 @@ export async function translateText(params: TranslateParams): Promise<string> {
     } catch (err) {
       throw wrapTranslateError(err, "decode.run", "DECODE_FAILED", { step });
     }
+
+    if (shouldCancel?.()) return null;
 
     const nextTokenId = argmaxLastToken(
       decoderOutputs.logits as OrtTensor,
