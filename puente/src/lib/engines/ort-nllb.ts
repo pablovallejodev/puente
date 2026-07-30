@@ -13,6 +13,7 @@ import { InferenceSession, Tensor } from "onnxruntime-react-native";
 import { mapSpeechLocaleToFlores } from "@/constants/languages";
 import type { MtModelSpec, OrtNllbRuntime } from "@/constants/model-catalog";
 import { causeMessage } from "@/lib/errors/diagnostic";
+import { EngineError } from "@/lib/engine-errors";
 import { getModelFilePath, toNativePath } from "@/lib/model-paths";
 import { ModelError } from "@/lib/model-errors";
 import {
@@ -58,6 +59,7 @@ function floresOrThrow(locale: string, role: "input" | "output"): string {
 
 export class OrtNllbEngine implements MtEngine {
   readonly engineId = "ort" as const;
+  private disposed = false;
 
   private constructor(
     readonly modelId: string,
@@ -167,6 +169,14 @@ export class OrtNllbEngine implements MtEngine {
     tgtLocale: string,
     request?: MtRequest,
   ): Promise<string | null> {
+    if (this.disposed) {
+      throw new EngineError({
+        code: "ENGINE_DISPOSED",
+        stage: "mt.run",
+        message: `El motor ${this.modelId} ya fue liberado`,
+        recoverable: true,
+      });
+    }
     return translateText({
       text,
       srcLang: floresOrThrow(srcLocale, "input"),
@@ -182,6 +192,8 @@ export class OrtNllbEngine implements MtEngine {
   }
 
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
     releaseOrtSession(this.encoderSession);
     releaseOrtSession(this.decoderSession);
   }

@@ -128,3 +128,10 @@ export function looksLikeMissingNativeModule(message: string): boolean {
     message,
   );
 }
+
+/** ORT session.release() already ran; further run() calls fail with this wording. */
+export function looksLikeReleasedSession(message: string): boolean {
+  return /session is released|session was released|ya fue liberado/i.test(
+    message,
+  );
+}

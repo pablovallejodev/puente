@@ -49,6 +49,8 @@ export class EngineSlot<T extends { dispose(): void }> {
     this.inFlight = null;
     this.cachedId = null;
     this.loadingId = null;
+    // External reset (model select) starts a fresh attempt budget.
+    this.attempts = 0;
   }
 
   async load(modelId: string | null, forceRetry = false): Promise<T> {

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { useModelCatalog } from "@/contexts/model-catalog-context";
 import {
   isSameLanguage,
   loadMtEngine,
@@ -11,7 +12,7 @@ import {
   LatestFirstPreserveScheduler,
   translationJobKey,
 } from "@/lib/translation-scheduler";
-import { isEngineError } from "@/lib/engine-errors";
+import { isDisposedEngineFailure, isEngineError } from "@/lib/engine-errors";
 import { lookupPhrase } from "@/lib/mt/phrase-lookup";
 import {
   isTranslatorError,
@@ -99,6 +100,9 @@ export function useTranslator(
     status: TranslationStatus,
   ) => void,
 ) {
+  const { selected, ready: catalogReady } = useModelCatalog();
+  const selectedMt = selected.mt;
+
   const [status, setStatus] = useState<TranslatorStatus>("loading");
   const [error, setError] = useState<string | null>(null);
   const [diagnostics, setDiagnostics] = useState<TranslatorDiagnostics | null>(
@@ -114,6 +118,7 @@ export function useTranslator(
   const onTranslationRef = useRef(onTranslation);
   const mountedRef = useRef(true);
   const lastFailedJobRef = useRef<TranslateJob | null>(null);
+  const loadGenRef = useRef(0);
   const schedulerRef = useRef<LatestFirstPreserveScheduler<TranslateJob> | null>(
     null,
   );
@@ -138,45 +143,64 @@ export function useTranslator(
     setIsTranslating(scheduler.activeJob !== null);
   }, []);
 
-  const loadModel = useCallback(async (forceRetry = false) => {
-    setStatus("loading");
-    setError(null);
-    setDiagnostics(null);
+  const loadModel = useCallback(
+    async (
+      forceRetry = false,
+      expectedGen?: number,
+      modelId?: string | null,
+    ) => {
+      setStatus("loading");
+      setError(null);
+      setDiagnostics(null);
 
-    if (forceRetry) {
-      resetMtEngine();
-      setLoadAttempts(0);
-    }
+      if (forceRetry) {
+        resetMtEngine();
+        setLoadAttempts(0);
+      }
 
-    try {
-      const engine = await loadMtEngine(forceRetry);
-      if (!mountedRef.current) return;
-      engineRef.current = engine;
-      engineReadyRef.current = true;
-      setStatus("ready");
-    } catch (err) {
-      if (!mountedRef.current) return;
-      engineReadyRef.current = false;
-      engineRef.current = null;
-      setLoadAttempts((n) => n + 1);
-      const diag = toDiagnostics(err);
-      setDiagnostics(diag);
-      setError(formatLoadError(err, diag));
-      setStatus("error");
-    }
-  }, []);
+      try {
+        const engine = await loadMtEngine(forceRetry, modelId ?? undefined);
+        if (!mountedRef.current) return;
+        if (expectedGen != null && loadGenRef.current !== expectedGen) return;
+        if (modelId && engine.modelId !== modelId) return;
+        engineRef.current = engine;
+        engineReadyRef.current = true;
+        setStatus("ready");
+      } catch (err) {
+        if (!mountedRef.current) return;
+        if (expectedGen != null && loadGenRef.current !== expectedGen) return;
+        engineReadyRef.current = false;
+        engineRef.current = null;
+        setLoadAttempts((n) => n + 1);
+        const diag = toDiagnostics(err);
+        setDiagnostics(diag);
+        setError(formatLoadError(err, diag));
+        setStatus("error");
+      }
+    },
+    [],
+  );
 
+  // Reload whenever the selected MT model changes (catalog resets the slot).
   useEffect(() => {
-    // Defer so the effect does not cascade setState into the same commit
-    // (React Compiler rule). Loading still starts on the next microtask.
+    if (!catalogReady) return;
+
+    const gen = ++loadGenRef.current;
+    schedulerRef.current?.clear();
+    engineRef.current = null;
+    engineReadyRef.current = false;
+
     let cancelled = false;
+    // Defer setState: sync call inside the effect cascades under React Compiler.
     queueMicrotask(() => {
-      if (!cancelled) void loadModel();
+      if (cancelled) return;
+      setLoadAttempts(0);
+      void loadModel(false, gen, selectedMt);
     });
     return () => {
       cancelled = true;
     };
-  }, [loadModel]);
+  }, [catalogReady, selectedMt, loadModel]);
 
   useEffect(() => {
     schedulerRef.current = new LatestFirstPreserveScheduler<TranslateJob>({
@@ -272,8 +296,11 @@ export function useTranslator(
         const started = Date.now();
         const run = async (attempt: number): Promise<boolean> => {
           if (isCancelled()) return false;
+          const active = engineRef.current;
+          if (!active || !engineReadyRef.current) return false;
+
           try {
-            const result = await engine.translate(
+            const result = await active.translate(
               job.text,
               job.inputLocale,
               job.outputLanguage,
@@ -291,6 +318,25 @@ export function useTranslator(
             return true;
           } catch (err) {
             if (isCancelled()) return false;
+
+            // Slot disposed mid-flight (model switch): reload once, then retry.
+            if (
+              isDisposedEngineFailure(err) &&
+              attempt < MAX_TRANSLATE_RETRIES
+            ) {
+              engineRef.current = null;
+              engineReadyRef.current = false;
+              try {
+                const next = await loadMtEngine(true);
+                if (!mountedRef.current || isCancelled()) return false;
+                engineRef.current = next;
+                engineReadyRef.current = true;
+                if (mountedRef.current) setStatus("ready");
+                return run(attempt + 1);
+              } catch {
+                /* fall through and report the original disposed failure */
+              }
+            }
 
             const diag = toDiagnostics(
               err,
@@ -354,7 +400,7 @@ export function useTranslator(
       loadAttempts < MAX_ENGINE_LOAD_ATTEMPTS;
 
     if (status === "error" && canRetryEngine) {
-      void loadModel(true);
+      void loadModel(true, undefined, selectedMt);
       return;
     }
 
@@ -365,7 +411,7 @@ export function useTranslator(
       schedulerRef.current?.enqueue(failed);
       syncQueueUi();
     }
-  }, [loadModel, status, diagnostics, syncQueueUi, loadAttempts]);
+  }, [loadModel, status, diagnostics, syncQueueUi, loadAttempts, selectedMt]);
 
   return {
     status,

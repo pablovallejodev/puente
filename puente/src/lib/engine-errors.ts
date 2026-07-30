@@ -14,6 +14,7 @@ import {
   DiagnosticError,
   looksLikeMissingNativeModule,
   looksLikeOutOfMemory,
+  looksLikeReleasedSession,
   type DiagnosticContext,
   type DiagnosticInfo,
 } from "@/lib/errors/diagnostic";
@@ -65,6 +66,18 @@ export function isEngineError(err: unknown): err is EngineError {
   return err instanceof EngineError;
 }
 
+/** True when the failure means the native session was already released. */
+export function isDisposedEngineFailure(err: unknown): boolean {
+  if (isEngineError(err) && err.code === "ENGINE_DISPOSED") return true;
+  if (
+    err instanceof DiagnosticError &&
+    err.context?.disposed === true
+  ) {
+    return true;
+  }
+  return looksLikeReleasedSession(causeMessage(err));
+}
+
 /**
  * Wrap a native failure, upgrading the code when the message reveals a cause we
  * can name precisely. A missing native module needs a rebuild and an OOM needs
@@ -95,6 +108,15 @@ export function wrapEngineError(
       stage,
       message,
       recoverable: false,
+      context,
+    });
+  }
+  if (looksLikeReleasedSession(message)) {
+    return new EngineError({
+      code: "ENGINE_DISPOSED",
+      stage,
+      message,
+      recoverable: true,
       context,
     });
   }

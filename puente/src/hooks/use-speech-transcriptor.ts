@@ -7,6 +7,7 @@ import {
   type AudioStreamBuffer,
 } from "expo-audio";
 
+import { useModelCatalog } from "@/contexts/model-catalog-context";
 import { acceptTranscript } from "@/lib/transcript-filter";
 import {
   createSpeechDetector,
@@ -15,7 +16,11 @@ import {
 } from "@/lib/vad";
 import { loadAsrEngine, type AsrEngine } from "@/lib/engines";
 import { speechLocaleToWhisperLang } from "@/constants/whisper-languages";
-import { EngineError, isEngineError } from "@/lib/engine-errors";
+import {
+  EngineError,
+  isDisposedEngineFailure,
+  isEngineError,
+} from "@/lib/engine-errors";
 import { isWhisperError } from "@/lib/whisper-errors";
 
 export type SpeechError = {
@@ -121,6 +126,9 @@ export function useSpeechTranscriptor(
     enabled = true,
   } = options;
 
+  const { selected, ready: catalogReady } = useModelCatalog();
+  const selectedAsr = selected.asr;
+
   const modeKey = inputModeKey(input);
 
   const [hasPermissions, setHasPermissions] = useState(false);
@@ -149,6 +157,13 @@ export function useSpeechTranscriptor(
   const pumpingRef = useRef(false);
   const cancelActiveRef = useRef(false);
   const pumpQueueRef = useRef<() => Promise<void>>(async () => {});
+  const selectedAsrRef = useRef(selectedAsr);
+  const loadGenRef = useRef(0);
+  const prevSelectedAsrRef = useRef<string | null | undefined>(undefined);
+
+  useEffect(() => {
+    selectedAsrRef.current = selectedAsr;
+  }, [selectedAsr]);
 
   useEffect(() => {
     inputRef.current = input;
@@ -285,18 +300,48 @@ export function useSpeechTranscriptor(
             endOutcome = { type: "cancel" };
             continue;
           }
-          if (isWhisperError(err) || isEngineError(err)) {
+
+          let failure: unknown = err;
+
+          // Slot disposed mid-flight (model switch): reload once, re-queue chunk.
+          if (isDisposedEngineFailure(err)) {
+            engineRef.current = null;
+            setEngineReady(false);
+            try {
+              const next = await loadAsrEngine(
+                true,
+                selectedAsrRef.current ?? undefined,
+              );
+              if (
+                !isMountedRef.current ||
+                chunk.sessionId !== sessionIdRef.current
+              ) {
+                endOutcome = { type: "cancel" };
+                continue;
+              }
+              engineRef.current = next;
+              setEngineReady(true);
+              queueRef.current.unshift(chunk);
+              endOutcome = { type: "cancel" };
+              continue;
+            } catch (loadErr) {
+              failure = loadErr;
+            }
+          }
+
+          if (isWhisperError(failure) || isEngineError(failure)) {
             setError({
-              code: err.code,
-              message: err.toDisplayString(),
+              code: failure.code,
+              message: failure.toDisplayString(),
             });
             endOutcome = {
               type: "error",
-              code: err.code,
-              message: err.toDisplayString(),
+              code: failure.code,
+              message: failure.toDisplayString(),
             };
           } else {
-            const message = err instanceof Error ? err.message : String(err);
+            const message =
+              failure instanceof Error ? failure.message : String(failure);
             setError({ code: "asr_failed", message });
             endOutcome = { type: "error", code: "asr_failed", message };
           }
@@ -416,10 +461,15 @@ export function useSpeechTranscriptor(
   }, [bumpSession, startListeningInternal, stopListening]);
 
   const requestPermissionsAndLoad = useCallback(async () => {
+    const loadGen = loadGenRef.current;
     try {
-      // Fast resume: engine already warm (e.g. unmute). Avoid permission
-      // flicker and "Cargando reconocimiento…" on every re-enable.
-      if (permissionsGrantedRef.current && engineRef.current) {
+      // Fast resume: engine already warm and still the selected model.
+      const warm = engineRef.current;
+      if (
+        permissionsGrantedRef.current &&
+        warm &&
+        (!selectedAsrRef.current || warm.modelId === selectedAsrRef.current)
+      ) {
         setCheckingPermissions(false);
         setEngineReady(true);
         await setAudioModeAsync({
@@ -454,8 +504,11 @@ export function useSpeechTranscriptor(
       setHasPermissions(true);
       permissionsGrantedRef.current = true;
 
-      const engine = await loadAsrEngine();
-      if (!isMountedRef.current) return;
+      const engine = await loadAsrEngine(
+        false,
+        selectedAsrRef.current ?? undefined,
+      );
+      if (!isMountedRef.current || loadGenRef.current !== loadGen) return;
       engineRef.current = engine;
       setEngineReady(true);
       setCheckingPermissions(false);
@@ -464,7 +517,7 @@ export function useSpeechTranscriptor(
         await startListeningInternal();
       }
     } catch (err) {
-      if (!isMountedRef.current) return;
+      if (!isMountedRef.current || loadGenRef.current !== loadGen) return;
       setHasPermissions(false);
       permissionsGrantedRef.current = false;
       setEngineReady(false);
@@ -516,11 +569,50 @@ export function useSpeechTranscriptor(
       return;
     }
 
+    if (!catalogReady) return;
+
     // Intentional mount/enable load: permissions + ASR engine. The lint rule
     // flags any setState reached from an effect; here it is the bootstrap path.
     // eslint-disable-next-line react-hooks/set-state-in-effect -- engine bootstrap on enable
     void requestPermissionsAndLoad();
-  }, [enabled, requestPermissionsAndLoad, stopListening, bumpSession]);
+  }, [
+    enabled,
+    catalogReady,
+    requestPermissionsAndLoad,
+    stopListening,
+    bumpSession,
+  ]);
+
+  // Catalog reset the ASR slot on model change — drop the stale ref and reload.
+  // First catalog-ready pass is owned by the enable effect above.
+  useEffect(() => {
+    if (!catalogReady) return;
+
+    const prev = prevSelectedAsrRef.current;
+    prevSelectedAsrRef.current = selectedAsr;
+
+    // Track selection while paused so re-enable does not double-load.
+    if (!enabled) return;
+    if (prev === undefined || prev === selectedAsr) return;
+
+    const warm = engineRef.current;
+    if (warm && selectedAsr && warm.modelId === selectedAsr) return;
+
+    loadGenRef.current += 1;
+    bumpSession();
+    engineRef.current = null;
+    setEngineReady(false);
+
+    queueMicrotask(() => {
+      void requestPermissionsAndLoad();
+    });
+  }, [
+    catalogReady,
+    enabled,
+    selectedAsr,
+    bumpSession,
+    requestPermissionsAndLoad,
+  ]);
 
   useEffect(() => {
     if (!permissionsGrantedRef.current || !enabled || !engineReady) return;

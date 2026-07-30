@@ -21,6 +21,7 @@ export {
   looksLikeDiskFull,
   looksLikeMissingNativeModule,
   looksLikeOutOfMemory,
+  looksLikeReleasedSession,
 } from "@/lib/errors/diagnostic";
 export type {
   DiagnosticContext,

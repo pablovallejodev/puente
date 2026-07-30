@@ -12,6 +12,7 @@ import {
   causeMessage,
   DiagnosticError,
   looksLikeOutOfMemory,
+  looksLikeReleasedSession,
   type DiagnosticContext,
   type DiagnosticInfo,
 } from "@/lib/errors/diagnostic";
@@ -76,6 +77,15 @@ export function wrapUnknownError(
   if (err instanceof TranslatorError) return err;
   const cause = causeMessage(err);
   const oom = looksLikeOutOfMemory(cause);
+  if (!oom && looksLikeReleasedSession(cause)) {
+    return new TranslatorError({
+      code: "ENCODE_FAILED",
+      stage,
+      message: cause,
+      recoverable: true,
+      context: { ...context, disposed: true },
+    });
+  }
   return new TranslatorError({
     code: oom ? "OUT_OF_MEMORY" : code,
     stage,

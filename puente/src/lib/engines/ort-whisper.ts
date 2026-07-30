@@ -29,6 +29,7 @@ import {
   type WhisperPreprocessorConfig,
 } from "@/lib/whisper-mel";
 import { causeMessage } from "@/lib/errors/diagnostic";
+import { EngineError } from "@/lib/engine-errors";
 import type { OrtSession, TensorConstructor } from "@/lib/nllb-inference";
 import type { AsrEngine, AsrRequest, AsrResult } from "@/lib/engines/types";
 
@@ -46,6 +47,7 @@ async function readJsonFile<T>(path: string, label: string): Promise<T> {
 
 export class OrtWhisperEngine implements AsrEngine {
   readonly engineId = "ort" as const;
+  private disposed = false;
 
   private constructor(
     readonly modelId: string,
@@ -153,6 +155,14 @@ export class OrtWhisperEngine implements AsrEngine {
   }
 
   async transcribe(pcm: Float32Array, request: AsrRequest): Promise<AsrResult> {
+    if (this.disposed) {
+      throw new EngineError({
+        code: "ENGINE_DISPOSED",
+        stage: "asr.run",
+        message: `El motor ${this.modelId} ya fue liberado`,
+        recoverable: true,
+      });
+    }
     return transcribePcm({
       pcm,
       language: request.language,
@@ -169,6 +179,8 @@ export class OrtWhisperEngine implements AsrEngine {
   }
 
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
     releaseOrtSession(this.encoderSession);
     releaseOrtSession(this.decoderSession);
   }

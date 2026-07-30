@@ -187,9 +187,13 @@ export function ModelCatalogProvider({ children }: { children: ReactNode }) {
 
   const applySelection = useCallback(
     async (task: SelectableTask, modelId: string) => {
+      const prefs = await readModelPreferences();
+      const changed = prefs[task] !== modelId;
       await setSelectedModelId(task, modelId);
-      resetEngineForTask(task);
-      setSelected((prev) => ({ ...prev, [task]: modelId }));
+      if (changed) resetEngineForTask(task);
+      setSelected((prev) =>
+        prev[task] === modelId ? prev : { ...prev, [task]: modelId },
+      );
     },
     [],
   );
