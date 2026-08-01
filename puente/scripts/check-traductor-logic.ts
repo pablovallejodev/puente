@@ -71,6 +71,7 @@ import {
   normalizePhrase,
   phrasePairCount,
 } from "../src/lib/mt/phrase-lookup";
+import { resolveSpeechDisableMode } from "../src/lib/speech-disable-mode";
 
 function testLocaleMatching(): void {
   assert.equal(normalizeLocale("en_US"), "en-us");
@@ -745,8 +746,44 @@ async function main(): Promise<void> {
   testLatestMessageIdDerivation();
   testLatestDoneMessageId();
   testPhraseLookup();
+  testResolveSpeechDisableMode();
 
   console.log("check:traductor-logic ok");
+}
+
+function testResolveSpeechDisableMode(): void {
+  assert.equal(
+    resolveSpeechDisableMode({
+      micPaused: true,
+      isFocused: true,
+      baseHydrated: true,
+    }),
+    "pause",
+  );
+  assert.equal(
+    resolveSpeechDisableMode({
+      micPaused: false,
+      isFocused: true,
+      baseHydrated: true,
+    }),
+    "abort",
+  );
+  assert.equal(
+    resolveSpeechDisableMode({
+      micPaused: true,
+      isFocused: false,
+      baseHydrated: true,
+    }),
+    "abort",
+  );
+  assert.equal(
+    resolveSpeechDisableMode({
+      micPaused: true,
+      isFocused: true,
+      baseHydrated: false,
+    }),
+    "abort",
+  );
 }
 
 function testPhraseLookup(): void {

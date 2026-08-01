@@ -31,6 +31,8 @@ import {
   type TranscriptionOutcome,
 } from "@/hooks/use-speech-transcriptor";
 import { useTranslator } from "@/hooks/use-translator";
+import { readMicPaused, writeMicPaused } from "@/lib/model-preferences";
+import { resolveSpeechDisableMode } from "@/lib/speech-disable-mode";
 import { STANDARD_HORIZONTAL_PADDING } from "@/constants/ui";
 import { StatusBarDarkComponent } from "@/utils/statusbar";
 import { theme } from "@/constants/theme";
@@ -58,6 +60,7 @@ export default function TraductorComponent() {
   const router = useRouter();
   const [isFocused, setIsFocused] = useState(true);
   const [micPaused, setMicPaused] = useState(false);
+  const [micHydrated, setMicHydrated] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -124,15 +127,44 @@ export default function TraductorComponent() {
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const paused = await readMicPaused();
+        if (!cancelled) setMicPaused(paused);
+      } catch {
+        /* prefs best-effort — keep default (open) */
+      } finally {
+        if (!cancelled) setMicHydrated(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const speechInput: SpeechInputMode = useMemo(() => {
     if (inputLanguage.kind === "universal") return { mode: "auto" };
     return { mode: "fixed", locale: inputLanguage.language.speechLocale };
   }, [inputLanguage]);
 
-  const speechEnabled = isFocused && baseHydrated && !micPaused;
+  const prefsReady = baseHydrated && micHydrated;
+  const speechEnabled = isFocused && prefsReady && !micPaused;
+  const speechDisableMode = resolveSpeechDisableMode({
+    micPaused,
+    isFocused,
+    baseHydrated: prefsReady,
+  });
 
   const toggleMicPaused = useCallback(() => {
-    setMicPaused((prev) => !prev);
+    setMicPaused((prev) => {
+      const next = !prev;
+      void writeMicPaused(next).catch(() => {
+        /* prefs best-effort */
+      });
+      return next;
+    });
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   }, []);
 
@@ -243,6 +275,7 @@ export default function TraductorComponent() {
     onTranscriptionEnd: handleTranscriptionEnd,
     onInterimTranscript: handleFinalTranscript,
     enabled: speechEnabled,
+    disableMode: speechDisableMode,
   });
 
   const { isReady: modelsReady, booting: modelsBooting } = useModelCatalog();
@@ -261,7 +294,7 @@ export default function TraductorComponent() {
     flatListRef.current?.scrollToEnd({ animated: true });
   }, [latestMessageId]);
 
-  const statusLabel = !baseHydrated
+  const statusLabel = !prefsReady
     ? "Preparando preferencias…"
     : status === "loading"
       ? "Cargando motor de traducción…"
@@ -271,16 +304,16 @@ export default function TraductorComponent() {
           ? "Error de reconocimiento"
           : status === "error"
             ? "Error"
-            : micPaused
-              ? "Micrófono pausado"
-              : backlogDropped
-                ? "Algunos fragmentos se omitieron"
-                : isTranscribing
-                  ? "Entendiendo…"
-                  : isTranslating
-                    ? pendingCount > 0
-                      ? `Traduciendo… (+${pendingCount} en cola)`
-                      : "Traduciendo…"
+            : isTranscribing
+              ? "Entendiendo…"
+              : isTranslating
+                ? pendingCount > 0
+                  ? `Traduciendo… (+${pendingCount} en cola)`
+                  : "Traduciendo…"
+                : micPaused
+                  ? "Micrófono pausado"
+                  : backlogDropped
+                    ? "Algunos fragmentos se omitieron"
                     : isListening
                       ? "Escuchando"
                       : ready

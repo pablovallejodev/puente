@@ -17,9 +17,11 @@ import {
   ALL_MODELS,
   ASR_MODELS,
   ENGINE_LABEL,
+  exceedsHalfDeviceRam,
   getAsrModelSpec,
   getModelSpec,
   getMtModelSpec,
+  halfDeviceRamBytes,
   isBelowRecommendedRam,
   MT_MODELS,
   RAM_TIER,
@@ -250,6 +252,14 @@ function testRecommendations(): void {
     assert.ok(index >= previous, "a bigger phone was offered a smaller model");
     previous = index;
   }
+
+  // Half-RAM headroom: ASR+MT together should leave room for the OS.
+  assert.equal(halfDeviceRamBytes(8 * GB), 4 * GB);
+  assert.equal(halfDeviceRamBytes(null), null);
+  assert.equal(halfDeviceRamBytes(0), null);
+  assert.equal(exceedsHalfDeviceRam(3 * GB, 2 * GB, 8 * GB), true);
+  assert.equal(exceedsHalfDeviceRam(1 * GB, 1 * GB, 8 * GB), false);
+  assert.equal(exceedsHalfDeviceRam(3 * GB, 2 * GB, null), false);
 }
 
 /** Every declared code must be documented, or a log line stays a mystery. */

@@ -32,6 +32,7 @@ const LEGACY_KEY: Record<SelectableTask, string> = {
 };
 
 const KEY_BASE_LANG = "selectedBaseLanguageId";
+const KEY_MIC_PAUSED = "micPaused";
 
 export type ModelPreferences = Record<SelectableTask, string | null>;
 
@@ -112,6 +113,28 @@ export async function setSelectedBaseLanguageId(
     throw wrapModelError(err, "prefs.write", "MODEL_PREFS_WRITE_FAILED", true, {
       key: KEY_BASE_LANG,
       languageId,
+    });
+  }
+}
+
+/** Absent or garbage → mic open (matches the historical default). */
+export async function readMicPaused(): Promise<boolean> {
+  try {
+    return (await SecureStore.getItemAsync(KEY_MIC_PAUSED)) === "1";
+  } catch (err) {
+    throw wrapModelError(err, "prefs.read", "MODEL_PREFS_READ_FAILED", true, {
+      key: KEY_MIC_PAUSED,
+    });
+  }
+}
+
+export async function writeMicPaused(paused: boolean): Promise<void> {
+  try {
+    await SecureStore.setItemAsync(KEY_MIC_PAUSED, paused ? "1" : "0");
+  } catch (err) {
+    throw wrapModelError(err, "prefs.write", "MODEL_PREFS_WRITE_FAILED", true, {
+      key: KEY_MIC_PAUSED,
+      paused,
     });
   }
 }

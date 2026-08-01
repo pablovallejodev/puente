@@ -17,7 +17,10 @@ import {
 } from "@/components/basics/headers";
 import {
   ENGINE_LABEL,
+  exceedsHalfDeviceRam,
   formatBytes,
+  getModelSpec,
+  halfDeviceRamBytes,
   SILERO_VAD_MODEL_ID,
   type ModelSpec,
 } from "@/constants/model-catalog";
@@ -200,6 +203,18 @@ export default function ModelosComponent() {
       ? (totalMemoryBytes / (1024 * 1024 * 1024)).toFixed(1)
       : null;
 
+  const selectedAsr = selected.asr ? getModelSpec(selected.asr) : undefined;
+  const selectedMt = selected.mt ? getModelSpec(selected.mt) : undefined;
+  const halfRamBytes = halfDeviceRamBytes(totalMemoryBytes);
+  const showRamPressure =
+    selectedAsr != null &&
+    selectedMt != null &&
+    exceedsHalfDeviceRam(
+      selectedAsr.approxRamBytes,
+      selectedMt.approxRamBytes,
+      totalMemoryBytes,
+    );
+
   const asrInstalled =
     getModelState(recommended.asrId).status === "installed" ||
     getModelState(recommended.asrId).status === "selected";
@@ -317,6 +332,20 @@ export default function ModelosComponent() {
             )}
           </View>
         </View>
+
+        {showRamPressure && halfRamBytes != null ? (
+          <View
+            style={styles.ramWarnBox}
+            accessibilityRole="alert"
+            accessibilityLiveRegion="polite"
+          >
+            <Text style={styles.ramWarnText}>
+              Los modelos en uso suman más de la mitad de tu RAM (~
+              {formatBytes(halfRamBytes)}). Deja margen al sistema: la app
+              puede dejar de responder o fallar bajo carga.
+            </Text>
+          </View>
+        ) : null}
 
         {lastError ? (
           <View style={styles.errorBox}>
@@ -456,6 +485,21 @@ const styles = StyleSheet.create({
     fontFamily: theme.font.heading,
     fontSize: theme.type.caption,
     color: theme.colors.onAction,
+  },
+  ramWarnBox: {
+    borderWidth: 1,
+    borderColor: theme.colors.error,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.lg,
+    paddingVertical: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.md,
+    marginTop: theme.spacing.md,
+  },
+  ramWarnText: {
+    fontFamily: theme.font.body,
+    fontSize: theme.type.caption,
+    color: theme.colors.error,
+    lineHeight: 18,
   },
   errorBox: {
     borderWidth: 1,

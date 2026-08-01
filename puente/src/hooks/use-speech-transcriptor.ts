@@ -22,6 +22,7 @@ import {
   isEngineError,
 } from "@/lib/engine-errors";
 import { isWhisperError } from "@/lib/whisper-errors";
+import type { SpeechDisableMode } from "@/lib/speech-disable-mode";
 
 export type SpeechError = {
   code: string;
@@ -54,6 +55,11 @@ export type SpeechTranscriptorOptions = {
     detectedLocale?: string,
   ) => void;
   enabled?: boolean;
+  /**
+   * When `enabled` becomes false: `abort` kills the ASR session;
+   * `pause` stops capture, flushes the current utterance, and drains the queue.
+   */
+  disableMode?: SpeechDisableMode;
 };
 
 const STICKY_TTL_MS = 45_000;
@@ -124,6 +130,7 @@ export function useSpeechTranscriptor(
     onTranscriptionEnd,
     onInterimTranscript,
     enabled = true,
+    disableMode = "abort",
   } = options;
 
   const { selected, ready: catalogReady } = useModelCatalog();
@@ -149,6 +156,9 @@ export function useSpeechTranscriptor(
   const engineRef = useRef<AsrEngine | null>(null);
   const segmenterRef = useRef<SpeechSegmenter | null>(null);
   const enabledRef = useRef(enabled);
+  const disableModeRef = useRef(disableMode);
+  /** Accept flush/enqueue while muted so the current utterance can finish. */
+  const drainingRef = useRef(false);
   const prevModeKeyRef = useRef(modeKey);
   const stickyLangRef = useRef<{ language: string; at: number } | null>(null);
   const sessionIdRef = useRef(0);
@@ -171,12 +181,14 @@ export function useSpeechTranscriptor(
     onEndRef.current = onTranscriptionEnd;
     onInterimRef.current = onInterimTranscript;
     enabledRef.current = enabled;
+    disableModeRef.current = disableMode;
   }, [
     input,
     onTranscriptionStart,
     onTranscriptionEnd,
     onInterimTranscript,
     enabled,
+    disableMode,
   ]);
 
   const bumpSession = useCallback(() => {
@@ -200,7 +212,6 @@ export function useSpeechTranscriptor(
 
         const chunk = queueRef.current.shift()!;
         if (chunk.sessionId !== sessionIdRef.current) continue;
-        if (!enabledRef.current) break;
 
         cancelActiveRef.current = false;
         setIsTranscribing(true);
@@ -239,16 +250,16 @@ export function useSpeechTranscriptor(
                 ? "auto"
                 : speechLocaleToWhisperLang(current.locale),
             stickyLanguage: sticky,
+            // Mute (enabled=false) must not abort in-flight decode; only
+            // session bump / unmount cancel via cancelActive + sessionId.
             shouldCancel: () =>
               cancelActiveRef.current ||
-              chunk.sessionId !== sessionIdRef.current ||
-              !enabledRef.current,
+              chunk.sessionId !== sessionIdRef.current,
           });
 
           if (
             !isMountedRef.current ||
-            chunk.sessionId !== sessionIdRef.current ||
-            !enabledRef.current
+            chunk.sessionId !== sessionIdRef.current
           ) {
             endOutcome = { type: "cancel" };
             continue;
@@ -354,12 +365,10 @@ export function useSpeechTranscriptor(
       }
     } finally {
       pumpingRef.current = false;
-      if (
-        queueRef.current.length > 0 &&
-        enabledRef.current &&
-        isMountedRef.current
-      ) {
+      if (queueRef.current.length > 0 && isMountedRef.current) {
         void pumpQueueRef.current();
+      } else if (!enabledRef.current) {
+        drainingRef.current = false;
       }
     }
   }, []);
@@ -369,7 +378,9 @@ export function useSpeechTranscriptor(
   }, [pumpQueue]);
 
   const enqueueChunk = useCallback((pcm: Float32Array) => {
-    if (!enabledRef.current || !isMountedRef.current) return;
+    if (!isMountedRef.current) return;
+    // Capture off: only accept VAD flush while soft-pausing (drain).
+    if (!enabledRef.current && !drainingRef.current) return;
     const sessionId = sessionIdRef.current;
     seqRef.current += 1;
     queueRef.current.push({ pcm, sessionId, seq: seqRef.current });
@@ -434,6 +445,24 @@ export function useSpeechTranscriptor(
     }
     void segmenterRef.current?.flush();
     setIsListening(false);
+  }, [stream]);
+
+  /** Soft mute: stop mic, flush current utterance, keep ASR queue alive. */
+  const pauseListening = useCallback(async () => {
+    drainingRef.current = true;
+    try {
+      stream.stop();
+    } catch {
+      /* ignore */
+    }
+    setIsListening(false);
+    try {
+      await segmenterRef.current?.flush();
+    } finally {
+      if (!pumpingRef.current && queueRef.current.length === 0) {
+        drainingRef.current = false;
+      }
+    }
   }, [stream]);
 
   const startListeningInternal = useCallback(async () => {
@@ -538,6 +567,7 @@ export function useSpeechTranscriptor(
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
+      drainingRef.current = false;
       sessionIdRef.current += 1;
       cancelActiveRef.current = true;
       queueRef.current = [];
@@ -556,11 +586,16 @@ export function useSpeechTranscriptor(
 
   useEffect(() => {
     if (!enabled) {
-      // Defer session reset: bumpSession setStates; sync call inside the
-      // effect would cascade into the same commit under React Compiler.
+      // Defer: bumpSession/pause setState; sync call inside the effect would
+      // cascade into the same commit under React Compiler.
       queueMicrotask(() => {
-        bumpSession();
-        stopListening();
+        if (disableModeRef.current === "pause") {
+          void pauseListening();
+        } else {
+          drainingRef.current = false;
+          bumpSession();
+          stopListening();
+        }
       });
       void setAudioModeAsync({
         playsInSilentMode: true,
@@ -568,6 +603,8 @@ export function useSpeechTranscriptor(
       });
       return;
     }
+
+    drainingRef.current = false;
 
     if (!catalogReady) return;
 
@@ -577,9 +614,11 @@ export function useSpeechTranscriptor(
     void requestPermissionsAndLoad();
   }, [
     enabled,
+    disableMode,
     catalogReady,
     requestPermissionsAndLoad,
     stopListening,
+    pauseListening,
     bumpSession,
   ]);
 

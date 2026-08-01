@@ -147,6 +147,24 @@ export function isBelowRecommendedRam(
   );
 }
 
+/** Half of reported device RAM — headroom for the OS and the rest of the app. */
+export function halfDeviceRamBytes(
+  totalMemoryBytes: number | null,
+): number | null {
+  if (totalMemoryBytes == null || totalMemoryBytes <= 0) return null;
+  return totalMemoryBytes / 2;
+}
+
+/** True when ASR+MT estimated RAM exceeds half the device RAM. */
+export function exceedsHalfDeviceRam(
+  asrApproxRamBytes: number,
+  mtApproxRamBytes: number,
+  totalMemoryBytes: number | null,
+): boolean {
+  const half = halfDeviceRamBytes(totalMemoryBytes);
+  return half != null && asrApproxRamBytes + mtApproxRamBytes > half;
+}
+
 export function formatBytes(bytes: number): string {
   if (bytes >= 1024 * 1024 * 1024) {
     return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
