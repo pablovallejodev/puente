@@ -85,7 +85,7 @@ export const TRADUCTOR_LANGUAGES: TraductorLanguage[] = [
   },
   {
     id: "es",
-    label: "Castellano",
+    label: "Español",
     speechLocale: "es-ES",
     floresCode: "spa_Latn",
   },

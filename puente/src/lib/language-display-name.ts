@@ -1,8 +1,8 @@
 export type UiLocale = "es" | "ca" | "en";
 
-/** Product voice — Intl would say "español", not "Castellano". */
+/** Product voice — Español (es), Castellà (ca), Spanish (en). */
 const PRODUCT_OVERRIDES: Record<string, Record<UiLocale, string>> = {
-  es: { es: "Castellano", ca: "Castellà", en: "Spanish" },
+  es: { es: "Español", ca: "Castellà", en: "Spanish" },
   ca: { es: "Catalán", ca: "Català", en: "Catalan" },
   en: { es: "Inglés", ca: "Anglès", en: "English" },
 };

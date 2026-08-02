@@ -623,7 +623,7 @@ function testLanguageDisplayNames(): void {
   const es = findTraductorLanguageById("es")!;
   const ca = findTraductorLanguageById("ca")!;
   const en = findTraductorLanguageById("en")!;
-  assert.equal(getTraductorLanguageDisplayName(es, "es"), "Castellano");
+  assert.equal(getTraductorLanguageDisplayName(es, "es"), "Español");
   assert.equal(getTraductorLanguageDisplayName(es, "ca"), "Castellà");
   assert.equal(getTraductorLanguageDisplayName(es, "en"), "Spanish");
   assert.equal(getTraductorLanguageDisplayName(ca, "es"), "Catalán");
