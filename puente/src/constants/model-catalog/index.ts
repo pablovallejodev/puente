@@ -6,6 +6,10 @@
  */
 
 import {
+  APP_OVERHEAD_BYTES,
+  PAIR_BUDGET_FRACTION,
+} from "@/constants/model-catalog/guidance";
+import {
   ASR_MODELS,
   MT_MODELS,
   SILERO_VAD_MODEL_ID,
@@ -29,6 +33,7 @@ export {
   LICENSE,
   MB,
   RAM_TIER,
+  RAM_TIER_LABEL,
 } from "@/constants/model-catalog/types";
 export type {
   AsrModelSpec,
@@ -38,6 +43,7 @@ export type {
   LlamaMtRuntime,
   ModelFileSpec,
   ModelLicense,
+  ModelRamTier,
   ModelRuntime,
   ModelSpec,
   ModelTask,
@@ -51,6 +57,11 @@ export type {
   VadModelSpec,
   VadRuntime,
 } from "@/constants/model-catalog/types";
+export {
+  APP_OVERHEAD_BYTES,
+  GUIDANCE,
+  PAIR_BUDGET_FRACTION,
+} from "@/constants/model-catalog/guidance";
 export {
   ASR_MODELS,
   MT_MODELS,
@@ -105,6 +116,53 @@ export function supportsLanguage(spec: ModelSpec, languageId: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Pair RAM budget
+// ---------------------------------------------------------------------------
+
+const DEFAULT_MT_ID = "nllb-600m-q8";
+const LIGHTEST_ASR_ID = "whisper-tiny-q";
+const SAFE_ASR_ID = "whisper-base-q";
+
+/** Peak for ASR + MT + VAD — what the engines claim inside the process. */
+export function pairPeakRamBytes(
+  asrPeakBytes: number,
+  mtPeakBytes: number,
+  vadPeakBytes: number = requireModelSpec(SILERO_VAD_MODEL_ID).peakRamBytes,
+): number {
+  return asrPeakBytes + mtPeakBytes + vadPeakBytes + APP_OVERHEAD_BYTES;
+}
+
+/** Bytes of Device.totalMemory the pair is allowed to claim. */
+export function pairBudgetBytes(
+  totalMemoryBytes: number | null,
+): number | null {
+  if (totalMemoryBytes == null || totalMemoryBytes <= 0) return null;
+  return totalMemoryBytes * PAIR_BUDGET_FRACTION;
+}
+
+/** True when the loaded pair should fit without thrashing. */
+export function pairFitsDevice(
+  asrPeakBytes: number,
+  mtPeakBytes: number,
+  totalMemoryBytes: number | null,
+  vadPeakBytes?: number,
+): boolean {
+  const budget = pairBudgetBytes(totalMemoryBytes);
+  if (budget == null) return false;
+  return pairPeakRamBytes(asrPeakBytes, mtPeakBytes, vadPeakBytes) <= budget;
+}
+
+/**
+ * Default companion peak when the other task is not selected yet: NLLB for ASR
+ * cards, Tiny for MT cards (lightest honest Universal pair).
+ */
+export function defaultCompanionPeakBytes(spec: ModelSpec): number {
+  if (spec.task === "asr") return requireModelSpec(DEFAULT_MT_ID).peakRamBytes;
+  if (spec.task === "mt") return requireModelSpec(LIGHTEST_ASR_ID).peakRamBytes;
+  return 0;
+}
+
+// ---------------------------------------------------------------------------
 // Device recommendation
 // ---------------------------------------------------------------------------
 
@@ -117,52 +175,64 @@ export type ModelRecommendation = {
 /**
  * The safe default set for a device, not the best one it could run.
  *
- * This drives the one-tap "prepare my phone" flow, which downloads whatever it
- * returns, so it stays on the small end: NLLB covers every language in the app
- * at 870 MB, and the VAD is 2 MB and helps on any device. Anyone who wants
- * Parakeet, Turbo or SalamandraTA picks them deliberately, having seen the size.
+ * One-tap stays on Tiny/Base + NLLB. Small and Turbos are never auto-picked:
+ * their ORT peaks OOMs on phones that look fine on paper.
  */
 export function recommendForDevice(
   totalMemoryBytes: number | null,
 ): ModelRecommendation {
-  // Unknown memory is treated as the worst case: a wrong guess downwards costs
-  // some accuracy, a wrong guess upwards costs the process.
-  const asrId =
-    totalMemoryBytes == null || totalMemoryBytes < RAM_TIER.mid
-      ? "whisper-tiny-q"
-      : totalMemoryBytes < RAM_TIER.flagship
-        ? "whisper-base-q"
-        : "whisper-small-q";
+  const mtId = DEFAULT_MT_ID;
+  const vadId = SILERO_VAD_MODEL_ID;
+  const mtPeak = requireModelSpec(mtId).peakRamBytes;
+  const vadPeak = requireModelSpec(vadId).peakRamBytes;
 
-  return { asrId, mtId: "nllb-600m-q8", vadId: SILERO_VAD_MODEL_ID };
+  const preferBase =
+    totalMemoryBytes != null && totalMemoryBytes >= RAM_TIER.mid;
+  const preferredId = preferBase ? SAFE_ASR_ID : LIGHTEST_ASR_ID;
+  const preferredPeak = requireModelSpec(preferredId).peakRamBytes;
+
+  const asrId = pairFitsDevice(
+    preferredPeak,
+    mtPeak,
+    totalMemoryBytes,
+    vadPeak,
+  )
+    ? preferredId
+    : LIGHTEST_ASR_ID;
+
+  return { asrId, mtId, vadId };
 }
 
-/** True when the device has less memory than the model asks for. */
+/**
+ * True when this model, next to its companion, exceeds the pair budget.
+ *
+ * `companionPeakBytes` should be the selected model of the other task when
+ * known; otherwise the default companion is used.
+ */
 export function isBelowRecommendedRam(
   spec: ModelSpec,
   totalMemoryBytes: number | null,
+  companionPeakBytes: number = defaultCompanionPeakBytes(spec),
 ): boolean {
-  return (
-    totalMemoryBytes != null && totalMemoryBytes < spec.minRecommendedRamBytes
+  if (totalMemoryBytes == null) return false;
+  if (spec.task === "vad") {
+    return totalMemoryBytes < spec.minRecommendedRamBytes;
+  }
+  return !pairFitsDevice(
+    spec.task === "asr" ? spec.peakRamBytes : companionPeakBytes,
+    spec.task === "mt" ? spec.peakRamBytes : companionPeakBytes,
+    totalMemoryBytes,
   );
 }
 
-/** Half of reported device RAM — headroom for the OS and the rest of the app. */
-export function halfDeviceRamBytes(
-  totalMemoryBytes: number | null,
-): number | null {
-  if (totalMemoryBytes == null || totalMemoryBytes <= 0) return null;
-  return totalMemoryBytes / 2;
-}
-
-/** True when ASR+MT estimated RAM exceeds half the device RAM. */
-export function exceedsHalfDeviceRam(
-  asrApproxRamBytes: number,
-  mtApproxRamBytes: number,
+/** True when the currently selected ASR+MT pair exceeds the device budget. */
+export function exceedsPairBudget(
+  asrPeakBytes: number,
+  mtPeakBytes: number,
   totalMemoryBytes: number | null,
 ): boolean {
-  const half = halfDeviceRamBytes(totalMemoryBytes);
-  return half != null && asrApproxRamBytes + mtApproxRamBytes > half;
+  if (totalMemoryBytes == null) return false;
+  return !pairFitsDevice(asrPeakBytes, mtPeakBytes, totalMemoryBytes);
 }
 
 export function formatBytes(bytes: number): string {

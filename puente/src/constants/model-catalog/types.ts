@@ -112,6 +112,20 @@ export const RAM_TIER = {
   flagship: 11 * GB,
 } as const;
 
+/**
+ * Catalog footprint class for UI badges — ordered by peak RAM, not by quality.
+ *
+ * 1 RAM baja · 2 media-baja · 3 media · 4 alta
+ */
+export type ModelRamTier = 1 | 2 | 3 | 4;
+
+export const RAM_TIER_LABEL: Record<ModelRamTier, string> = {
+  1: "RAM baja",
+  2: "RAM media-baja",
+  3: "RAM media",
+  4: "RAM alta",
+};
+
 // ---------------------------------------------------------------------------
 // Runtime configuration, per engine
 // ---------------------------------------------------------------------------
@@ -260,10 +274,20 @@ type ModelSpecBase = {
   languageIds: readonly string[];
   /** Sum of file sizes; the download total. */
   diskBytes: number;
-  /** Peak resident memory estimate while running. */
-  approxRamBytes: number;
-  /** Warn on the card below this reported total. */
+  /**
+   * Peak resident memory while this model alone is loaded (weights + arena +
+   * activations). Shown as "RAM máxima". Always budget it together with the
+   * other task's model — see pairFitsDevice.
+   */
+  peakRamBytes: number;
+  /**
+   * Minimum Device.totalMemory before this model is a reasonable pick next to
+   * the default companion (NLLB for ASR, Tiny for MT). Pair pressure still
+   * wins when the selected companion is heavier.
+   */
   minRecommendedRamBytes: number;
+  /** Footprint class for badges (1 = lightest … 4 = heaviest). */
+  ramTier: ModelRamTier;
   files: ModelFileSpec[];
 };
 

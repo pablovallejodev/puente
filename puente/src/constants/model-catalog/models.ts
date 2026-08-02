@@ -183,10 +183,10 @@ const ORT_ASR_MODELS: AsrModelSpec[] = [
     languageIds: ALL_LANGUAGE_IDS,
     languageDetection: "auto",
     diskBytes: diskTotal(WHISPER_TINY_FILES),
-    approxRamBytes: 400 * MB,
-    // The floor of what Puente supports at all: below this tier there is no
-    // transcriber small enough, so the app has nothing to offer.
+    peakRamBytes: 600 * MB,
+    // Floor of the catalog: nothing lighter exists for Universal mode.
     minRecommendedRamBytes: RAM_TIER.entry,
+    ramTier: 1,
     files: WHISPER_TINY_FILES,
     runtime: WHISPER_ORT_RUNTIME,
   },
@@ -205,8 +205,10 @@ const ORT_ASR_MODELS: AsrModelSpec[] = [
     languageIds: ALL_LANGUAGE_IDS,
     languageDetection: "auto",
     diskBytes: diskTotal(WHISPER_BASE_FILES),
-    approxRamBytes: 700 * MB,
-    minRecommendedRamBytes: RAM_TIER.mid,
+    peakRamBytes: 1.2 * GB,
+    // With NLLB, pair peak needs ~8 GB class (see PAIR_BUDGET_FRACTION).
+    minRecommendedRamBytes: RAM_TIER.high,
+    ramTier: 2,
     files: WHISPER_BASE_FILES,
     runtime: WHISPER_ORT_RUNTIME,
   },
@@ -225,11 +227,10 @@ const ORT_ASR_MODELS: AsrModelSpec[] = [
     languageIds: ALL_LANGUAGE_IDS,
     languageDetection: "auto",
     diskBytes: diskTotal(WHISPER_SMALL_FILES),
-    approxRamBytes: 1.5 * GB,
-    // Measured, not derived: 1.5 GB of weights plus NLLB's 1.2 GB alongside it
-    // already thrashes on a phone reporting 10 GB. The arithmetic says "8 GB
-    // class"; the device says otherwise, and the device wins.
+    // ORT dual-session peak: ~3.2 GB alone; with NLLB it OOMs on many "12 GB" phones.
+    peakRamBytes: 3.2 * GB,
     minRecommendedRamBytes: RAM_TIER.flagship,
+    ramTier: 3,
     files: WHISPER_SMALL_FILES,
     runtime: WHISPER_ORT_RUNTIME,
   },
@@ -248,8 +249,9 @@ const ORT_ASR_MODELS: AsrModelSpec[] = [
     languageIds: ALL_LANGUAGE_IDS,
     languageDetection: "auto",
     diskBytes: diskTotal(WHISPER_TURBO_FILES),
-    approxRamBytes: 2.6 * GB,
+    peakRamBytes: 4.5 * GB,
     minRecommendedRamBytes: RAM_TIER.flagship,
+    ramTier: 4,
     files: WHISPER_TURBO_FILES,
     runtime: WHISPER_ORT_RUNTIME,
   },
@@ -321,10 +323,10 @@ const SHERPA_ASR_MODELS: AsrModelSpec[] = [
     // mode cannot know what to translate into.
     languageDetection: "none",
     diskBytes: diskTotal(PARAKEET_FILES),
-    approxRamBytes: 1.5 * GB,
-    // 670 MB of weights next to NLLB already thrash phones that advertise
-    // "8 GB". The cushion is deliberate: warning early beats a mid-chat kill.
+    // Community: ~1.2 GB resident on load; peak with decode ~1.8 GB.
+    peakRamBytes: 1.8 * GB,
     minRecommendedRamBytes: RAM_TIER.flagship,
+    ramTier: 3,
     files: PARAKEET_FILES,
     runtime: {
       engine: "sherpa",
@@ -348,8 +350,9 @@ const SHERPA_ASR_MODELS: AsrModelSpec[] = [
     languageIds: ALL_LANGUAGE_IDS,
     languageDetection: "auto",
     diskBytes: diskTotal(SHERPA_WHISPER_TURBO_FILES),
-    approxRamBytes: 2.4 * GB,
+    peakRamBytes: 3.5 * GB,
     minRecommendedRamBytes: RAM_TIER.flagship,
+    ramTier: 4,
     files: SHERPA_WHISPER_TURBO_FILES,
     runtime: {
       engine: "sherpa",
@@ -373,8 +376,9 @@ const SHERPA_ASR_MODELS: AsrModelSpec[] = [
     languageIds: SENSE_VOICE_LANGUAGE_IDS,
     languageDetection: "auto",
     diskBytes: diskTotal(SENSE_VOICE_FILES),
-    approxRamBytes: 700 * MB,
+    peakRamBytes: 550 * MB,
     minRecommendedRamBytes: RAM_TIER.mid,
+    ramTier: 2,
     files: SENSE_VOICE_FILES,
     runtime: {
       engine: "sherpa",
@@ -398,8 +402,9 @@ const SHERPA_ASR_MODELS: AsrModelSpec[] = [
     languageIds: ENGLISH_ONLY,
     languageDetection: "fixed-single",
     diskBytes: diskTotal(MOONSHINE_FILES),
-    approxRamBytes: 800 * MB,
+    peakRamBytes: 900 * MB,
     minRecommendedRamBytes: RAM_TIER.mid,
+    ramTier: 2,
     files: MOONSHINE_FILES,
     runtime: {
       engine: "sherpa",
@@ -424,8 +429,9 @@ const SHERPA_ASR_MODELS: AsrModelSpec[] = [
     languageIds: ENGLISH_ONLY,
     languageDetection: "fixed-single",
     diskBytes: diskTotal(ZIPFORMER_EN_FILES),
-    approxRamBytes: 120 * MB,
+    peakRamBytes: 200 * MB,
     minRecommendedRamBytes: RAM_TIER.entry,
+    ramTier: 1,
     files: ZIPFORMER_EN_FILES,
     runtime: {
       engine: "sherpa",
@@ -469,8 +475,9 @@ const ORT_MT_MODELS: MtModelSpec[] = [
     license: LICENSE.ccByNc4,
     languageIds: ALL_LANGUAGE_IDS,
     diskBytes: diskTotal(NLLB_FILES),
-    approxRamBytes: 1.2 * GB,
+    peakRamBytes: 1.3 * GB,
     minRecommendedRamBytes: RAM_TIER.mid,
+    ramTier: 2,
     files: NLLB_FILES,
     runtime: {
       engine: "ort",
@@ -514,8 +521,9 @@ const LLAMA_MT_MODELS: MtModelSpec[] = [
     license: LICENSE.apache2,
     languageIds: SALAMANDRA_LANGUAGE_IDS,
     diskBytes: diskTotal(SALAMANDRA_FILES),
-    approxRamBytes: 2.2 * GB,
+    peakRamBytes: 2.4 * GB,
     minRecommendedRamBytes: RAM_TIER.flagship,
+    ramTier: 4,
     files: SALAMANDRA_FILES,
     runtime: {
       engine: "llama",
@@ -540,8 +548,9 @@ const LLAMA_MT_MODELS: MtModelSpec[] = [
     license: LICENSE.apache2,
     languageIds: ALL_LANGUAGE_IDS,
     diskBytes: diskTotal(MADLAD_FILES),
-    approxRamBytes: 2.6 * GB,
+    peakRamBytes: 2.8 * GB,
     minRecommendedRamBytes: RAM_TIER.flagship,
+    ramTier: 4,
     files: MADLAD_FILES,
     runtime: {
       engine: "llama",
@@ -578,8 +587,9 @@ const VAD_MODELS: VadModelSpec[] = [
     license: LICENSE.mit,
     languageIds: ALL_LANGUAGE_IDS,
     diskBytes: diskTotal(SILERO_FILES),
-    approxRamBytes: 32 * MB,
+    peakRamBytes: 32 * MB,
     minRecommendedRamBytes: RAM_TIER.entry,
+    ramTier: 1,
     files: SILERO_FILES,
     runtime: {
       engine: "ort",

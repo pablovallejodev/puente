@@ -17,17 +17,22 @@ import {
   ALL_MODELS,
   ASR_MODELS,
   ENGINE_LABEL,
-  exceedsHalfDeviceRam,
+  exceedsPairBudget,
   getAsrModelSpec,
   getModelSpec,
   getMtModelSpec,
-  halfDeviceRamBytes,
   isBelowRecommendedRam,
   MT_MODELS,
+  pairBudgetBytes,
+  pairFitsDevice,
+  pairPeakRamBytes,
+  PAIR_BUDGET_FRACTION,
   RAM_TIER,
   recommendForDevice,
+  requireModelSpec,
   SILERO_VAD_MODEL_ID,
   VAD_MODELS,
+  type ModelRamTier,
   type ModelSpec,
   type ModelTask,
 } from "../src/constants/model-catalog";
@@ -39,6 +44,7 @@ import { describeCode } from "../src/lib/errors/error-catalog";
 import type { DiagnosticDomain } from "../src/lib/errors/diagnostic";
 
 const GB = 1024 * 1024 * 1024;
+const RAM_TIERS: ModelRamTier[] = [1, 2, 3, 4];
 
 function testIdsAreUniqueAndResolvable(): void {
   const seen = new Set<string>();
@@ -187,16 +193,20 @@ function testMetadata(): void {
       assert.ok(languageIds.has(id), `${spec.id}: unknown language ${id}`);
     }
 
-    assert.ok(spec.approxRamBytes > 0, `${spec.id}: no RAM estimate`);
+    assert.ok(spec.peakRamBytes > 0, `${spec.id}: no peak RAM`);
+    assert.ok(
+      RAM_TIERS.includes(spec.ramTier),
+      `${spec.id}: ramTier must be 1–4`,
+    );
     assert.ok(
       Object.values(RAM_TIER).includes(spec.minRecommendedRamBytes),
       `${spec.id}: minRecommendedRamBytes is not one of the declared tiers`,
     );
-    // A model whose weights alone exceed the tier we recommend it at would be
-    // advertised as fitting a phone it cannot fit.
+    // A model whose peak alone exceeds the device tier we advertise would be
+    // offered as fitting a phone it cannot fit even alone.
     assert.ok(
-      spec.approxRamBytes < spec.minRecommendedRamBytes,
-      `${spec.id}: needs ${spec.approxRamBytes} B but is offered at ${spec.minRecommendedRamBytes} B`,
+      spec.peakRamBytes < spec.minRecommendedRamBytes,
+      `${spec.id}: needs ${spec.peakRamBytes} B but is offered at ${spec.minRecommendedRamBytes} B`,
     );
   }
 
@@ -221,7 +231,7 @@ function testMetadata(): void {
 function testRecommendations(): void {
   const lightestOf = (task: ModelTask) =>
     ALL_MODELS.filter((m) => m.task === task).sort(
-      (a, b) => a.minRecommendedRamBytes - b.minRecommendedRamBytes,
+      (a, b) => a.peakRamBytes - b.peakRamBytes,
     )[0];
 
   for (const ram of [null, 2 * GB, 4 * GB, 6 * GB, 8 * GB, 12 * GB, 16 * GB]) {
@@ -229,37 +239,74 @@ function testRecommendations(): void {
     assert.equal(getAsrModelSpec(rec.asrId)?.task, "asr");
     assert.equal(getMtModelSpec(rec.mtId)?.task, "mt");
     assert.equal(rec.vadId, SILERO_VAD_MODEL_ID);
+    // One-tap never auto-picks Small or Turbos.
+    assert.ok(
+      rec.asrId === "whisper-tiny-q" || rec.asrId === "whisper-base-q",
+      `one-tap ASR must be tiny/base, got ${rec.asrId}`,
+    );
+    assert.equal(rec.mtId, "nllb-600m-q8");
+
+    const asr = requireModelSpec(rec.asrId);
+    const mt = requireModelSpec(rec.mtId);
+    const vad = requireModelSpec(rec.vadId);
+    // Prefer a fitting pair; only fall back to the lightest when nothing fits.
+    if (ram != null && ram >= RAM_TIER.entry) {
+      const fits = pairFitsDevice(
+        asr.peakRamBytes,
+        mt.peakRamBytes,
+        ram,
+        vad.peakRamBytes,
+      );
+      assert.ok(
+        fits || rec.asrId === "whisper-tiny-q",
+        `recommended pair exceeds a ${ram} B device while tiny is available`,
+      );
+    }
 
     for (const id of [rec.asrId, rec.mtId, rec.vadId]) {
       const spec = getModelSpec(id);
       assert.ok(spec, `recommendation ${id} is not in the catalog`);
-      // The one-tap flow downloads these without asking. It may only offer
-      // something the phone does not fit when nothing of that task fits at
-      // all: then the lightest is the honest answer, and the model screen
-      // carries the memory warning.
       assert.ok(
-        !isBelowRecommendedRam(spec, ram) || spec.id === lightestOf(spec.task).id,
+        !isBelowRecommendedRam(spec, ram) ||
+          spec.id === "whisper-tiny-q" ||
+          spec.id === "nllb-600m-q8" ||
+          spec.id === SILERO_VAD_MODEL_ID ||
+          spec.id === lightestOf(spec.task).id,
         `recommended ${id} exceeds a ${ram} B device while a lighter ${spec.task} model exists`,
       );
     }
   }
 
-  // More memory must never downgrade the transcriber.
-  const order = ["whisper-tiny-q", "whisper-base-q", "whisper-small-q"];
+  // More memory must never downgrade the transcriber; ceiling is Base.
+  const order = ["whisper-tiny-q", "whisper-base-q"];
   let previous = -1;
   for (const ram of [2 * GB, 6 * GB, 8 * GB, 12 * GB]) {
     const index = order.indexOf(recommendForDevice(ram).asrId);
+    assert.ok(index >= 0, `unexpected ASR for ${ram}`);
     assert.ok(index >= previous, "a bigger phone was offered a smaller model");
     previous = index;
   }
 
-  // Half-RAM headroom: ASR+MT together should leave room for the OS.
-  assert.equal(halfDeviceRamBytes(8 * GB), 4 * GB);
-  assert.equal(halfDeviceRamBytes(null), null);
-  assert.equal(halfDeviceRamBytes(0), null);
-  assert.equal(exceedsHalfDeviceRam(3 * GB, 2 * GB, 8 * GB), true);
-  assert.equal(exceedsHalfDeviceRam(1 * GB, 1 * GB, 8 * GB), false);
-  assert.equal(exceedsHalfDeviceRam(3 * GB, 2 * GB, null), false);
+  assert.equal(PAIR_BUDGET_FRACTION, 0.35);
+  assert.equal(pairBudgetBytes(8 * GB), 8 * GB * PAIR_BUDGET_FRACTION);
+  assert.equal(pairBudgetBytes(null), null);
+  assert.equal(pairBudgetBytes(0), null);
+
+  const tiny = requireModelSpec("whisper-tiny-q").peakRamBytes;
+  const nllb = requireModelSpec("nllb-600m-q8").peakRamBytes;
+  assert.equal(exceedsPairBudget(tiny, nllb, 16 * GB), false);
+  assert.equal(
+    exceedsPairBudget(
+      requireModelSpec("whisper-small-q").peakRamBytes,
+      nllb,
+      8 * GB,
+    ),
+    true,
+  );
+  assert.equal(exceedsPairBudget(3 * GB, 2 * GB, null), false);
+
+  const peak = pairPeakRamBytes(tiny, nllb);
+  assert.ok(peak >= tiny + nllb, "pair peak includes at least ASR+MT");
 }
 
 /** Every declared code must be documented, or a log line stays a mystery. */
