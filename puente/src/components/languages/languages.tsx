@@ -185,22 +185,34 @@ export default function LanguagesComponent() {
                   : "Usa Universal para detectar automáticamente o fija un idioma para ganar precisión."}
               </Text>
             </View>
-            {visibleRecommended.map((language) => (
-              <View key={`reco-${language.id}`}>
-                {renderLanguageRow(language)}
+            {visibleRecommended.length > 0 ? (
+              <View>
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionTitle}>Recomendados</Text>
+                </View>
+                {visibleRecommended.map((language) => (
+                  <View key={`reco-${language.id}`}>
+                    {renderLanguageRow(language)}
+                  </View>
+                ))}
               </View>
-            ))}
-            <TextInput
-              value={query}
-              onChangeText={setQuery}
-              placeholder="Buscar idioma…"
-              placeholderTextColor={theme.colors.textMuted}
-              autoCorrect={false}
-              autoCapitalize="none"
-              clearButtonMode="while-editing"
-              style={styles.search}
-              accessibilityLabel="Buscar idioma"
-            />
+            ) : null}
+            <View style={styles.allLanguagesBlock}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Todos los idiomas</Text>
+              </View>
+              <TextInput
+                value={query}
+                onChangeText={setQuery}
+                placeholder="Buscar idioma…"
+                placeholderTextColor={theme.colors.textMuted}
+                autoCorrect={false}
+                autoCapitalize="none"
+                clearButtonMode="while-editing"
+                style={styles.search}
+                accessibilityLabel="Buscar idioma"
+              />
+            </View>
           </View>
         }
         ListEmptyComponent={
@@ -298,6 +310,9 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     color: theme.colors.text,
   },
+  allLanguagesBlock: {
+    paddingTop: theme.spacing.md,
+  },
   search: {
     marginHorizontal: theme.spacing.md,
     marginTop: 0,
@@ -307,7 +322,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.colors.hairline,
     borderRadius: theme.radius.lg,
-    backgroundColor: theme.colors.surface,
+    backgroundColor: theme.colors.surfaceStone,
     fontFamily: theme.font.body,
     fontSize: theme.type.body,
     color: theme.colors.text,
