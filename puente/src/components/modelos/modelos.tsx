@@ -17,30 +17,44 @@ import {
 } from "@/components/basics/headers";
 import {
   ENGINE_LABEL,
-  exceedsHalfDeviceRam,
+  exceedsPairBudget,
   formatBytes,
   getModelSpec,
-  halfDeviceRamBytes,
+  isBelowRecommendedRam,
+  pairBudgetBytes,
+  pairPeakRamBytes,
+  RAM_TIER_LABEL,
   SILERO_VAD_MODEL_ID,
   type ModelSpec,
 } from "@/constants/model-catalog";
 import { STANDARD_HORIZONTAL_PADDING } from "@/constants/ui";
-import { useModelCatalog } from "@/contexts/model-catalog-context";
+import {
+  useModelCatalog,
+  type ModelUiState,
+} from "@/contexts/model-catalog-context";
 import { StatusBarDarkComponent } from "@/utils/statusbar";
 import { theme } from "@/constants/theme";
+
+/** 0–1 share of one model toward the recommended-pair download bar. */
+function installProgress(state: ModelUiState): number {
+  if (state.status === "installed" || state.status === "selected") return 1;
+  if (state.status === "downloading") return state.progress;
+  return 0;
+}
 
 function ModelCard({
   spec,
   ramBytes,
+  companionPeakBytes,
 }: {
   spec: ModelSpec;
   ramBytes: number | null;
+  companionPeakBytes: number;
 }) {
   const { getModelState, download, select, recommended } = useModelCatalog();
   const state = getModelState(spec.id);
   const [busy, setBusy] = useState(false);
-  const lowRam =
-    ramBytes != null && ramBytes < spec.minRecommendedRamBytes;
+  const lowRam = isBelowRecommendedRam(spec, ramBytes, companionPeakBytes);
   const isRecommended =
     spec.id === recommended.asrId ||
     spec.id === recommended.mtId ||
@@ -91,6 +105,7 @@ function ModelCard({
           {ENGINE_LABEL[spec.runtime.engine]}
         </Text>
         <Text style={styles.badge}>{spec.license.label}</Text>
+        <Text style={styles.badge}>{RAM_TIER_LABEL[spec.ramTier]}</Text>
         <Text style={styles.badge}>{spec.languageIds.length} idiomas</Text>
       </View>
       <View style={styles.metrics}>
@@ -99,14 +114,17 @@ function ModelCard({
           <Text style={styles.cardMeta}>~{formatBytes(spec.diskBytes)}</Text>
         </View>
         <View style={styles.metric}>
-          <Text style={styles.metricLabel}>MEMORIA</Text>
-          <Text style={styles.cardMeta}>~{formatBytes(spec.approxRamBytes)}</Text>
+          <Text style={styles.metricLabel}>RAM MÁXIMA</Text>
+          <Text style={styles.cardMeta}>
+            ~{formatBytes(spec.peakRamBytes)}
+          </Text>
         </View>
       </View>
       {lowRam ? (
         <Text style={styles.warn}>
-          Tu teléfono tiene menos RAM de la recomendada (
-          {formatBytes(spec.minRecommendedRamBytes)})
+          Con el traductor o transcriptor en uso, este modelo pide más memoria
+          de la que el teléfono puede reservar con holgura (~
+          {formatBytes(pairBudgetBytes(ramBytes) ?? 0)} de presupuesto)
         </Text>
       ) : null}
       {spec.task === "asr" && spec.languageDetection === "none" ? (
@@ -180,7 +198,6 @@ export default function ModelosComponent() {
   const {
     isReady,
     booting,
-    deviceModelName,
     totalMemoryBytes,
     lastError,
     clearError,
@@ -205,25 +222,43 @@ export default function ModelosComponent() {
 
   const selectedAsr = selected.asr ? getModelSpec(selected.asr) : undefined;
   const selectedMt = selected.mt ? getModelSpec(selected.mt) : undefined;
-  const halfRamBytes = halfDeviceRamBytes(totalMemoryBytes);
+  const recommendedAsr = getModelSpec(recommended.asrId);
+  const recommendedMt = getModelSpec(recommended.mtId);
+  const companionForAsr =
+    selectedMt?.peakRamBytes ?? recommendedMt?.peakRamBytes ?? 0;
+  const companionForMt =
+    selectedAsr?.peakRamBytes ?? recommendedAsr?.peakRamBytes ?? 0;
+  const pairBudget = pairBudgetBytes(totalMemoryBytes);
   const showRamPressure =
     selectedAsr != null &&
     selectedMt != null &&
-    exceedsHalfDeviceRam(
-      selectedAsr.approxRamBytes,
-      selectedMt.approxRamBytes,
+    exceedsPairBudget(
+      selectedAsr.peakRamBytes,
+      selectedMt.peakRamBytes,
       totalMemoryBytes,
     );
 
+  const asrRecState = getModelState(recommended.asrId);
+  const mtRecState = getModelState(recommended.mtId);
   const asrInstalled =
-    getModelState(recommended.asrId).status === "installed" ||
-    getModelState(recommended.asrId).status === "selected";
+    asrRecState.status === "installed" || asrRecState.status === "selected";
   const mtInstalled =
-    getModelState(recommended.mtId).status === "installed" ||
-    getModelState(recommended.mtId).status === "selected";
+    mtRecState.status === "installed" || mtRecState.status === "selected";
   const recommendedActive =
     selected.asr === recommended.asrId && selected.mt === recommended.mtId;
   const needDownload = !asrInstalled || !mtInstalled;
+  const recDownloadPct = Math.round(
+    ((installProgress(asrRecState) + installProgress(mtRecState)) / 2) * 100,
+  );
+  const recommendLabel = recommendedActive
+    ? "✓ Recomendados"
+    : recBusy && needDownload
+      ? `Descargando… ${recDownloadPct}%`
+      : recBusy
+        ? "Seleccionando…"
+        : needDownload
+          ? "Descargar recomendados"
+          : "Seleccionar recomendados";
 
   // Silero (~2 MB): one attempt per visit; used whenever present, no select step.
   useEffect(() => {
@@ -271,7 +306,7 @@ export default function ModelosComponent() {
     <SafeAreaView style={styles.safeArea}>
       <StatusBarDarkComponent />
       {isSetupFlow ? (
-        <ChatHeadComponent titleText="Modelos" />
+        <ChatHeadComponent titleText="Configuración inicial" />
       ) : (
         <StandardHeadComponent
           titleText="Modelos"
@@ -285,16 +320,15 @@ export default function ModelosComponent() {
         contentContainerStyle={styles.scrollContent}
       >
         <View style={styles.setupHero}>
-          <Text style={styles.heroEyebrow}>
-            {isSetupFlow ? "CONFIGURACIÓN INICIAL" : "MODELOS LOCALES"}
-          </Text>
+          <Text style={styles.heroEyebrow}>TU DISPOSITIVO</Text>
 
           <View style={styles.deviceRow}>
             <View style={styles.devicePill}>
               <View style={styles.deviceDot} />
               <Text style={styles.deviceLine}>
-                {deviceModelName ?? "Dispositivo"}
-                {ramGb != null ? ` · ${ramGb} GB RAM` : ""}
+                {ramGb != null
+                  ? `RAM del teléfono · ${ramGb} GB`
+                  : "RAM del teléfono"}
               </Text>
             </View>
 
@@ -304,7 +338,7 @@ export default function ModelosComponent() {
                 accessibilityRole="button"
                 accessibilityState={{ disabled: true, selected: true }}
               >
-                <Text style={styles.recommendButtonText}>✓ Recomendados</Text>
+                <Text style={styles.recommendButtonText}>{recommendLabel}</Text>
               </View>
             ) : (
               <Pressable
@@ -315,34 +349,36 @@ export default function ModelosComponent() {
                 onPress={onRecommended}
                 disabled={recBusy}
                 accessibilityRole="button"
+                accessibilityState={{ busy: recBusy }}
               >
                 {recBusy ? (
                   <ActivityIndicator
                     size="small"
                     color={theme.colors.onAction}
                   />
-                ) : (
-                  <Text style={styles.recommendButtonText}>
-                    {needDownload
-                      ? "Descargar recomendados"
-                      : "Seleccionar recomendados"}
-                  </Text>
-                )}
+                ) : null}
+                <Text style={styles.recommendButtonText}>{recommendLabel}</Text>
               </Pressable>
             )}
           </View>
         </View>
 
-        {showRamPressure && halfRamBytes != null ? (
+        {showRamPressure && pairBudget != null && selectedAsr && selectedMt ? (
           <View
             style={styles.ramWarnBox}
             accessibilityRole="alert"
             accessibilityLiveRegion="polite"
           >
             <Text style={styles.ramWarnText}>
-              Los modelos en uso suman más de la mitad de tu RAM (~
-              {formatBytes(halfRamBytes)}). Deja margen al sistema: la app
-              puede dejar de responder o fallar bajo carga.
+              Transcriptor y traductor juntos piden ~
+              {formatBytes(
+                pairPeakRamBytes(
+                  selectedAsr.peakRamBytes,
+                  selectedMt.peakRamBytes,
+                ),
+              )}
+              ; el presupuesto seguro es ~{formatBytes(pairBudget)}. Baja uno
+              de los dos o el proceso puede morir por falta de memoria.
             </Text>
           </View>
         ) : null}
@@ -366,6 +402,7 @@ export default function ModelosComponent() {
                 key={spec.id}
                 spec={spec}
                 ramBytes={totalMemoryBytes}
+                companionPeakBytes={companionForAsr}
               />
             ))}
           </View>
@@ -381,6 +418,7 @@ export default function ModelosComponent() {
                 key={spec.id}
                 spec={spec}
                 ramBytes={totalMemoryBytes}
+                companionPeakBytes={companionForMt}
               />
             ))}
           </View>
@@ -438,17 +476,17 @@ const styles = StyleSheet.create({
     fontFamily: theme.font.heading,
     fontSize: theme.type.micro,
     letterSpacing: 1.4,
-    color: theme.colors.text,
+    color: theme.colors.textMuted,
   },
   deviceRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
     alignItems: "center",
     gap: theme.spacing.sm,
     marginTop: theme.spacing.md,
   },
   devicePill: {
     flexShrink: 1,
+    maxWidth: "48%",
     flexDirection: "row",
     alignItems: "center",
     paddingVertical: 10,
@@ -461,30 +499,36 @@ const styles = StyleSheet.create({
   deviceDot: {
     width: 8,
     height: 8,
+    flexShrink: 0,
     marginRight: theme.spacing.sm,
     borderRadius: theme.radius.pill,
     backgroundColor: theme.colors.action,
   },
   deviceLine: {
+    flexShrink: 1,
     fontFamily: theme.font.body,
     fontSize: theme.type.body,
     color: theme.colors.text,
   },
   recommendButton: {
+    flex: 1,
+    minWidth: 0,
     minHeight: 44,
-    flexGrow: 1,
     flexDirection: "row",
     justifyContent: "center",
+    alignItems: "center",
+    gap: theme.spacing.sm,
     backgroundColor: theme.colors.action,
     borderRadius: theme.radius.lg,
     paddingVertical: theme.spacing.sm,
     paddingHorizontal: theme.spacing.md,
-    alignItems: "center",
   },
   recommendButtonText: {
+    flexShrink: 1,
     fontFamily: theme.font.heading,
     fontSize: theme.type.caption,
     color: theme.colors.onAction,
+    textAlign: "center",
   },
   ramWarnBox: {
     borderWidth: 1,
