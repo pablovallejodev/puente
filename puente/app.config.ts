@@ -16,7 +16,7 @@ const config: ExpoConfig = {
       NSSpeechRecognitionUsageDescription:
         "Puente transcribes speech on-device with a local Whisper model. Audio is processed on the device and is not saved.",
     },
-    bundleIdentifier: "com.pablovallejo.puente",
+    bundleIdentifier: "dev.pablovallejo.puente",
   },
   android: {
     adaptiveIcon: {
@@ -29,7 +29,7 @@ const config: ExpoConfig = {
       "android.permission.MODIFY_AUDIO_SETTINGS",
     ],
     predictiveBackGestureEnabled: false,
-    package: "com.pablovallejo.puente",
+    package: "dev.pablovallejo.puente",
   },
   web: {
     output: "static",
