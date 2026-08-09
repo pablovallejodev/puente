@@ -1,5 +1,5 @@
 /**
- * Catalog lookups and device recommendations.
+ * Catalog lookups and pair-budget helpers.
  *
  * The catalog is data (models.ts) and vocabulary (types.ts); this module is the
  * only place that queries it, so callers never scan arrays themselves.
@@ -15,8 +15,8 @@ import {
   SILERO_VAD_MODEL_ID,
   VAD_MODELS,
 } from "@/constants/model-catalog/models";
+import type { PresetMode } from "@/constants/model-catalog/modes";
 import {
-  RAM_TIER,
   type AsrModelSpec,
   type EngineId,
   type ModelSpec,
@@ -68,6 +68,13 @@ export {
   SILERO_VAD_MODEL_ID,
   VAD_MODELS,
 } from "@/constants/model-catalog/models";
+export {
+  PRESET_MODES,
+  resolveActiveMode,
+  type ModelModeId,
+  type PresetMode,
+  type PresetModeId,
+} from "@/constants/model-catalog/modes";
 
 export const ALL_MODELS: ModelSpec[] = [
   ...ASR_MODELS,
@@ -121,7 +128,6 @@ export function supportsLanguage(spec: ModelSpec, languageId: string): boolean {
 
 const DEFAULT_MT_ID = "nllb-600m-q8";
 const LIGHTEST_ASR_ID = "whisper-tiny-q";
-const SAFE_ASR_ID = "whisper-base-q";
 
 /** Peak for ASR + MT + VAD — what the engines claim inside the process. */
 export function pairPeakRamBytes(
@@ -130,6 +136,18 @@ export function pairPeakRamBytes(
   vadPeakBytes: number = requireModelSpec(SILERO_VAD_MODEL_ID).peakRamBytes,
 ): number {
   return asrPeakBytes + mtPeakBytes + vadPeakBytes + APP_OVERHEAD_BYTES;
+}
+
+/** Peak RAM for a concrete ASR+MT pair (includes VAD). */
+export function modePairPeakBytes(asrId: string, mtId: string): number {
+  return pairPeakRamBytes(
+    requireModelSpec(asrId).peakRamBytes,
+    requireModelSpec(mtId).peakRamBytes,
+  );
+}
+
+export function presetModePeakBytes(mode: PresetMode): number {
+  return modePairPeakBytes(mode.asrId, mode.mtId);
 }
 
 /** Bytes of Device.totalMemory the pair is allowed to claim. */
@@ -154,53 +172,12 @@ export function pairFitsDevice(
 
 /**
  * Default companion peak when the other task is not selected yet: NLLB for ASR
- * cards, Tiny for MT cards (lightest honest Universal pair).
+ * cards, Tiny for MT cards (lightest honest pair for card warnings only).
  */
 export function defaultCompanionPeakBytes(spec: ModelSpec): number {
   if (spec.task === "asr") return requireModelSpec(DEFAULT_MT_ID).peakRamBytes;
   if (spec.task === "mt") return requireModelSpec(LIGHTEST_ASR_ID).peakRamBytes;
   return 0;
-}
-
-// ---------------------------------------------------------------------------
-// Device recommendation
-// ---------------------------------------------------------------------------
-
-export type ModelRecommendation = {
-  asrId: string;
-  mtId: string;
-  vadId: string;
-};
-
-/**
- * The safe default set for a device, not the best one it could run.
- *
- * One-tap stays on Tiny/Base + NLLB. Small and Turbos are never auto-picked:
- * their ORT peaks OOMs on phones that look fine on paper.
- */
-export function recommendForDevice(
-  totalMemoryBytes: number | null,
-): ModelRecommendation {
-  const mtId = DEFAULT_MT_ID;
-  const vadId = SILERO_VAD_MODEL_ID;
-  const mtPeak = requireModelSpec(mtId).peakRamBytes;
-  const vadPeak = requireModelSpec(vadId).peakRamBytes;
-
-  const preferBase =
-    totalMemoryBytes != null && totalMemoryBytes >= RAM_TIER.mid;
-  const preferredId = preferBase ? SAFE_ASR_ID : LIGHTEST_ASR_ID;
-  const preferredPeak = requireModelSpec(preferredId).peakRamBytes;
-
-  const asrId = pairFitsDevice(
-    preferredPeak,
-    mtPeak,
-    totalMemoryBytes,
-    vadPeak,
-  )
-    ? preferredId
-    : LIGHTEST_ASR_ID;
-
-  return { asrId, mtId, vadId };
 }
 
 /**

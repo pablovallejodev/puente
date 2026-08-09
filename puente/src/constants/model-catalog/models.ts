@@ -144,29 +144,6 @@ const WHISPER_BASE_FILES = whisperOrtFiles("Xenova/whisper-base", {
   tokenizer: 2_480_466,
 });
 
-const WHISPER_SMALL_FILES = whisperOrtFiles("Xenova/whisper-small", {
-  encoder: 92_324_809,
-  decoder: 156_780_950,
-  config: 2_232,
-  generation: 3_837,
-  preprocessor: 339,
-  tokenizerConfig: 282_683,
-  tokenizer: 2_480_466,
-});
-
-const WHISPER_TURBO_FILES = whisperOrtFiles(
-  "onnx-community/whisper-large-v3-turbo",
-  {
-    encoder: 644_822_195,
-    decoder: 439_936_716,
-    config: 1_332,
-    generation: 3_897,
-    preprocessor: 340,
-    tokenizerConfig: 282_843,
-    tokenizer: 2_480_617,
-  },
-);
-
 const ORT_ASR_MODELS: AsrModelSpec[] = [
   {
     id: "whisper-tiny-q",
@@ -210,49 +187,6 @@ const ORT_ASR_MODELS: AsrModelSpec[] = [
     minRecommendedRamBytes: RAM_TIER.high,
     ramTier: 2,
     files: WHISPER_BASE_FILES,
-    runtime: WHISPER_ORT_RUNTIME,
-  },
-  {
-    id: "whisper-small-q",
-    storage: "whisper",
-    task: "asr",
-    label: "Whisper Small",
-    shortLabel: "Small",
-    qualityTag: "Más lento, más fiable · pide mucha memoria",
-    sourceNote:
-      "Exportación INT8 de Xenova, la referencia de facto para Whisper en ONNX Runtime.",
-    hfRepoId: "Xenova/whisper-small",
-    hfRepoUrl: repoUrl("Xenova/whisper-small"),
-    license: LICENSE.mit,
-    languageIds: ALL_LANGUAGE_IDS,
-    languageDetection: "auto",
-    diskBytes: diskTotal(WHISPER_SMALL_FILES),
-    // ORT dual-session peak: ~3.2 GB alone; with NLLB it OOMs on many "12 GB" phones.
-    peakRamBytes: 3.2 * GB,
-    minRecommendedRamBytes: RAM_TIER.flagship,
-    ramTier: 3,
-    files: WHISPER_SMALL_FILES,
-    runtime: WHISPER_ORT_RUNTIME,
-  },
-  {
-    id: "whisper-large-v3-turbo-q",
-    storage: "whisper",
-    task: "asr",
-    label: "Whisper Large v3 Turbo",
-    shortLabel: "Turbo",
-    qualityTag: "Máxima calidad multilingüe · solo gama alta",
-    sourceNote:
-      "INT8 oficial de onnx-community. Cuatro capas de decoder frente a 32 del large v3, así que cabe en un móvil sin perder calidad de reconocimiento.",
-    hfRepoId: "onnx-community/whisper-large-v3-turbo",
-    hfRepoUrl: repoUrl("onnx-community/whisper-large-v3-turbo"),
-    license: LICENSE.mit,
-    languageIds: ALL_LANGUAGE_IDS,
-    languageDetection: "auto",
-    diskBytes: diskTotal(WHISPER_TURBO_FILES),
-    peakRamBytes: 4.5 * GB,
-    minRecommendedRamBytes: RAM_TIER.flagship,
-    ramTier: 4,
-    files: WHISPER_TURBO_FILES,
     runtime: WHISPER_ORT_RUNTIME,
   },
 ];

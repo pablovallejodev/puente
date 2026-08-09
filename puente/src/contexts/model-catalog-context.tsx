@@ -14,10 +14,8 @@ import {
   ASR_MODELS,
   getModelSpec,
   MT_MODELS,
-  recommendForDevice,
   VAD_MODELS,
   type AsrModelSpec,
-  type ModelRecommendation,
   type MtModelSpec,
   type VadModelSpec,
 } from "@/constants/model-catalog";
@@ -67,8 +65,8 @@ type ModelCatalogContextValue = {
   download: (modelId: string) => Promise<void>;
   cancelDownload: (modelId: string) => Promise<void>;
   select: (modelId: string) => Promise<void>;
-  downloadRecommended: () => Promise<void>;
-  recommended: ModelRecommendation;
+  /** Download (if needed) and select both models of a preset pair. */
+  applyModelPair: (asrId: string, mtId: string) => Promise<void>;
   asrModels: AsrModelSpec[];
   mtModels: MtModelSpec[];
   vadModels: VadModelSpec[];
@@ -104,10 +102,6 @@ export function ModelCatalogProvider({ children }: { children: ReactNode }) {
 
   const deviceModelName = Device.modelName;
   const totalMemoryBytes = Device.totalMemory;
-  const recommended = useMemo(
-    () => recommendForDevice(totalMemoryBytes),
-    [totalMemoryBytes],
-  );
 
   const refresh = useCallback(async () => {
     const prefs = await readModelPreferences();
@@ -298,18 +292,21 @@ export function ModelCatalogProvider({ children }: { children: ReactNode }) {
     [applySelection, refresh, requireSpec],
   );
 
-  const downloadRecommended = useCallback(async () => {
-    setLastError(null);
-    try {
-      for (const modelId of [recommended.asrId, recommended.mtId]) {
-        if (!(await isModelInstalled(modelId))) await download(modelId);
-        await select(modelId);
+  const applyModelPair = useCallback(
+    async (asrId: string, mtId: string) => {
+      setLastError(null);
+      try {
+        for (const modelId of [asrId, mtId]) {
+          if (!(await isModelInstalled(modelId))) await download(modelId);
+          await select(modelId);
+        }
+      } catch (err) {
+        if (isModelError(err)) setLastError(err);
+        throw err;
       }
-    } catch (err) {
-      if (isModelError(err)) setLastError(err);
-      throw err;
-    }
-  }, [recommended, download, select]);
+    },
+    [download, select],
+  );
 
   const value = useMemo<ModelCatalogContextValue>(
     () => ({
@@ -325,8 +322,7 @@ export function ModelCatalogProvider({ children }: { children: ReactNode }) {
       download,
       cancelDownload,
       select,
-      downloadRecommended,
-      recommended,
+      applyModelPair,
       asrModels: ASR_MODELS,
       mtModels: MT_MODELS,
       vadModels: VAD_MODELS,
@@ -344,8 +340,7 @@ export function ModelCatalogProvider({ children }: { children: ReactNode }) {
       download,
       cancelDownload,
       select,
-      downloadRecommended,
-      recommended,
+      applyModelPair,
       refresh,
     ],
   );

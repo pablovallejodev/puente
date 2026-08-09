@@ -1,7 +1,7 @@
 /**
  * One loaded engine at a time, per task.
  *
- * Two models never coexist in memory: a phone that can hold Whisper Small and
+ * Two models never coexist in memory: a phone that can hold a heavy ASR and
  * NLLB at once cannot hold two ASR models, and the failure mode is the process
  * being killed mid-conversation. The slot therefore disposes the previous
  * engine before creating the next one whenever the selected model changes.

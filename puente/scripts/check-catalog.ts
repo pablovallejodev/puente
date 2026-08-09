@@ -21,20 +21,18 @@ import {
   getAsrModelSpec,
   getModelSpec,
   getMtModelSpec,
-  isBelowRecommendedRam,
   MT_MODELS,
   pairBudgetBytes,
-  pairFitsDevice,
   pairPeakRamBytes,
   PAIR_BUDGET_FRACTION,
+  PRESET_MODES,
+  presetModePeakBytes,
   RAM_TIER,
-  recommendForDevice,
   requireModelSpec,
-  SILERO_VAD_MODEL_ID,
+  resolveActiveMode,
   VAD_MODELS,
   type ModelRamTier,
   type ModelSpec,
-  type ModelTask,
 } from "../src/constants/model-catalog";
 import { MODEL_ERROR_CODES } from "../src/lib/model-errors";
 import { WHISPER_ERROR_CODES } from "../src/lib/whisper-errors";
@@ -210,8 +208,7 @@ function testMetadata(): void {
     );
   }
 
-  // Tiers must be strictly increasing, or the ladder in recommendForDevice
-  // silently skips a step.
+  // Tiers must be strictly increasing.
   const tiers = [
     RAM_TIER.entry,
     RAM_TIER.low,
@@ -228,64 +225,43 @@ function testMetadata(): void {
   assert.ok(RAM_TIER.high < 8 * GB && RAM_TIER.high > 6 * GB);
 }
 
-function testRecommendations(): void {
-  const lightestOf = (task: ModelTask) =>
-    ALL_MODELS.filter((m) => m.task === task).sort(
-      (a, b) => a.peakRamBytes - b.peakRamBytes,
-    )[0];
-
-  for (const ram of [null, 2 * GB, 4 * GB, 6 * GB, 8 * GB, 12 * GB, 16 * GB]) {
-    const rec = recommendForDevice(ram);
-    assert.equal(getAsrModelSpec(rec.asrId)?.task, "asr");
-    assert.equal(getMtModelSpec(rec.mtId)?.task, "mt");
-    assert.equal(rec.vadId, SILERO_VAD_MODEL_ID);
-    // One-tap never auto-picks Small or Turbos.
-    assert.ok(
-      rec.asrId === "whisper-tiny-q" || rec.asrId === "whisper-base-q",
-      `one-tap ASR must be tiny/base, got ${rec.asrId}`,
-    );
-    assert.equal(rec.mtId, "nllb-600m-q8");
-
-    const asr = requireModelSpec(rec.asrId);
-    const mt = requireModelSpec(rec.mtId);
-    const vad = requireModelSpec(rec.vadId);
-    // Prefer a fitting pair; only fall back to the lightest when nothing fits.
-    if (ram != null && ram >= RAM_TIER.entry) {
-      const fits = pairFitsDevice(
-        asr.peakRamBytes,
-        mt.peakRamBytes,
-        ram,
-        vad.peakRamBytes,
-      );
-      assert.ok(
-        fits || rec.asrId === "whisper-tiny-q",
-        `recommended pair exceeds a ${ram} B device while tiny is available`,
-      );
-    }
-
-    for (const id of [rec.asrId, rec.mtId, rec.vadId]) {
-      const spec = getModelSpec(id);
-      assert.ok(spec, `recommendation ${id} is not in the catalog`);
-      assert.ok(
-        !isBelowRecommendedRam(spec, ram) ||
-          spec.id === "whisper-tiny-q" ||
-          spec.id === "nllb-600m-q8" ||
-          spec.id === SILERO_VAD_MODEL_ID ||
-          spec.id === lightestOf(spec.task).id,
-        `recommended ${id} exceeds a ${ram} B device while a lighter ${spec.task} model exists`,
-      );
-    }
+function testModesAndPairBudget(): void {
+  assert.equal(PRESET_MODES.length, 4);
+  for (const mode of PRESET_MODES) {
+    assert.equal(getAsrModelSpec(mode.asrId)?.task, "asr", mode.id);
+    assert.equal(getMtModelSpec(mode.mtId)?.task, "mt", mode.id);
+    assert.ok(presetModePeakBytes(mode) > 0, `${mode.id}: no peak`);
   }
 
-  // More memory must never downgrade the transcriber; ceiling is Base.
-  const order = ["whisper-tiny-q", "whisper-base-q"];
-  let previous = -1;
-  for (const ram of [2 * GB, 6 * GB, 8 * GB, 12 * GB]) {
-    const index = order.indexOf(recommendForDevice(ram).asrId);
-    assert.ok(index >= 0, `unexpected ASR for ${ram}`);
-    assert.ok(index >= previous, "a bigger phone was offered a smaller model");
-    previous = index;
-  }
+  assert.equal(
+    resolveActiveMode("sherpa-whisper-turbo-int8", "nllb-600m-q8"),
+    "universal",
+  );
+  assert.equal(
+    resolveActiveMode(
+      "sherpa-parakeet-tdt-0.6b-v3-int8",
+      "salamandrata-2b-instruct-q4",
+    ),
+    "europeo",
+  );
+  assert.equal(
+    resolveActiveMode("sherpa-sense-voice-multi-int8", "nllb-600m-q8"),
+    "asiatico",
+  );
+  assert.equal(
+    resolveActiveMode("whisper-base-q", "nllb-600m-q8"),
+    "bajos-recursos",
+  );
+  assert.equal(
+    resolveActiveMode("whisper-tiny-q", "nllb-600m-q8"),
+    "personalizado",
+  );
+  assert.equal(resolveActiveMode("whisper-tiny-q", null), null);
+  assert.equal(resolveActiveMode(null, "nllb-600m-q8"), null);
+
+  // Removed ORT Whisper sizes must stay gone.
+  assert.equal(getModelSpec("whisper-small-q"), undefined);
+  assert.equal(getModelSpec("whisper-large-v3-turbo-q"), undefined);
 
   assert.equal(PAIR_BUDGET_FRACTION, 0.35);
   assert.equal(pairBudgetBytes(8 * GB), 8 * GB * PAIR_BUDGET_FRACTION);
@@ -297,7 +273,7 @@ function testRecommendations(): void {
   assert.equal(exceedsPairBudget(tiny, nllb, 16 * GB), false);
   assert.equal(
     exceedsPairBudget(
-      requireModelSpec("whisper-small-q").peakRamBytes,
+      requireModelSpec("sherpa-whisper-turbo-int8").peakRamBytes,
       nllb,
       8 * GB,
     ),
@@ -339,7 +315,7 @@ function main(): void {
   testFiles();
   testRuntimeFilesExist();
   testMetadata();
-  testRecommendations();
+  testModesAndPairBudget();
   testErrorCatalogCoverage();
   console.log(
     `check:catalog ok (${ALL_MODELS.length} modelos, ${ASR_MODELS.length} ASR, ${MT_MODELS.length} MT, ${VAD_MODELS.length} VAD)`,

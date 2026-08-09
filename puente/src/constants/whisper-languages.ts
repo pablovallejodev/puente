@@ -3,7 +3,7 @@
  *
  * Official multilingual Whisper list: openai/whisper tokenizer.py LANGUAGES (100 codes incl. yue).
  * Product forceable set = Whisper ∩ NLLB (excludes la, br, haw — no FLORES in app).
- * Tiny / Base / Small share the same language tokens.
+ * Tiny / Base share the same language tokens.
  * UNIVERSAL_CANDIDATE_LANGS is a curated detect subset (not the full product list).
  */
 
