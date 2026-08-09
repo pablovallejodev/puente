@@ -151,14 +151,12 @@ export default function LanguagesComponent() {
     />
   );
 
-  const titleText = slot === "output" ? "Traducir al" : "Idioma de origen";
-
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBarDarkComponent />
       <StandardHeadComponent
         onBack={() => router.back()}
-        titleText={titleText}
+        titleText="Escoge un idioma"
         loading={false}
       />
 
@@ -170,21 +168,6 @@ export default function LanguagesComponent() {
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={
           <View>
-            <View style={styles.intro}>
-              <Text style={styles.introEyebrow}>
-                {slot === "output" ? "IDIOMA DE DESTINO" : "IDIOMA DE ORIGEN"}
-              </Text>
-              <Text style={styles.introTitle}>
-                {slot === "output"
-                  ? "¿Cómo quieres recibir la traducción?"
-                  : "¿Cómo quieres que te escuche Puente?"}
-              </Text>
-              <Text style={styles.introBody}>
-                {slot === "output"
-                  ? "Elige el idioma en el que aparecerá cada traducción."
-                  : "Usa Universal para detectar automáticamente o fija un idioma para ganar precisión."}
-              </Text>
-            </View>
             {visibleRecommended.length > 0 ? (
               <View>
                 <View style={styles.sectionHeader}>
@@ -279,36 +262,6 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingBottom: theme.spacing.xl,
-  },
-  intro: {
-    marginHorizontal: theme.spacing.md,
-    marginTop: theme.spacing.md,
-    marginBottom: theme.spacing.sm,
-    padding: theme.spacing.lg,
-    borderRadius: theme.radius.xl,
-    backgroundColor: theme.colors.surfaceStone,
-    borderWidth: 1,
-    borderColor: theme.colors.hairline,
-  },
-  introEyebrow: {
-    fontFamily: theme.font.heading,
-    fontSize: theme.type.micro,
-    letterSpacing: 1.2,
-    color: theme.colors.text,
-  },
-  introTitle: {
-    marginTop: theme.spacing.sm,
-    fontFamily: theme.font.heading,
-    fontSize: theme.type.title,
-    lineHeight: 25,
-    color: theme.colors.text,
-  },
-  introBody: {
-    marginTop: theme.spacing.sm,
-    fontFamily: theme.font.body,
-    fontSize: theme.type.caption,
-    lineHeight: 18,
-    color: theme.colors.text,
   },
   allLanguagesBlock: {
     paddingTop: theme.spacing.md,
