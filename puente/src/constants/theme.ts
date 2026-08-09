@@ -9,6 +9,7 @@ export const theme = {
     action: "#71697A",
     onAction: "#F2F6D0",
     error: "#A6453F",
+    success: "#3F6F4E",
     hairline: "rgba(74, 68, 82, 0.14)",
     pressed: "rgba(74, 68, 82, 0.08)",
     scrim: "rgba(74, 68, 82, 0.58)",

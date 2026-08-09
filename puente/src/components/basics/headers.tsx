@@ -26,11 +26,11 @@ export const ChatHeadComponent = React.memo<{
           <TouchableOpacity
             style={[styles.standardPropertyButton, styles.settingsButton]}
             onPress={onSettingsPress}
-            accessibilityLabel="Modelos"
+            accessibilityLabel="Configuración"
             accessibilityRole="button"
             activeOpacity={0.65}
           >
-            <Text style={styles.settingsLabel}>Modelos</Text>
+            <Text style={styles.settingsLabel}>Configuración</Text>
           </TouchableOpacity>
         ) : null}
       </View>
@@ -100,7 +100,7 @@ const styles = StyleSheet.create({
     borderBottomColor: theme.colors.hairline,
   },
   standardPropertyColumn: {
-    width: 80,
+    width: 96,
     justifyContent: "center",
     alignItems: "flex-start",
   },
@@ -139,7 +139,7 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
   },
   settingsButton: {
-    width: 72,
+    width: 88,
     borderRadius: theme.radius.md,
   },
   settingsLabel: {

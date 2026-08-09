@@ -31,13 +31,13 @@ const MODEL_DOCS: Record<string, ErrorDoc> = {
     summary: "El id de modelo no existe en el catálogo.",
     cause:
       "Una preferencia guardada apunta a un modelo retirado del catálogo, o el id está mal escrito en el código.",
-    fix: "Vuelve a elegir un modelo en Ajustes → Modelos. Si persiste, borra las preferencias con clearModelPreferences().",
+    fix: "Vuelve a elegir un modelo en Configuración. Si persiste, borra las preferencias con clearModelPreferences().",
   },
   MODEL_NOT_INSTALLED: {
     summary: "El modelo seleccionado no está descargado.",
     cause:
       "Falta el marcador .complete: la descarga nunca terminó o los ficheros se borraron desde fuera de la app.",
-    fix: "Descarga el modelo desde la pantalla Modelos.",
+    fix: "Descarga el modelo desde Configuración.",
   },
   MODEL_INCOMPLETE: {
     summary: "Falta algún fichero del modelo instalado.",
@@ -129,7 +129,7 @@ const MODEL_DOCS: Record<string, ErrorDoc> = {
   MODEL_GATE_INCOMPLETE: {
     summary: "Faltan modelos para poder usar el traductor.",
     cause: "Se necesita un modelo de transcripción y uno de traducción activos.",
-    fix: "Completa la configuración en la pantalla Modelos.",
+    fix: "Completa la configuración en la pantalla Configuración.",
   },
 };
 
@@ -321,7 +321,7 @@ const ENGINE_DOCS: Record<string, ErrorDoc> = {
   VAD_MODEL_MISSING: {
     summary: "El detector de voz no está instalado.",
     cause: "Silero VAD es una descarga aparte de 2 MB.",
-    fix: "Descárgalo en Modelos. Sin él se usa el detector por energía, que deja pasar ruido y hace alucinar a Whisper.",
+    fix: "Descárgalo en Configuración. Sin él se usa el detector por energía, que deja pasar ruido y hace alucinar a Whisper.",
   },
   VAD_INIT_FAILED: {
     summary: "No se pudo cargar el detector de voz.",

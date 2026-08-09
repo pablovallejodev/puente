@@ -5,8 +5,8 @@
  * because a task can now be served by several families across three engines:
  * the ASR choice is between Whisper, Parakeet, SenseVoice and Moonshine, and
  * "selectedWhisperModelId" stopped describing it. The old keys are still read
- * once and migrated, so an existing install keeps its model instead of falling
- * back to the recommendation and re-downloading a gigabyte.
+ * once and migrated, so an existing install keeps its model instead of clearing
+ * the choice and forcing a re-download.
  */
 
 import * as SecureStore from "expo-secure-store";
@@ -38,8 +38,7 @@ export type ModelPreferences = Record<SelectableTask, string | null>;
 
 /**
  * A stored id that is no longer in the catalog, or that now belongs to another
- * task, is treated as absent: the app falls back to the recommendation instead
- * of failing to load a model that cannot exist.
+ * task, is treated as absent: the user must choose again in Configuración.
  */
 function validate(task: SelectableTask, modelId: string | null): string | null {
   if (!modelId) return null;
