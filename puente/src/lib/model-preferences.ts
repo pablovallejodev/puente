@@ -14,6 +14,11 @@ import * as SecureStore from "expo-secure-store";
 import { getModelSpec } from "@/constants/model-catalog";
 import type { ModelTask } from "@/constants/model-catalog";
 import { wrapModelError } from "@/lib/model-errors";
+import {
+  DEFAULT_TRADUCTOR_MODE,
+  parseTraductorMode,
+  type TraductorMode,
+} from "@/lib/traductor-mode";
 
 /** Only tasks the user chooses between; the VAD is not a preference. */
 export type SelectableTask = Extract<ModelTask, "asr" | "mt">;
@@ -33,6 +38,8 @@ const LEGACY_KEY: Record<SelectableTask, string> = {
 
 const KEY_BASE_LANG = "selectedBaseLanguageId";
 const KEY_MIC_PAUSED = "micPaused";
+const KEY_TRADUCTOR_MODE = "traductorMode";
+const KEY_LANGUAGE_TWO = "selectedLanguageTwoId";
 
 export type ModelPreferences = Record<SelectableTask, string | null>;
 
@@ -134,6 +141,60 @@ export async function writeMicPaused(paused: boolean): Promise<void> {
     throw wrapModelError(err, "prefs.write", "MODEL_PREFS_WRITE_FAILED", true, {
       key: KEY_MIC_PAUSED,
       paused,
+    });
+  }
+}
+
+export type TraductorModePref = {
+  mode: TraductorMode;
+  /** True when nothing valid was stored — first-run intro should open the mode menu. */
+  wasAbsent: boolean;
+};
+
+/** Absent or garbage → one_way + wasAbsent. */
+export async function readTraductorMode(): Promise<TraductorModePref> {
+  try {
+    const raw = await SecureStore.getItemAsync(KEY_TRADUCTOR_MODE);
+    const mode = parseTraductorMode(raw);
+    if (mode) return { mode, wasAbsent: false };
+    return { mode: DEFAULT_TRADUCTOR_MODE, wasAbsent: true };
+  } catch (err) {
+    throw wrapModelError(err, "prefs.read", "MODEL_PREFS_READ_FAILED", true, {
+      key: KEY_TRADUCTOR_MODE,
+    });
+  }
+}
+
+export async function writeTraductorMode(mode: TraductorMode): Promise<void> {
+  try {
+    await SecureStore.setItemAsync(KEY_TRADUCTOR_MODE, mode);
+  } catch (err) {
+    throw wrapModelError(err, "prefs.write", "MODEL_PREFS_WRITE_FAILED", true, {
+      key: KEY_TRADUCTOR_MODE,
+      mode,
+    });
+  }
+}
+
+export async function readSelectedLanguageTwoId(): Promise<string | null> {
+  try {
+    return await SecureStore.getItemAsync(KEY_LANGUAGE_TWO);
+  } catch (err) {
+    throw wrapModelError(err, "prefs.read", "MODEL_PREFS_READ_FAILED", true, {
+      key: KEY_LANGUAGE_TWO,
+    });
+  }
+}
+
+export async function setSelectedLanguageTwoId(
+  languageId: string,
+): Promise<void> {
+  try {
+    await SecureStore.setItemAsync(KEY_LANGUAGE_TWO, languageId);
+  } catch (err) {
+    throw wrapModelError(err, "prefs.write", "MODEL_PREFS_WRITE_FAILED", true, {
+      key: KEY_LANGUAGE_TWO,
+      languageId,
     });
   }
 }

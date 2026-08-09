@@ -60,6 +60,12 @@ export type SpeechTranscriptorOptions = {
    * `pause` stops capture, flushes the current utterance, and drains the queue.
    */
   disableMode?: SpeechDisableMode;
+  /**
+   * Conversation mode: drop sticky after each accepted transcript so the next
+   * utterance redetects freely. Within-chunk sticky still applies via the
+   * sticky param passed into that decode.
+   */
+  clearStickyAfterAccept?: boolean;
 };
 
 const STICKY_TTL_MS = 45_000;
@@ -131,6 +137,7 @@ export function useSpeechTranscriptor(
     onInterimTranscript,
     enabled = true,
     disableMode = "abort",
+    clearStickyAfterAccept = false,
   } = options;
 
   const { selected, ready: catalogReady } = useModelCatalog();
@@ -157,6 +164,7 @@ export function useSpeechTranscriptor(
   const segmenterRef = useRef<SpeechSegmenter | null>(null);
   const enabledRef = useRef(enabled);
   const disableModeRef = useRef(disableMode);
+  const clearStickyAfterAcceptRef = useRef(clearStickyAfterAccept);
   /** Accept flush/enqueue while muted so the current utterance can finish. */
   const drainingRef = useRef(false);
   const prevModeKeyRef = useRef(modeKey);
@@ -182,6 +190,7 @@ export function useSpeechTranscriptor(
     onInterimRef.current = onInterimTranscript;
     enabledRef.current = enabled;
     disableModeRef.current = disableMode;
+    clearStickyAfterAcceptRef.current = clearStickyAfterAccept;
   }, [
     input,
     onTranscriptionStart,
@@ -189,7 +198,12 @@ export function useSpeechTranscriptor(
     onInterimTranscript,
     enabled,
     disableMode,
+    clearStickyAfterAccept,
   ]);
+
+  useEffect(() => {
+    if (clearStickyAfterAccept) stickyLangRef.current = null;
+  }, [clearStickyAfterAccept]);
 
   const bumpSession = useCallback(() => {
     sessionIdRef.current += 1;
@@ -276,7 +290,9 @@ export function useSpeechTranscriptor(
             continue;
           }
 
-          if (
+          if (clearStickyAfterAcceptRef.current) {
+            stickyLangRef.current = null;
+          } else if (
             current.mode === "auto" &&
             !result.usedSticky &&
             !result.noSpeech

@@ -72,6 +72,15 @@ import {
   phrasePairCount,
 } from "../src/lib/mt/phrase-lookup";
 import { resolveSpeechDisableMode } from "../src/lib/speech-disable-mode";
+import {
+  blockedLanguageIdsForSlot,
+  occupiedLanguageIds,
+} from "../src/lib/blocked-language-ids";
+import {
+  resolveDefaultLanguageTwo,
+  resolveLanguageTwo,
+} from "../src/lib/language-two-default";
+import { resolveTranslationTarget } from "../src/lib/traductor-target";
 
 function testLocaleMatching(): void {
   assert.equal(normalizeLocale("en_US"), "en-us");
@@ -747,6 +756,9 @@ async function main(): Promise<void> {
   testLatestDoneMessageId();
   testPhraseLookup();
   testResolveSpeechDisableMode();
+  testResolveTranslationTarget();
+  testBlockedLanguageIds();
+  testLanguageTwoDefault();
 
   console.log("check:traductor-logic ok");
 }
@@ -806,6 +818,105 @@ function testPhraseLookup(): void {
   assert.equal(lookupPhrase("xylophone", "en-US", "es-ES"), null);
   // Same language: no override.
   assert.equal(lookupPhrase("hello", "en-US", "en-GB"), null);
+}
+
+function testResolveTranslationTarget(): void {
+  const es = findTraductorLanguageById("es");
+  const ca = findTraductorLanguageById("ca");
+  const en = findTraductorLanguageById("en");
+  assert.ok(es && ca && en);
+
+  assert.equal(
+    resolveTranslationTarget({
+      mode: "one_way",
+      detectedLocale: "ca-ES",
+      languageOne: es,
+      languageTwo: ca,
+    }),
+    es.speechLocale,
+  );
+
+  assert.equal(
+    resolveTranslationTarget({
+      mode: "conversation",
+      detectedLocale: "es-ES",
+      languageOne: es,
+      languageTwo: ca,
+    }),
+    ca.speechLocale,
+  );
+  assert.equal(
+    resolveTranslationTarget({
+      mode: "conversation",
+      detectedLocale: "ca-ES",
+      languageOne: es,
+      languageTwo: ca,
+    }),
+    es.speechLocale,
+  );
+  // Other languages fall back to Idioma 1.
+  assert.equal(
+    resolveTranslationTarget({
+      mode: "conversation",
+      detectedLocale: "en-US",
+      languageOne: es,
+      languageTwo: ca,
+    }),
+    es.speechLocale,
+  );
+}
+
+function testBlockedLanguageIds(): void {
+  const es = findTraductorLanguageById("es");
+  const ca = findTraductorLanguageById("ca");
+  assert.ok(es && ca);
+
+  const occupiedUniversal = occupiedLanguageIds({
+    inputLanguage: UNIVERSAL_INPUT,
+    languageOneId: es.id,
+    languageTwoId: ca.id,
+  });
+  assert.equal(occupiedUniversal.input, undefined);
+  assert.deepEqual(
+    [...blockedLanguageIdsForSlot("output", occupiedUniversal)].sort(),
+    ["ca"],
+  );
+  assert.deepEqual(
+    [...blockedLanguageIdsForSlot("lang2", occupiedUniversal)].sort(),
+    ["es"],
+  );
+  assert.deepEqual(
+    [...blockedLanguageIdsForSlot("input", occupiedUniversal)].sort(),
+    ["ca", "es"],
+  );
+
+  const occupiedFixed = occupiedLanguageIds({
+    inputLanguage: { kind: "fixed", language: enOrThrow() },
+    languageOneId: es.id,
+    languageTwoId: ca.id,
+  });
+  assert.equal(occupiedFixed.input, "en");
+  assert.ok(blockedLanguageIdsForSlot("output", occupiedFixed).has("en"));
+  assert.ok(blockedLanguageIdsForSlot("output", occupiedFixed).has("ca"));
+  assert.ok(!blockedLanguageIdsForSlot("output", occupiedFixed).has("es"));
+}
+
+function enOrThrow() {
+  const en = findTraductorLanguageById("en");
+  assert.ok(en);
+  return en;
+}
+
+function testLanguageTwoDefault(): void {
+  const es = findTraductorLanguageById("es");
+  const ca = findTraductorLanguageById("ca");
+  assert.ok(es && ca);
+
+  assert.equal(resolveDefaultLanguageTwo("es").id, "ca");
+  assert.equal(resolveDefaultLanguageTwo("ca").id, "es");
+  assert.equal(resolveLanguageTwo("en", "es").id, "en");
+  assert.equal(resolveLanguageTwo("es", "es").id, "ca");
+  assert.equal(resolveLanguageTwo(null, "ca").id, "es");
 }
 
 main().catch((err) => {
