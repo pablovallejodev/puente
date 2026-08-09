@@ -22,6 +22,11 @@ import {
   type TraductorLanguage,
 } from "@/constants/traductor-languages";
 import {
+  blockedLanguageIdsForSlot,
+  occupiedLanguageIds,
+  type LanguagePickerSlot,
+} from "@/lib/blocked-language-ids";
+import {
   getTraductorLanguageDisplayName,
   resolveUiLocale,
   type UiLocale,
@@ -29,14 +34,10 @@ import {
 import { StatusBarDarkComponent } from "@/utils/statusbar";
 import { theme } from "@/constants/theme";
 
-type SlotParam = "input" | "output";
-
-type UniversalRow = { id: "universal"; label: string };
-
-type LanguageSection = {
-  title: string;
-  data: (TraductorLanguage | UniversalRow)[];
-};
+function parseSlot(raw: string | undefined): LanguagePickerSlot {
+  if (raw === "output" || raw === "lang2") return raw;
+  return "input";
+}
 
 function matchesQuery(
   language: TraductorLanguage,
@@ -59,7 +60,7 @@ function matchesQuery(
 export default function LanguagesComponent() {
   const router = useRouter();
   const { slot: rawSlot } = useLocalSearchParams<{ slot?: string }>();
-  const slot: SlotParam = rawSlot === "output" ? "output" : "input";
+  const slot = parseSlot(rawSlot);
   const [query, setQuery] = useState("");
   const uiLocale = useMemo(
     () => resolveUiLocale(getDeviceLocaleTag()),
@@ -67,13 +68,29 @@ export default function LanguagesComponent() {
   );
 
   const {
+    mode,
     inputLanguage,
     outputLanguage,
+    languageTwo,
     selectUniversalInput,
     selectFixedInputLanguage,
     setOutputLanguage,
+    setLanguageTwo,
     getDownloadState,
   } = useTraductorSession();
+
+  const blockedIds = useMemo(
+    () =>
+      blockedLanguageIdsForSlot(
+        slot,
+        occupiedLanguageIds({
+          inputLanguage,
+          languageOneId: outputLanguage.id,
+          languageTwoId: languageTwo.id,
+        }),
+      ),
+    [inputLanguage, languageTwo.id, outputLanguage.id, slot],
+  );
 
   const recommendedAll = useMemo(
     () => getRecommendedLanguages(getDeviceLocaleTag()),
@@ -86,38 +103,33 @@ export default function LanguagesComponent() {
 
   const visibleRecommended = useMemo(
     () =>
-      recommendedAll.filter((lang) => matchesQuery(lang, query, uiLocale)),
-    [recommendedAll, query, uiLocale],
+      recommendedAll.filter(
+        (lang) =>
+          !blockedIds.has(lang.id) && matchesQuery(lang, query, uiLocale),
+      ),
+    [blockedIds, recommendedAll, query, uiLocale],
   );
 
   const filteredLanguages = useMemo(
     () =>
       TRADUCTOR_LANGUAGES.filter(
         (lang) =>
-          !recommendedIds.has(lang.id) && matchesQuery(lang, query, uiLocale),
+          !recommendedIds.has(lang.id) &&
+          !blockedIds.has(lang.id) &&
+          matchesQuery(lang, query, uiLocale),
       ),
-    [query, recommendedIds, uiLocale],
+    [blockedIds, query, recommendedIds, uiLocale],
   );
 
-  const sections = useMemo((): LanguageSection[] => {
-    if (slot === "output") {
-      return [{ title: "", data: filteredLanguages }];
-    }
-    const showUniversal =
-      !query.trim() || "universal".includes(query.trim().toLowerCase());
-    const sectionsOut: LanguageSection[] = [];
-    if (showUniversal) {
-      sectionsOut.push({
-        title: "Detección automática",
-        data: [{ id: "universal", label: "Universal" }],
-      });
-    }
-    sectionsOut.push({
-      title: "",
-      data: filteredLanguages,
-    });
-    return sectionsOut;
-  }, [slot, filteredLanguages, query]);
+  const showUniversal =
+    slot === "input" &&
+    mode === "one_way" &&
+    (!query.trim() || "universal".includes(query.trim().toLowerCase()));
+
+  const sections = useMemo(
+    () => [{ title: "", data: filteredLanguages }],
+    [filteredLanguages],
+  );
 
   const handleSelectUniversal = () => {
     selectUniversalInput();
@@ -127,17 +139,22 @@ export default function LanguagesComponent() {
   const handleSelect = (language: TraductorLanguage) => {
     if (slot === "output") {
       setOutputLanguage(language);
+    } else if (slot === "lang2") {
+      setLanguageTwo(language);
     } else {
       selectFixedInputLanguage(language);
     }
     router.back();
   };
 
-  const isLanguageSelected = (language: TraductorLanguage) =>
-    slot === "output"
-      ? outputLanguage.id === language.id
-      : inputLanguage.kind === "fixed" &&
-        inputLanguage.language.id === language.id;
+  const isLanguageSelected = (language: TraductorLanguage) => {
+    if (slot === "output") return outputLanguage.id === language.id;
+    if (slot === "lang2") return languageTwo.id === language.id;
+    return (
+      inputLanguage.kind === "fixed" &&
+      inputLanguage.language.id === language.id
+    );
+  };
 
   const renderLanguageRow = (language: TraductorLanguage) => (
     <LanguageDownloadRow
@@ -150,6 +167,31 @@ export default function LanguagesComponent() {
       onDownload={() => undefined}
     />
   );
+
+  const renderUniversalRow = () => {
+    const selected = inputLanguage.kind === "universal";
+    return (
+      <Pressable
+        style={({ pressed }) => [
+          styles.universalRow,
+          selected && styles.universalSelected,
+          pressed && styles.universalPressed,
+        ]}
+        onPress={handleSelectUniversal}
+        accessibilityRole="radio"
+        accessibilityState={{ selected }}
+      >
+        <Text style={styles.universalFlag}>🌐</Text>
+        <View style={styles.universalLabels}>
+          <Text style={styles.universalLabel}>Universal</Text>
+          <Text style={styles.universalHint}>
+            Whisper detecta el idioma automáticamente
+          </Text>
+        </View>
+        {selected ? <Text style={styles.check}>✓</Text> : null}
+      </Pressable>
+    );
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -168,6 +210,14 @@ export default function LanguagesComponent() {
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={
           <View>
+            {showUniversal ? (
+              <View>
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionTitle}>Detección automática</Text>
+                </View>
+                {renderUniversalRow()}
+              </View>
+            ) : null}
             {visibleRecommended.length > 0 ? (
               <View>
                 <View style={styles.sectionHeader}>
@@ -199,45 +249,11 @@ export default function LanguagesComponent() {
           </View>
         }
         ListEmptyComponent={
-          visibleRecommended.length === 0 ? (
+          visibleRecommended.length === 0 && !showUniversal ? (
             <Text style={styles.empty}>No hay idiomas que coincidan.</Text>
           ) : null
         }
-        renderSectionHeader={({ section }) =>
-          !section.title || section.data.length === 0 ? null : (
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>{section.title}</Text>
-            </View>
-          )
-        }
-        renderItem={({ item }) => {
-          if (item.id === "universal") {
-            const selected = inputLanguage.kind === "universal";
-            return (
-              <Pressable
-                style={({ pressed }) => [
-                  styles.universalRow,
-                  selected && styles.universalSelected,
-                  pressed && styles.universalPressed,
-                ]}
-                onPress={handleSelectUniversal}
-                accessibilityRole="radio"
-                accessibilityState={{ selected }}
-              >
-                <Text style={styles.universalFlag}>🌐</Text>
-                <View style={styles.universalLabels}>
-                  <Text style={styles.universalLabel}>Universal</Text>
-                  <Text style={styles.universalHint}>
-                    Whisper detecta el idioma automáticamente
-                  </Text>
-                </View>
-                {selected ? <Text style={styles.check}>✓</Text> : null}
-              </Pressable>
-            );
-          }
-
-          return renderLanguageRow(item as TraductorLanguage);
-        }}
+        renderItem={({ item }) => renderLanguageRow(item)}
       />
     </SafeAreaView>
   );

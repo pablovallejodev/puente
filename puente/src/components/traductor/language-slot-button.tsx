@@ -4,6 +4,7 @@ import { useRouter } from "expo-router";
 import type { TraductorLanguage } from "@/constants/traductor-languages";
 import { getDeviceLocaleTag } from "@/constants/languages";
 import { LanguageFlag } from "@/components/shared/language-flag";
+import type { LanguagePickerSlot } from "@/lib/blocked-language-ids";
 import {
   getTraductorLanguageDisplayName,
   resolveUiLocale,
@@ -15,29 +16,32 @@ type LanguageSlotButtonProps =
       slot: "input";
       kind: "universal" | "fixed";
       language?: TraductorLanguage;
+      slotLabel?: string;
     }
   | {
-      slot: "output";
+      slot: "output" | "lang2";
       language: TraductorLanguage;
+      slotLabel: string;
     };
 
 export function LanguageSlotButton(props: LanguageSlotButtonProps) {
   const router = useRouter();
+  const pickerSlot: LanguagePickerSlot = props.slot;
 
   const goToLanguages = () => {
     router.push({
       pathname: "/languages",
-      params: { slot: props.slot },
+      params: { slot: pickerSlot },
     });
   };
 
   const isUniversal = props.slot === "input" && props.kind === "universal";
   const language =
-    props.slot === "output"
-      ? props.language
-      : props.kind === "fixed"
+    props.slot === "input"
+      ? props.kind === "fixed"
         ? props.language
-        : undefined;
+        : undefined
+      : props.language;
 
   const label = isUniversal
     ? "Universal"
@@ -47,7 +51,14 @@ export function LanguageSlotButton(props: LanguageSlotButtonProps) {
           resolveUiLocale(getDeviceLocaleTag()),
         )
       : "—";
-  const slotLabel = props.slot === "input" ? "Origen" : "Traduce a";
+
+  const slotLabel =
+    props.slotLabel ??
+    (props.slot === "input"
+      ? "Origen"
+      : props.slot === "output"
+        ? "Traduce a"
+        : "Idioma 2");
 
   return (
     <Pressable

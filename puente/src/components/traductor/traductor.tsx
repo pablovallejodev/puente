@@ -18,6 +18,7 @@ import {
 import { ChatHeadComponent } from "@/components/basics/headers";
 import { ChatMessageItem } from "@/components/traductor/chat-message-item";
 import { LanguageSlotButton } from "@/components/traductor/language-slot-button";
+import { ModeMenuButton } from "@/components/traductor/mode-menu-button";
 import {
   findTraductorLanguageById,
   findTraductorLanguageByLocale,
@@ -33,11 +34,13 @@ import {
 import { useTranslator } from "@/hooks/use-translator";
 import { readMicPaused, writeMicPaused } from "@/lib/model-preferences";
 import { resolveSpeechDisableMode } from "@/lib/speech-disable-mode";
+import { resolveTranslationTarget } from "@/lib/traductor-target";
 import { STANDARD_HORIZONTAL_PADDING } from "@/constants/ui";
 import { StatusBarDarkComponent } from "@/utils/statusbar";
 import { theme } from "@/constants/theme";
 
 const directionArrowIcon = require("@/assets/icons/arrows/white/right.png");
+const directionArrowLeftIcon = require("@/assets/icons/arrows/white/left.png");
 const micOnIcon = require("@/assets/icons/mic/white.png");
 const micOffIcon = require("@/assets/icons/mic/off.png");
 
@@ -73,7 +76,15 @@ export default function TraductorComponent() {
     }, []),
   );
 
-  const { inputLanguage, outputLanguage, baseHydrated } = useTraductorSession();
+  const {
+    mode,
+    setMode,
+    modeMenuInitiallyOpen,
+    inputLanguage,
+    outputLanguage,
+    languageTwo,
+    baseHydrated,
+  } = useTraductorSession();
 
   const {
     messages,
@@ -145,9 +156,10 @@ export default function TraductorComponent() {
   }, []);
 
   const speechInput: SpeechInputMode = useMemo(() => {
+    if (mode === "conversation") return { mode: "auto" };
     if (inputLanguage.kind === "universal") return { mode: "auto" };
     return { mode: "fixed", locale: inputLanguage.language.speechLocale };
-  }, [inputLanguage]);
+  }, [inputLanguage, mode]);
 
   const prefsReady = baseHydrated && micHydrated;
   const speechEnabled = isFocused && prefsReady && !micPaused;
@@ -194,9 +206,13 @@ export default function TraductorComponent() {
   const handleTranscriptionStart = useCallback(() => {
     if (pendingIdRef.current) return;
     const sourceLanguageId =
-      inputLanguage.kind === "fixed" ? inputLanguage.language.id : "und";
+      mode === "conversation"
+        ? "und"
+        : inputLanguage.kind === "fixed"
+          ? inputLanguage.language.id
+          : "und";
     pendingIdRef.current = beginPendingTranscript(sourceLanguageId);
-  }, [beginPendingTranscript, inputLanguage]);
+  }, [beginPendingTranscript, inputLanguage, mode]);
 
   const handleTranscriptionEnd = useCallback(
     (outcome: TranscriptionOutcome) => {
@@ -222,7 +238,7 @@ export default function TraductorComponent() {
     (text: string, _isFinal: boolean, detectedLocale?: string) => {
       const locale =
         detectedLocale ??
-        (inputLanguage.kind === "fixed"
+        (mode === "one_way" && inputLanguage.kind === "fixed"
           ? inputLanguage.language.speechLocale
           : "");
       const trimmed = text.trim();
@@ -245,11 +261,18 @@ export default function TraductorComponent() {
         : appendFinalTranscript(trimmed, sourceLanguageId);
       if (!messageId) return;
 
+      const targetLocale = resolveTranslationTarget({
+        mode,
+        detectedLocale: locale,
+        languageOne: outputLanguage,
+        languageTwo,
+      });
+
       enqueueTranslation({
         messageId,
         text: trimmed,
         inputLocale: locale,
-        outputLanguage: outputLanguage.speechLocale,
+        outputLanguage: targetLocale,
       });
     },
     [
@@ -259,7 +282,9 @@ export default function TraductorComponent() {
       enqueueTranslation,
       failPendingWithDismiss,
       inputLanguage,
-      outputLanguage.speechLocale,
+      languageTwo,
+      mode,
+      outputLanguage,
     ],
   );
 
@@ -276,6 +301,7 @@ export default function TraductorComponent() {
     onInterimTranscript: handleFinalTranscript,
     enabled: speechEnabled,
     disableMode: speechDisableMode,
+    clearStickyAfterAccept: mode === "conversation",
   });
 
   const { isReady: modelsReady, booting: modelsBooting } = useModelCatalog();
@@ -399,33 +425,47 @@ export default function TraductorComponent() {
       ) : null}
 
       <View style={styles.bottomPanel}>
-        <View style={styles.micRow}>
-          <Pressable
-            style={({ pressed }) => [
-              styles.micButton,
-              micPaused && styles.micButtonPaused,
-              pressed && styles.micButtonPressed,
-            ]}
-            onPress={toggleMicPaused}
-            accessibilityRole="button"
-            accessibilityState={{ checked: !micPaused }}
-            accessibilityLabel={
-              micPaused ? "Reanudar micrófono" : "Pausar micrófono"
-            }
-            hitSlop={8}
-          >
-            <Image
-              source={micPaused ? micOffIcon : micOnIcon}
-              style={[
-                styles.micIcon,
-                micPaused && styles.micIconPaused,
+        <View style={styles.controlsRow}>
+          <View style={styles.controlsSide} />
+          <ModeMenuButton
+            mode={mode}
+            onChangeMode={setMode}
+            initiallyOpen={modeMenuInitiallyOpen}
+          />
+          <View style={[styles.controlsSide, styles.controlsSideEnd]}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.micButton,
+                micPaused && styles.micButtonPaused,
+                pressed && styles.micButtonPressed,
               ]}
-              accessibilityIgnoresInvertColors
-            />
-          </Pressable>
+              onPress={toggleMicPaused}
+              accessibilityRole="button"
+              accessibilityState={{ checked: !micPaused }}
+              accessibilityLabel={
+                micPaused ? "Reanudar micrófono" : "Pausar micrófono"
+              }
+              hitSlop={8}
+            >
+              <Image
+                source={micPaused ? micOffIcon : micOnIcon}
+                style={[
+                  styles.micIcon,
+                  micPaused && styles.micIconPaused,
+                ]}
+                accessibilityIgnoresInvertColors
+              />
+            </Pressable>
+          </View>
         </View>
         <View style={styles.languagePair}>
-          {inputLanguage.kind === "universal" ? (
+          {mode === "conversation" ? (
+            <LanguageSlotButton
+              slot="output"
+              language={outputLanguage}
+              slotLabel="Idioma 1"
+            />
+          ) : inputLanguage.kind === "universal" ? (
             <LanguageSlotButton slot="input" kind="universal" />
           ) : (
             <LanguageSlotButton
@@ -435,17 +475,46 @@ export default function TraductorComponent() {
             />
           )}
           <View style={styles.directionMark} accessibilityElementsHidden>
-            <Image
-              source={directionArrowIcon}
-              style={styles.directionArrowIcon}
-              accessibilityIgnoresInvertColors
-            />
+            {mode === "conversation" ? (
+              <View style={styles.bidirectionalMark}>
+                <Image
+                  source={directionArrowIcon}
+                  style={styles.directionArrowIconBi}
+                  accessibilityIgnoresInvertColors
+                />
+                <Image
+                  source={directionArrowLeftIcon}
+                  style={styles.directionArrowIconBi}
+                  accessibilityIgnoresInvertColors
+                />
+              </View>
+            ) : (
+              <Image
+                source={directionArrowIcon}
+                style={styles.directionArrowIcon}
+                accessibilityIgnoresInvertColors
+              />
+            )}
           </View>
-          <LanguageSlotButton slot="output" language={outputLanguage} />
+          {mode === "conversation" ? (
+            <LanguageSlotButton
+              slot="lang2"
+              language={languageTwo}
+              slotLabel="Idioma 2"
+            />
+          ) : (
+            <LanguageSlotButton
+              slot="output"
+              language={outputLanguage}
+              slotLabel="Traduce a"
+            />
+          )}
         </View>
-        <Text style={styles.helperText}>
-          Si la detección automática falla, fija el idioma de entrada.
-        </Text>
+        {mode === "one_way" && inputLanguage.kind === "universal" ? (
+          <Text style={styles.helperText}>
+            Si la detección automática falla, fija el idioma de entrada.
+          </Text>
+        ) : null}
       </View>
     </SafeAreaView>
   );
@@ -590,9 +659,16 @@ const styles = StyleSheet.create({
     borderBottomWidth: 0,
     borderColor: theme.colors.hairline,
   },
-  micRow: {
+  controlsRow: {
+    flexDirection: "row",
     alignItems: "center",
     marginBottom: theme.spacing.sm,
+  },
+  controlsSide: {
+    flex: 1,
+  },
+  controlsSideEnd: {
+    alignItems: "flex-end",
   },
   micButton: {
     width: 36,
@@ -636,6 +712,16 @@ const styles = StyleSheet.create({
   directionArrowIcon: {
     width: 13,
     height: 13,
+    tintColor: theme.colors.onAction,
+  },
+  bidirectionalMark: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 1,
+  },
+  directionArrowIconBi: {
+    width: 11,
+    height: 11,
     tintColor: theme.colors.onAction,
   },
   helperText: {
