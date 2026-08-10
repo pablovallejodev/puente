@@ -53,10 +53,17 @@ function testIdsAreUniqueAndResolvable(): void {
     // Ids are directory names on disk and, for sherpa, part of native model
     // detection. Anything outside this alphabet is a portability bug waiting.
     assert.match(spec.id, /^[a-z0-9][a-z0-9.-]*$/, `unsafe id: ${spec.id}`);
-    assert.match(spec.storage, /^[a-z0-9-]+$/, `unsafe storage: ${spec.storage}`);
+    assert.match(
+      spec.storage,
+      /^[a-z0-9-]+$/,
+      `unsafe storage: ${spec.storage}`,
+    );
   }
 
-  assert.equal(ALL_MODELS.length, ASR_MODELS.length + MT_MODELS.length + VAD_MODELS.length);
+  assert.equal(
+    ALL_MODELS.length,
+    ASR_MODELS.length + MT_MODELS.length + VAD_MODELS.length,
+  );
   // Narrowed lookups must not cross tasks.
   assert.equal(getAsrModelSpec(MT_MODELS[0].id), undefined);
   assert.equal(getMtModelSpec(ASR_MODELS[0].id), undefined);
@@ -81,7 +88,9 @@ function testFiles(): void {
         `${spec.id}: nested relativePath ${file.relativePath}`,
       );
       assert.ok(
-        file.url.startsWith(`https://huggingface.co/${spec.hfRepoId}/resolve/main/`),
+        file.url.startsWith(
+          `https://huggingface.co/${spec.hfRepoId}/resolve/main/`,
+        ),
         `${spec.id}: ${file.url} does not come from ${spec.hfRepoId}`,
       );
       assert.ok(
@@ -141,7 +150,9 @@ function testRuntimeFilesExist(): void {
       case "gguf-mt":
         required.push(runtime.ggufFile);
         assert.ok(runtime.contextSize >= 512, `${spec.id}: context too small`);
-        assert.ok(runtime.maxTokens > 0 && runtime.maxTokens < runtime.contextSize);
+        assert.ok(
+          runtime.maxTokens > 0 && runtime.maxTokens < runtime.contextSize,
+        );
         break;
       case "offline-asr":
         // sherpa is handed the whole directory and picks its own files, but its
@@ -183,8 +194,14 @@ function testMetadata(): void {
     assert.ok(spec.shortLabel.length > 0, `${spec.id}: no short label`);
     assert.ok(spec.qualityTag.length > 0, `${spec.id}: no quality tag`);
     assert.ok(spec.sourceNote.length > 20, `${spec.id}: source note too thin`);
-    assert.ok(ENGINE_LABEL[spec.runtime.engine], `${spec.id}: unlabelled engine`);
-    assert.ok(spec.license.url.startsWith("https://"), `${spec.id}: licence url`);
+    assert.ok(
+      ENGINE_LABEL[spec.runtime.engine],
+      `${spec.id}: unlabelled engine`,
+    );
+    assert.ok(
+      spec.license.url.startsWith("https://"),
+      `${spec.id}: licence url`,
+    );
 
     assert.ok(spec.languageIds.length > 0, `${spec.id}: no languages`);
     for (const id of spec.languageIds) {
