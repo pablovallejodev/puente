@@ -336,7 +336,7 @@ export default function ConfiguracionComponent() {
                         selectedMode && styles.modeBusySelected,
                       ]}
                     >
-                      Pausada · {pct}%
+                      Pausada
                     </Text>
                   ) : null}
                 </View>
