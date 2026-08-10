@@ -218,18 +218,6 @@ export default function LanguagesComponent() {
                 {renderUniversalRow()}
               </View>
             ) : null}
-            {visibleRecommended.length > 0 ? (
-              <View>
-                <View style={styles.sectionHeader}>
-                  <Text style={styles.sectionTitle}>Recomendados</Text>
-                </View>
-                {visibleRecommended.map((language) => (
-                  <View key={`reco-${language.id}`}>
-                    {renderLanguageRow(language)}
-                  </View>
-                ))}
-              </View>
-            ) : null}
             <View style={styles.allLanguagesBlock}>
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>Todos los idiomas</Text>
@@ -258,6 +246,21 @@ export default function LanguagesComponent() {
     </SafeAreaView>
   );
 }
+
+/*
+{visibleRecommended.length > 0 ? (
+  <View>
+    <View style={styles.sectionHeader}>
+      <Text style={styles.sectionTitle}>Recomendados</Text>
+    </View>
+    {visibleRecommended.map((language) => (
+      <View key={`reco-${language.id}`}>
+        {renderLanguageRow(language)}
+      </View>
+    ))}
+  </View>
+) : null}
+*/
 
 const styles = StyleSheet.create({
   safeArea: {
