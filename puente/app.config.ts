@@ -27,6 +27,9 @@ const config: ExpoConfig = {
       "android.permission.INTERNET",
       "android.permission.RECORD_AUDIO",
       "android.permission.MODIFY_AUDIO_SETTINGS",
+      "android.permission.FOREGROUND_SERVICE",
+      "android.permission.FOREGROUND_SERVICE_DATA_SYNC",
+      "android.permission.POST_NOTIFICATIONS",
     ],
     predictiveBackGestureEnabled: false,
     package: "dev.pablovallejo.puente",
@@ -37,6 +40,10 @@ const config: ExpoConfig = {
   plugins: [
     "./plugins/with-large-heap",
     "./plugins/with-ort-sherpa-packaging",
+    [
+      "@kesha-antonov/react-native-background-downloader",
+      { skipMmkvDependency: true },
+    ],
     "expo-router",
     [
       "expo-splash-screen",
