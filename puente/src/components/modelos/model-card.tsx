@@ -35,7 +35,8 @@ export function ModelCard({
   companionPeakBytes = defaultCompanionPeakBytes(spec),
   onSelected,
 }: ModelCardProps) {
-  const { getModelState, download, select } = useModelCatalog();
+  const { getModelState, download, pauseDownload, resumeDownload, select } =
+    useModelCatalog();
   const state = getModelState(spec.id);
   const [busy, setBusy] = useState(false);
   const lowRam = isBelowRecommendedRam(spec, ramBytes, companionPeakBytes);
@@ -51,11 +52,34 @@ export function ModelCard({
         if (prefs[spec.task] === spec.id) onSelected();
       }
     } catch {
-      /* lastError shown globally */
+      /* paused or lastError shown globally */
     } finally {
       setBusy(false);
     }
   }, [download, onSelected, spec.id, spec.task]);
+
+  const onResume = useCallback(async () => {
+    setBusy(true);
+    try {
+      await resumeDownload(spec.id);
+      if (spec.task !== "vad" && onSelected) {
+        const prefs = await readModelPreferences();
+        if (prefs[spec.task] === spec.id) onSelected();
+      }
+    } catch {
+      /* paused or lastError */
+    } finally {
+      setBusy(false);
+    }
+  }, [onSelected, resumeDownload, spec.id, spec.task]);
+
+  const onPause = useCallback(async () => {
+    try {
+      await pauseDownload(spec.id);
+    } catch {
+      /* lastError */
+    }
+  }, [pauseDownload, spec.id]);
 
   const onSelect = useCallback(async () => {
     setBusy(true);
@@ -70,9 +94,11 @@ export function ModelCard({
   }, [onSelected, select, spec.id]);
 
   const downloading = state.status === "downloading";
+  const paused = state.status === "paused";
   const installed =
     state.status === "installed" || state.status === "selected";
   const selected = state.status === "selected";
+  const pct = Math.round(state.progress * 100);
 
   return (
     <View style={styles.card}>
@@ -129,10 +155,14 @@ export function ModelCard({
       {downloading ? (
         <View style={styles.progressBlock}>
           <ActivityIndicator size="small" color={theme.colors.text} />
-          <Text style={styles.progressText}>
-            Descargando… {Math.round(state.progress * 100)}%
-          </Text>
+          <Text style={styles.progressLabel}>Descargando… {pct}%</Text>
         </View>
+      ) : null}
+
+      {paused ? (
+        <Text style={[styles.progressLabel, styles.progressSpaced]}>
+          Pausada · {pct}%
+        </Text>
       ) : null}
 
       {state.error ? (
@@ -140,11 +170,28 @@ export function ModelCard({
       ) : null}
 
       <View style={styles.cardActions}>
-        {!installed ? (
+        {downloading ? (
+          <Pressable
+            style={styles.button}
+            onPress={() => void onPause()}
+            accessibilityRole="button"
+          >
+            <Text style={styles.buttonText}>Pausar</Text>
+          </Pressable>
+        ) : paused ? (
           <Pressable
             style={[styles.button, busy && styles.buttonDisabled]}
-            onPress={onDownload}
-            disabled={busy || downloading}
+            onPress={() => void onResume()}
+            disabled={busy}
+            accessibilityRole="button"
+          >
+            <Text style={styles.buttonText}>Reanudar</Text>
+          </Pressable>
+        ) : !installed ? (
+          <Pressable
+            style={[styles.button, busy && styles.buttonDisabled]}
+            onPress={() => void onDownload()}
+            disabled={busy}
             accessibilityRole="button"
           >
             <Text style={styles.buttonText}>Descargar</Text>
@@ -158,7 +205,7 @@ export function ModelCard({
         ) : (
           <Pressable
             style={[styles.button, busy && styles.buttonDisabled]}
-            onPress={onSelect}
+            onPress={() => void onSelect()}
             disabled={busy}
             accessibilityRole="button"
           >
@@ -257,10 +304,13 @@ const styles = StyleSheet.create({
     gap: theme.spacing.sm,
     marginTop: theme.spacing.ml,
   },
-  progressText: {
+  progressLabel: {
     fontFamily: theme.font.body,
     fontSize: theme.type.caption,
     color: theme.colors.text,
+  },
+  progressSpaced: {
+    marginTop: theme.spacing.ml,
   },
   cardError: {
     fontFamily: theme.font.body,

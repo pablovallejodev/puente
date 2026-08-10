@@ -47,7 +47,9 @@ if (
 
 function installProgress(state: ModelUiState): number {
   if (state.status === "installed" || state.status === "selected") return 1;
-  if (state.status === "downloading") return state.progress;
+  if (state.status === "downloading" || state.status === "paused") {
+    return state.progress;
+  }
   return 0;
 }
 
@@ -63,6 +65,7 @@ export default function ConfiguracionComponent() {
     lastError,
     clearError,
     download,
+    pauseDownload,
     applyModelPair,
     getModelState,
     selected,
@@ -103,7 +106,7 @@ export default function ConfiguracionComponent() {
 
   const customRamLabel = useMemo(() => {
     if (!selected.asr || !selected.mt) return null;
-    return `~${formatBytes(modePairPeakBytes(selected.asr, selected.mt))}`;
+    return `~${formatBytes(modePairPeakBytes(selected.asr, selected.mt))} RAM`;
   }, [selected.asr, selected.mt]);
 
   useEffect(() => {
@@ -118,7 +121,13 @@ export default function ConfiguracionComponent() {
 
   const onPreset = useCallback(
     async (mode: PresetMode) => {
-      if (activeMode === mode.id || busyModeId) return;
+      const asrState = getModelState(mode.asrId);
+      const mtState = getModelState(mode.mtId);
+      const pairReady =
+        (asrState.status === "installed" || asrState.status === "selected") &&
+        (mtState.status === "installed" || mtState.status === "selected");
+      if (activeMode === mode.id && pairReady) return;
+      if (busyModeId === mode.id) return;
       animateLayout();
       setCustomExpanded(false);
       setBusyModeId(mode.id);
@@ -126,24 +135,43 @@ export default function ConfiguracionComponent() {
       try {
         await applyModelPair(mode.asrId, mode.mtId);
       } catch {
-        /* lastError */
+        /* paused or lastError — busy cleared in finally */
       } finally {
         setBusyModeId(null);
       }
     },
-    [activeMode, applyModelPair, busyModeId, clearError],
+    [activeMode, applyModelPair, busyModeId, clearError, getModelState],
+  );
+
+  const onPauseMode = useCallback(
+    async (mode: PresetMode) => {
+      const asrState = getModelState(mode.asrId);
+      const mtState = getModelState(mode.mtId);
+      try {
+        if (asrState.status === "downloading") {
+          await pauseDownload(mode.asrId);
+        }
+        if (mtState.status === "downloading") {
+          await pauseDownload(mode.mtId);
+        }
+      } catch {
+        /* lastError */
+      } finally {
+        if (busyModeId === mode.id) setBusyModeId(null);
+      }
+    },
+    [busyModeId, getModelState, pauseDownload],
   );
 
   const showCustomSlots = activeMode === "personalizado" || customExpanded;
 
   const onToggleCustom = useCallback(() => {
-    if (busyModeId) return;
     // Active custom pair already shows the slots; tap is a no-op collapse/open
     // only when exploring before a non-preset pair is chosen.
     if (activeMode === "personalizado") return;
     animateLayout();
     setCustomExpanded((v) => !v);
-  }, [activeMode, busyModeId]);
+  }, [activeMode]);
 
   const goTraductor = useCallback(() => {
     if (!isReady) return;
@@ -231,6 +259,12 @@ export default function ConfiguracionComponent() {
             const busy = busyModeId === mode.id;
             const asrState = getModelState(mode.asrId);
             const mtState = getModelState(mode.mtId);
+            const modeDownloading =
+              asrState.status === "downloading" ||
+              mtState.status === "downloading";
+            const modePaused =
+              !modeDownloading &&
+              (asrState.status === "paused" || mtState.status === "paused");
             const pct = Math.round(
               ((installProgress(asrState) + installProgress(mtState)) / 2) *
                 100,
@@ -241,14 +275,15 @@ export default function ConfiguracionComponent() {
                 style={[
                   styles.modeButton,
                   selectedMode && styles.modeButtonSelected,
-                  busyModeId != null && !busy && styles.modeButtonDimmed,
                 ]}
-                onPress={() => void onPreset(mode)}
-                disabled={busyModeId != null}
+                onPress={() => {
+                  if (modeDownloading) return;
+                  void onPreset(mode);
+                }}
                 accessibilityRole="button"
                 accessibilityState={{
                   selected: selectedMode,
-                  busy,
+                  busy: modeDownloading || busy,
                 }}
               >
                 <View style={styles.modeTextCol}>
@@ -270,25 +305,71 @@ export default function ConfiguracionComponent() {
                       {mode.subtitle}
                     </Text>
                   ) : null}
-                  {busy ? (
+                  {modeDownloading || busy ? (
+                    <>
+                      <Text
+                        style={[
+                          styles.modeBusy,
+                          selectedMode && styles.modeBusySelected,
+                        ]}
+                      >
+                        {pct < 100
+                          ? `Descargando… ${pct}%`
+                          : "Seleccionando…"}
+                      </Text>
+                      {pct < 100 ? (
+                        <Text
+                          style={[
+                            styles.modeHint,
+                            selectedMode && styles.modeHintSelected,
+                          ]}
+                        >
+                          Puedes salir de la app; la descarga continúa.
+                        </Text>
+                      ) : null}
+                    </>
+                  ) : null}
+                  {modePaused ? (
                     <Text
                       style={[
                         styles.modeBusy,
                         selectedMode && styles.modeBusySelected,
                       ]}
                     >
-                      {pct < 100 ? `Descargando… ${pct}%` : "Seleccionando…"}
+                      Pausada · {pct}%
                     </Text>
                   ) : null}
                 </View>
-                <Text
-                  style={[
-                    styles.modeRam,
-                    selectedMode && styles.modeRamSelected,
-                  ]}
-                >
-                  ~{formatBytes(presetModePeakBytes(mode))}
-                </Text>
+                {modeDownloading ? (
+                  <Pressable
+                    style={[
+                      styles.pauseChip,
+                      selectedMode && styles.pauseChipSelected,
+                    ]}
+                    onPress={() => void onPauseMode(mode)}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Pausar descarga de ${mode.label}`}
+                  >
+                    <Text
+                      style={[
+                        styles.pauseChipText,
+                        selectedMode && styles.pauseChipTextSelected,
+                      ]}
+                    >
+                      Pausar
+                    </Text>
+                  </Pressable>
+                ) : (
+                  <Text
+                    style={[
+                      styles.modeRam,
+                      selectedMode && styles.modeRamSelected,
+                    ]}
+                  >
+                    ~{formatBytes(presetModePeakBytes(mode))} RAM
+                  </Text>
+                )}
               </Pressable>
             );
           })}
@@ -298,10 +379,8 @@ export default function ConfiguracionComponent() {
               style={[
                 styles.modeButton,
                 activeMode === "personalizado" && styles.modeButtonSelected,
-                busyModeId != null && styles.modeButtonDimmed,
               ]}
               onPress={onToggleCustom}
-              disabled={busyModeId != null}
               accessibilityRole="button"
               accessibilityState={{
                 selected: activeMode === "personalizado",
@@ -551,6 +630,16 @@ const styles = StyleSheet.create({
   modeBusySelected: {
     color: theme.colors.onAction,
   },
+  modeHint: {
+    fontFamily: theme.font.body,
+    fontSize: theme.type.micro,
+    color: theme.colors.textMuted,
+    marginTop: 2,
+  },
+  modeHintSelected: {
+    color: theme.colors.onAction,
+    opacity: 0.8,
+  },
   modeRam: {
     fontFamily: theme.font.body,
     fontSize: theme.type.caption,
@@ -560,6 +649,27 @@ const styles = StyleSheet.create({
   modeRamSelected: {
     color: theme.colors.onAction,
     opacity: 0.9,
+  },
+  pauseChip: {
+    flexShrink: 0,
+    borderWidth: 1,
+    borderColor: theme.colors.hairline,
+    borderRadius: theme.radius.md,
+    paddingVertical: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.md,
+    backgroundColor: theme.colors.background,
+  },
+  pauseChipSelected: {
+    borderColor: theme.colors.onAction,
+    backgroundColor: "transparent",
+  },
+  pauseChipText: {
+    fontFamily: theme.font.heading,
+    fontSize: theme.type.caption,
+    color: theme.colors.text,
+  },
+  pauseChipTextSelected: {
+    color: theme.colors.onAction,
   },
   customRow: {
     flexDirection: "row",
