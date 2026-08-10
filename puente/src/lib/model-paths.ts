@@ -39,6 +39,11 @@ export function getModelPartialDir(spec: ModelSpec): string {
   return `${getStorageDir(spec.storage)}${spec.id}.partial/`;
 }
 
+/** Persistent download job (active/paused) next to the partial dir. */
+export function getModelDownloadJobPath(spec: ModelSpec): string {
+  return `${getStorageDir(spec.storage)}${spec.id}.download.json`;
+}
+
 export function getModelFilePath(spec: ModelSpec, relativePath: string): string {
   return `${getModelDir(spec)}${relativePath}`;
 }
