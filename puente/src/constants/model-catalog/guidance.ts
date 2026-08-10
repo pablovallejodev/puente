@@ -14,7 +14,7 @@
  */
 
 /** Fraction of Device.totalMemory that ASR + MT + VAD may occupy together. */
-export const PAIR_BUDGET_FRACTION = 0.35;
+export const PAIR_BUDGET_FRACTION = 0.65;
 
 /**
  * Headroom already reserved by PAIR_BUDGET_FRACTION (the other 65% covers OS,
