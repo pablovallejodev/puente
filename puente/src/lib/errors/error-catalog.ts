@@ -54,7 +54,7 @@ const MODEL_DOCS: Record<string, ErrorDoc> = {
   MODEL_ALREADY_DOWNLOADING: {
     summary: "Ya hay una descarga en curso para ese modelo.",
     cause: "Doble pulsación o dos pantallas pidiendo la misma descarga.",
-    fix: "Espera a que termine, o cancélala con cancelModelDownload().",
+    fix: "Espera a que termine, páusala, o cancélala con cancelModelDownload().",
   },
   MODEL_DOWNLOAD_OFFLINE: {
     summary: "No hay conexión para descargar.",
@@ -69,13 +69,19 @@ const MODEL_DOCS: Record<string, ErrorDoc> = {
   },
   MODEL_DOWNLOAD_FAILED: {
     summary: "La descarga se interrumpió.",
-    cause: "Corte de red, cambio de Wi-Fi a datos, o la app pasó a segundo plano.",
-    fix: "Reintenta. La carpeta parcial se limpia sola en cada intento.",
+    cause:
+      "Corte de red, cambio de Wi-Fi a datos, o un error del descargador nativo. Pasar a segundo plano no debería abortar la descarga.",
+    fix: "Reintenta o reanuda. El parcial y el job se conservan para continuar.",
   },
   MODEL_DOWNLOAD_CANCELLED: {
     summary: "Descarga cancelada por el usuario.",
     cause: "Flujo normal, no es un fallo.",
     fix: "Ninguna acción necesaria.",
+  },
+  MODEL_DOWNLOAD_PAUSED: {
+    summary: "Descarga pausada.",
+    cause: "El usuario pausó la descarga, o se auto-pausó al iniciar otra.",
+    fix: "Pulsa Reanudar o vuelve a elegir el modo/modelo. El progreso se conserva.",
   },
   MODEL_DOWNLOAD_TIMEOUT: {
     summary: "La descarga superó el tiempo máximo.",
