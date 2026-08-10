@@ -239,7 +239,7 @@ function testModesAndPairBudget(): void {
   );
   assert.equal(
     resolveActiveMode(
-      "sherpa-parakeet-tdt-0.6b-v3-int8",
+      "sherpa-whisper-turbo-int8",
       "salamandrata-2b-instruct-q4",
     ),
     "europeo",

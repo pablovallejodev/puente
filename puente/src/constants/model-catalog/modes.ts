@@ -32,7 +32,7 @@ export const PRESET_MODES: readonly PresetMode[] = [
   {
     id: "europeo",
     label: "Europeo",
-    asrId: "sherpa-parakeet-tdt-0.6b-v3-int8",
+    asrId: "sherpa-whisper-turbo-int8",
     mtId: "salamandrata-2b-instruct-q4",
   },
   {
