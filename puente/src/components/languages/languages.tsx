@@ -248,6 +248,9 @@ export default function LanguagesComponent() {
 }
 
 /*
+TODO: mejorar el alcance segun región y idioma de telefono
+&& arreglar que en el modo infinito a 1 el segundo idioma (normalmente catalán) se muestra como bloqueado (porque está seleccionado como segundo idioma)
+
 {visibleRecommended.length > 0 ? (
   <View>
     <View style={styles.sectionHeader}>
