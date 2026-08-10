@@ -8,6 +8,10 @@ import {
   type ReactNode,
 } from "react";
 import * as Device from "expo-device";
+import {
+  activateKeepAwakeAsync,
+  deactivateKeepAwake,
+} from "expo-keep-awake";
 
 import {
   ALL_MODELS,
@@ -22,6 +26,9 @@ import {
 import {
   cancelModelDownload,
   downloadModel,
+  getInFlightDownloadProgress,
+  pauseModelDownload,
+  reattachModelDownloads,
   type DownloadProgress,
 } from "@/lib/model-downloader";
 import { isModelInstalled } from "@/lib/model-install-state";
@@ -41,6 +48,7 @@ import { resetAsrEngine, resetMtEngine } from "@/lib/engines";
 export type ModelInstallUiStatus =
   | "not_installed"
   | "downloading"
+  | "paused"
   | "installed"
   | "selected";
 
@@ -63,6 +71,8 @@ type ModelCatalogContextValue = {
   clearError: () => void;
   getModelState: (modelId: string) => ModelUiState;
   download: (modelId: string) => Promise<void>;
+  pauseDownload: (modelId: string) => Promise<void>;
+  resumeDownload: (modelId: string) => Promise<void>;
   cancelDownload: (modelId: string) => Promise<void>;
   select: (modelId: string) => Promise<void>;
   /** Download (if needed) and select both models of a preset pair. */
@@ -78,6 +88,7 @@ const ModelCatalogContext = createContext<ModelCatalogContextValue | null>(
 );
 
 const NO_SELECTION: ModelPreferences = { asr: null, mt: null };
+const KEEP_AWAKE_TAG = "model-download";
 
 function emptyStates(): Record<string, ModelUiState> {
   const out: Record<string, ModelUiState> = {};
@@ -93,6 +104,10 @@ function resetEngineForTask(task: SelectableTask): void {
   else resetMtEngine();
 }
 
+function isPausedError(err: unknown): boolean {
+  return isModelError(err) && err.code === "MODEL_DOWNLOAD_PAUSED";
+}
+
 export function ModelCatalogProvider({ children }: { children: ReactNode }) {
   const [booting, setBooting] = useState(true);
   const [ready, setReady] = useState(false);
@@ -103,6 +118,16 @@ export function ModelCatalogProvider({ children }: { children: ReactNode }) {
   const deviceModelName = Device.modelName;
   const totalMemoryBytes = Device.totalMemory;
 
+  const applyProgress = useCallback((p: DownloadProgress) => {
+    setStates((prev) => ({
+      ...prev,
+      [p.modelId]: {
+        status: p.paused ? "paused" : "downloading",
+        progress: p.progress,
+      },
+    }));
+  }, []);
+
   const refresh = useCallback(async () => {
     const prefs = await readModelPreferences();
     const chosen = new Set(
@@ -111,6 +136,14 @@ export function ModelCatalogProvider({ children }: { children: ReactNode }) {
     const next = emptyStates();
     for (const m of ALL_MODELS) {
       const installed = await isModelInstalled(m.id);
+      const inflight = getInFlightDownloadProgress(m.id);
+      if (inflight) {
+        next[m.id] = {
+          status: inflight.paused ? "paused" : "downloading",
+          progress: inflight.progress,
+        };
+        continue;
+      }
       next[m.id] = {
         status: !installed
           ? "not_installed"
@@ -130,6 +163,70 @@ export function ModelCatalogProvider({ children }: { children: ReactNode }) {
     (async () => {
       try {
         await refresh();
+        if (!mounted) return;
+        const snapshots = await reattachModelDownloads({
+          onProgress: applyProgress,
+          onComplete: async (modelId, selectOnComplete) => {
+            if (!mounted) return;
+            if (selectOnComplete) {
+              const spec = getModelSpec(modelId);
+              if (spec && spec.task !== "vad") {
+                const prefs = await readModelPreferences();
+                if (!prefs[spec.task]) {
+                  await setSelectedModelId(spec.task, modelId);
+                  resetEngineForTask(spec.task);
+                  setSelected((prev) =>
+                    prev[spec.task] === modelId
+                      ? prev
+                      : { ...prev, [spec.task]: modelId },
+                  );
+                }
+              }
+            }
+            await refresh();
+          },
+          onPaused: (modelId, progress) => {
+            if (!mounted) return;
+            setStates((prev) => ({
+              ...prev,
+              [modelId]: { status: "paused", progress },
+            }));
+          },
+          onFailed: (modelId, err, progress) => {
+            if (!mounted) return;
+            const modelErr = isModelError(err)
+              ? err
+              : wrapModelError(
+                  err,
+                  "download.file",
+                  "MODEL_DOWNLOAD_FAILED",
+                  true,
+                  { modelId },
+                );
+            setLastError(modelErr);
+            setStates((prev) => ({
+              ...prev,
+              [modelId]: {
+                status: "paused",
+                progress,
+                error: modelErr,
+              },
+            }));
+          },
+        });
+        if (!mounted) return;
+        if (snapshots.length > 0) {
+          setStates((prev) => {
+            const next = { ...prev };
+            for (const snap of snapshots) {
+              next[snap.modelId] = {
+                status: snap.paused ? "paused" : "downloading",
+                progress: snap.progress,
+              };
+            }
+            return next;
+          });
+        }
       } catch (err) {
         if (!mounted) return;
         setLastError(
@@ -145,7 +242,18 @@ export function ModelCatalogProvider({ children }: { children: ReactNode }) {
     return () => {
       mounted = false;
     };
-  }, [refresh]);
+  }, [applyProgress, refresh]);
+
+  useEffect(() => {
+    const active = Object.values(states).some(
+      (s) => s.status === "downloading",
+    );
+    if (active) void activateKeepAwakeAsync(KEEP_AWAKE_TAG);
+    else void deactivateKeepAwake(KEEP_AWAKE_TAG);
+    return () => {
+      void deactivateKeepAwake(KEEP_AWAKE_TAG);
+    };
+  }, [states]);
 
   const isReady = useMemo(() => {
     const usable = (id: string | null) => {
@@ -192,34 +300,45 @@ export function ModelCatalogProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const maybeAutoSelect = useCallback(
+    async (modelId: string) => {
+      const spec = getModelSpec(modelId);
+      if (!spec || spec.task === "vad") return;
+      const prefs = await readModelPreferences();
+      if (!prefs[spec.task]) await applySelection(spec.task, modelId);
+    },
+    [applySelection],
+  );
+
   const download = useCallback(
     async (modelId: string) => {
-      const spec = requireSpec(modelId);
+      requireSpec(modelId);
 
       setLastError(null);
       setStates((prev) => ({
         ...prev,
-        [modelId]: { status: "downloading", progress: 0 },
+        [modelId]: {
+          status: "downloading",
+          progress: prev[modelId]?.progress ?? 0,
+        },
       }));
 
       try {
-        await downloadModel(modelId, (p: DownloadProgress) => {
-          setStates((prev) => ({
-            ...prev,
-            [modelId]: { status: "downloading", progress: p.progress },
-          }));
-        });
-
-        // First model downloaded for a task becomes the active one, so the
-        // common case needs no second tap. The VAD has no selection: it is
-        // used whenever it is installed.
-        if (spec.task !== "vad") {
-          const prefs = await readModelPreferences();
-          if (!prefs[spec.task]) await applySelection(spec.task, modelId);
-        }
-
+        await downloadModel(modelId, applyProgress);
+        await maybeAutoSelect(modelId);
         await refresh();
       } catch (err) {
+        if (isPausedError(err)) {
+          setLastError(null);
+          setStates((prev) => ({
+            ...prev,
+            [modelId]: {
+              status: "paused",
+              progress: prev[modelId]?.progress ?? 0,
+            },
+          }));
+          throw err;
+        }
         const modelErr = isModelError(err)
           ? err
           : wrapModelError(
@@ -229,23 +348,47 @@ export function ModelCatalogProvider({ children }: { children: ReactNode }) {
               true,
               { modelId },
             );
+        // Soft fail keeps partial — show paused with error, not wipe to 0.
+        const inflight = getInFlightDownloadProgress(modelId);
         setLastError(modelErr);
         setStates((prev) => ({
           ...prev,
           [modelId]: {
-            status: "not_installed",
-            progress: 0,
+            status: inflight ? "paused" : "not_installed",
+            progress: inflight?.progress ?? 0,
             error: modelErr,
           },
         }));
         throw modelErr;
       }
     },
-    [applySelection, refresh, requireSpec],
+    [applyProgress, maybeAutoSelect, refresh, requireSpec],
+  );
+
+  const pauseDownload = useCallback(async (modelId: string) => {
+    await pauseModelDownload(modelId);
+    setStates((prev) => ({
+      ...prev,
+      [modelId]: {
+        status: "paused",
+        progress: prev[modelId]?.progress ?? 0,
+      },
+    }));
+  }, []);
+
+  const resumeDownload = useCallback(
+    async (modelId: string) => {
+      await download(modelId);
+    },
+    [download],
   );
 
   const cancelDownload = useCallback(async (modelId: string) => {
     await cancelModelDownload(modelId);
+    setStates((prev) => ({
+      ...prev,
+      [modelId]: { status: "not_installed", progress: 0 },
+    }));
   }, []);
 
   const select = useCallback(
@@ -301,6 +444,10 @@ export function ModelCatalogProvider({ children }: { children: ReactNode }) {
           await select(modelId);
         }
       } catch (err) {
+        if (isPausedError(err)) {
+          setLastError(null);
+          throw err;
+        }
         if (isModelError(err)) setLastError(err);
         throw err;
       }
@@ -320,6 +467,8 @@ export function ModelCatalogProvider({ children }: { children: ReactNode }) {
       clearError: () => setLastError(null),
       getModelState,
       download,
+      pauseDownload,
+      resumeDownload,
       cancelDownload,
       select,
       applyModelPair,
@@ -338,6 +487,8 @@ export function ModelCatalogProvider({ children }: { children: ReactNode }) {
       lastError,
       getModelState,
       download,
+      pauseDownload,
+      resumeDownload,
       cancelDownload,
       select,
       applyModelPair,
