@@ -2,7 +2,7 @@
   "name": "puente",
   "main": "expo-router/entry",
   "version": "1.0.0",
-  "packageManager": "pnpm@11.1.3",
+  "packageManager": "pnpm@11.21.0",
   "scripts": {
     "clear": "rm -r ./android && rm -r ./ios",
     "rebuild": "npx expo prebuild --clean",
