@@ -1,9 +1,0 @@
-node_modules/
-
-npm-debug.*
-yarn-debug.*
-yarn-error.*
-
-*.apk
-.env
-expo-env.d.ts
