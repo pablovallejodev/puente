@@ -18,7 +18,7 @@ export default function RootLayout() {
     if (loaded) SplashScreen.hideAsync();
 
     if (!loaded && !!error) return console.log(`TEXT FONT ERROR ${loaded} ${error}`);
-  }, [loaded]);
+  }, [loaded, error]);
 
   if (!loaded) return null;
 
