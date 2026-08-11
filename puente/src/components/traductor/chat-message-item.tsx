@@ -16,7 +16,9 @@ function ChatMessageItemComponent({
   message,
   isLatest,
 }: ChatMessageItemProps) {
+  // eslint-disable-next-line react-hooks/refs
   const bodyOpacity = useRef(new Animated.Value(1)).current;
+  // eslint-disable-next-line react-hooks/refs
   const translationOpacity = useRef(
     new Animated.Value(message.translated ? 1 : 0),
   ).current;
