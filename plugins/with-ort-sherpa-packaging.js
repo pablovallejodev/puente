@@ -9,42 +9,38 @@
  *
  * Also keeps local-machine knobs so mergeDexRelease does not OOM on 16 GB hosts.
  */
-const {
-  withAppBuildGradle,
-  withGradleProperties,
-  createRunOncePlugin,
-} = require("expo/config-plugins");
+const { withAppBuildGradle, withGradleProperties, createRunOncePlugin } = require('expo/config-plugins');
 
-const PICK_FIRST_KEY = "android.packagingOptions.pickFirsts";
-const PICK_FIRST_ENTRY = "**/libonnxruntime.so";
-const SNIPPET_MARKER = "// @generated begin puente-ort-sherpa-packaging";
-const SNIPPET_END = "// @generated end puente-ort-sherpa-packaging";
+const PICK_FIRST_KEY = 'android.packagingOptions.pickFirsts';
+const PICK_FIRST_ENTRY = '**/libonnxruntime.so';
+const SNIPPET_MARKER = '// @generated begin puente-ort-sherpa-packaging';
+const SNIPPET_END = '// @generated end puente-ort-sherpa-packaging';
 
 const PROPS = [
   [PICK_FIRST_KEY, PICK_FIRST_ENTRY],
-  ["org.gradle.jvmargs", "-Xmx4096m -XX:MaxMetaspaceSize=512m"],
-  ["org.gradle.workers.max", "2"],
-  ["org.gradle.parallel", "false"],
-  ["reactNativeArchitectures", "arm64-v8a"],
+  ['org.gradle.jvmargs', '-Xmx4096m -XX:MaxMetaspaceSize=512m'],
+  ['org.gradle.workers.max', '2'],
+  ['org.gradle.parallel', 'false'],
+  ['reactNativeArchitectures', 'arm64-v8a'],
 ];
 
 function setProperty(modResults, key, value) {
-  const existing = modResults.find((p) => p.type === "property" && p.key === key);
+  const existing = modResults.find((p) => p.type === 'property' && p.key === key);
   if (existing) {
     if (key === PICK_FIRST_KEY) {
       const parts = String(existing.value)
-        .split(",")
+        .split(',')
         .map((s) => s.trim())
         .filter(Boolean);
       if (!parts.includes(PICK_FIRST_ENTRY)) {
         parts.push(PICK_FIRST_ENTRY);
-        existing.value = parts.join(",");
+        existing.value = parts.join(',');
       }
     } else {
       existing.value = value;
     }
   } else {
-    modResults.push({ type: "property", key, value });
+    modResults.push({ type: 'property', key, value });
   }
 }
 
@@ -190,13 +186,10 @@ function withOrtSherpaPackaging(config) {
       const start = contents.indexOf(SNIPPET_MARKER);
       const end = contents.indexOf(SNIPPET_END);
       if (end !== -1) {
-        contents =
-          contents.slice(0, start) +
-          GRADLE_SNIPPET.trimStart() +
-          contents.slice(end + SNIPPET_END.length);
+        contents = contents.slice(0, start) + GRADLE_SNIPPET.trimStart() + contents.slice(end + SNIPPET_END.length);
       }
     } else {
-      contents = contents.trimEnd() + "\n" + GRADLE_SNIPPET;
+      contents = contents.trimEnd() + '\n' + GRADLE_SNIPPET;
     }
     c.modResults.contents = contents;
     return c;
@@ -205,8 +198,4 @@ function withOrtSherpaPackaging(config) {
   return config;
 }
 
-module.exports = createRunOncePlugin(
-  withOrtSherpaPackaging,
-  "with-ort-sherpa-packaging",
-  "1.1.0",
-);
+module.exports = createRunOncePlugin(withOrtSherpaPackaging, 'with-ort-sherpa-packaging', '1.1.0');

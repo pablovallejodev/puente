@@ -10,7 +10,7 @@ export type ScheduledJob = {
   key: string;
 };
 
-export type JobState = "queued" | "translating" | "done" | "error";
+export type JobState = 'queued' | 'translating' | 'done' | 'error';
 
 export type SchedulerCallbacks<T extends ScheduledJob> = {
   onState?: (job: T, state: JobState) => void;
@@ -53,13 +53,13 @@ export class LatestFirstPreserveScheduler<T extends ScheduledJob> {
         this.active.cancelled = true;
         if (!this.pending.some((j) => j.id === interrupted.id)) {
           this.pending.unshift(interrupted);
-          this.callbacks.onState?.(interrupted, "queued");
+          this.callbacks.onState?.(interrupted, 'queued');
         }
       }
     }
 
     this.pending.unshift(job);
-    this.callbacks.onState?.(job, "queued");
+    this.callbacks.onState?.(job, 'queued');
     void this.pump();
   }
 
@@ -71,13 +71,13 @@ export class LatestFirstPreserveScheduler<T extends ScheduledJob> {
         const job = this.pending.shift()!;
         const slot = { job, cancelled: false };
         this.active = slot;
-        this.callbacks.onState?.(job, "translating");
+        this.callbacks.onState?.(job, 'translating');
         let ok = false;
         try {
           ok = await this.callbacks.execute(job, () => slot.cancelled);
         } catch {
           if (!slot.cancelled) {
-            this.callbacks.onState?.(job, "error");
+            this.callbacks.onState?.(job, 'error');
           }
           continue;
         } finally {
@@ -89,7 +89,7 @@ export class LatestFirstPreserveScheduler<T extends ScheduledJob> {
           // Preempted different-id: already re-queued in enqueue.
           continue;
         }
-        this.callbacks.onState?.(job, ok ? "done" : "error");
+        this.callbacks.onState?.(job, ok ? 'done' : 'error');
       }
     } finally {
       this.pumping = false;

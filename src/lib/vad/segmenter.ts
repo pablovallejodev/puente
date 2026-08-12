@@ -12,7 +12,7 @@
  * inline; the pump drains whatever accumulated.
  */
 
-import type { SpeechDetector } from "./detector";
+import type { SpeechDetector } from './detector';
 
 export const SAMPLE_RATE = 16000;
 
@@ -51,13 +51,10 @@ export class SpeechSegmenter {
     this.detector = detector;
     this.onSpeechChunk = callbacks.onSpeechChunk;
     this.frameSamples = detector.frameSamples;
-    this.minActiveFrames = Math.max(
-      1,
-      Math.ceil(msToSamples(MIN_SPEECH_MS) / this.frameSamples),
-    );
+    this.minActiveFrames = Math.max(1, Math.ceil(msToSamples(MIN_SPEECH_MS) / this.frameSamples));
   }
 
-  get detectorId(): SpeechDetector["id"] {
+  get detectorId(): SpeechDetector['id'] {
     return this.detector.id;
   }
 
@@ -140,9 +137,7 @@ export class SpeechSegmenter {
     // drain runs at a time and every trim below is synchronous.
     this.analyzed += this.frameSamples;
 
-    const threshold = this.speechStarted
-      ? this.detector.continueThreshold
-      : this.detector.startThreshold;
+    const threshold = this.speechStarted ? this.detector.continueThreshold : this.detector.startThreshold;
 
     if (score >= threshold) {
       this.speechStarted = true;
@@ -190,10 +185,7 @@ export class SpeechSegmenter {
     if (this.buffer.length >= maxSamples) {
       end = maxSamples;
     } else {
-      const trim = Math.max(
-        0,
-        this.silenceSamples - msToSamples(TRAILING_KEEP_MS),
-      );
+      const trim = Math.max(0, this.silenceSamples - msToSamples(TRAILING_KEEP_MS));
       end = Math.max(msToSamples(MIN_SPEECH_MS), end - trim);
     }
     this.emitSlice(end);
@@ -210,10 +202,7 @@ export class SpeechSegmenter {
   /** Emit [0, end) and keep the exact remainder as the head of the next utterance. */
   private emitSlice(end: number): void {
     const cut = Math.max(0, Math.min(end, this.buffer.length));
-    if (
-      cut < msToSamples(MIN_SPEECH_MS) ||
-      this.activeFrames < this.minActiveFrames
-    ) {
+    if (cut < msToSamples(MIN_SPEECH_MS) || this.activeFrames < this.minActiveFrames) {
       this.reset();
       return;
     }

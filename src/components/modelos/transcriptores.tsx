@@ -1,33 +1,20 @@
-import {
-  ActivityIndicator,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { router } from "expo-router";
-import { useCallback } from "react";
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { router } from 'expo-router';
+import { useCallback } from 'react';
 
-import { StandardHeadComponent } from "@/components/basics/headers";
-import { ModelCard } from "@/components/modelos/model-card";
-import {
-  defaultCompanionPeakBytes,
-  getModelSpec,
-} from "@/constants/model-catalog";
-import { STANDARD_HORIZONTAL_PADDING } from "@/constants/ui";
-import { useModelCatalog } from "@/contexts/model-catalog-context";
-import { StatusBarDarkComponent } from "@/utils/statusbar";
-import { theme } from "@/constants/theme";
+import { StandardHeadComponent } from '@/components/basics/headers';
+import { ModelCard } from '@/components/modelos/model-card';
+import { defaultCompanionPeakBytes, getModelSpec } from '@/constants/model-catalog';
+import { STANDARD_HORIZONTAL_PADDING } from '@/constants/ui';
+import { useModelCatalog } from '@/contexts/model-catalog-context';
+import { StatusBarDarkComponent } from '@/utils/statusbar';
+import { theme } from '@/constants/theme';
 
 export default function TranscriptoresComponent() {
-  const { booting, totalMemoryBytes, lastError, selected, asrModels } =
-    useModelCatalog();
+  const { booting, totalMemoryBytes, lastError, selected, asrModels } = useModelCatalog();
 
-  const companionPeak =
-    selected.mt != null
-      ? (getModelSpec(selected.mt)?.peakRamBytes ?? 0)
-      : undefined;
+  const companionPeak = selected.mt != null ? (getModelSpec(selected.mt)?.peakRamBytes ?? 0) : undefined;
 
   const onSelected = useCallback(() => {
     router.back();
@@ -48,15 +35,8 @@ export default function TranscriptoresComponent() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBarDarkComponent />
-      <StandardHeadComponent
-        titleText="Transcriptores"
-        loading={false}
-        onBack={() => router.back()}
-      />
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
-      >
+      <StandardHeadComponent titleText="Transcriptores" loading={false} onBack={() => router.back()} />
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         {lastError ? (
           <View style={styles.errorBox}>
             <Text style={styles.errorText}>{lastError.toDisplayString()}</Text>
@@ -67,9 +47,7 @@ export default function TranscriptoresComponent() {
             key={spec.id}
             spec={spec}
             ramBytes={totalMemoryBytes}
-            companionPeakBytes={
-              companionPeak ?? defaultCompanionPeakBytes(spec)
-            }
+            companionPeakBytes={companionPeak ?? defaultCompanionPeakBytes(spec)}
             onSelected={onSelected}
           />
         ))}
@@ -85,8 +63,8 @@ const styles = StyleSheet.create({
   },
   boot: {
     flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
+    justifyContent: 'center',
+    alignItems: 'center',
     gap: 12,
   },
   bootText: {

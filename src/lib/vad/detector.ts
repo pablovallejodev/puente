@@ -11,7 +11,7 @@
  */
 export interface SpeechDetector {
   /** Human-readable, surfaced in diagnostics so we know which one ran. */
-  readonly id: "silero" | "energy";
+  readonly id: 'silero' | 'energy';
   /** Window size the detector expects, in samples at 16 kHz. */
   readonly frameSamples: number;
   /** Score at or above which silence becomes speech. */

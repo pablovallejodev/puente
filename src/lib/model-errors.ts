@@ -11,45 +11,45 @@ import {
   looksLikeDiskFull,
   type DiagnosticContext,
   type DiagnosticInfo,
-} from "@/lib/errors/diagnostic";
+} from '@/lib/errors/diagnostic';
 
 export type ModelStage =
-  | "catalog.resolve"
-  | "prefs.read"
-  | "prefs.write"
-  | "network.check"
-  | "download.start"
-  | "download.file"
-  | "download.verify"
-  | "download.finalize"
-  | "install.check"
-  | "select.apply"
-  | "engine.load"
-  | "storage.space"
-  | "gate.ready";
+  | 'catalog.resolve'
+  | 'prefs.read'
+  | 'prefs.write'
+  | 'network.check'
+  | 'download.start'
+  | 'download.file'
+  | 'download.verify'
+  | 'download.finalize'
+  | 'install.check'
+  | 'select.apply'
+  | 'engine.load'
+  | 'storage.space'
+  | 'gate.ready';
 
 /** Runtime list so `check:errors` can prove every code is documented. */
 export const MODEL_ERROR_CODES = [
-  "MODEL_UNKNOWN_ID",
-  "MODEL_NOT_INSTALLED",
-  "MODEL_INCOMPLETE",
-  "MODEL_SIZE_MISMATCH",
-  "MODEL_ALREADY_DOWNLOADING",
-  "MODEL_DOWNLOAD_OFFLINE",
-  "MODEL_DOWNLOAD_HTTP",
-  "MODEL_DOWNLOAD_FAILED",
-  "MODEL_DOWNLOAD_CANCELLED",
-  "MODEL_DOWNLOAD_PAUSED",
-  "MODEL_DOWNLOAD_TIMEOUT",
-  "MODEL_DISK_FULL",
-  "MODEL_FINALIZE_FAILED",
-  "MODEL_SELECT_NOT_INSTALLED",
-  "MODEL_SELECT_FAILED",
-  "MODEL_PREFS_READ_FAILED",
-  "MODEL_PREFS_WRITE_FAILED",
-  "MODEL_DELETE_ACTIVE_FORBIDDEN",
-  "MODEL_ENGINE_PATH_MISSING",
-  "MODEL_GATE_INCOMPLETE",
+  'MODEL_UNKNOWN_ID',
+  'MODEL_NOT_INSTALLED',
+  'MODEL_INCOMPLETE',
+  'MODEL_SIZE_MISMATCH',
+  'MODEL_ALREADY_DOWNLOADING',
+  'MODEL_DOWNLOAD_OFFLINE',
+  'MODEL_DOWNLOAD_HTTP',
+  'MODEL_DOWNLOAD_FAILED',
+  'MODEL_DOWNLOAD_CANCELLED',
+  'MODEL_DOWNLOAD_PAUSED',
+  'MODEL_DOWNLOAD_TIMEOUT',
+  'MODEL_DISK_FULL',
+  'MODEL_FINALIZE_FAILED',
+  'MODEL_SELECT_NOT_INSTALLED',
+  'MODEL_SELECT_FAILED',
+  'MODEL_PREFS_READ_FAILED',
+  'MODEL_PREFS_WRITE_FAILED',
+  'MODEL_DELETE_ACTIVE_FORBIDDEN',
+  'MODEL_ENGINE_PATH_MISSING',
+  'MODEL_GATE_INCOMPLETE',
 ] as const;
 
 export type ModelErrorCode = (typeof MODEL_ERROR_CODES)[number];
@@ -58,8 +58,8 @@ export type ModelErrorInfo = DiagnosticInfo<ModelErrorCode, ModelStage>;
 
 export class ModelError extends DiagnosticError<ModelErrorCode, ModelStage> {
   constructor(info: ModelErrorInfo) {
-    super("model", info);
-    this.name = "ModelError";
+    super('model', info);
+    this.name = 'ModelError';
   }
 }
 
@@ -82,8 +82,8 @@ export function wrapModelError(
   const cause = causeMessage(err);
   const diskFull = looksLikeDiskFull(cause);
   return new ModelError({
-    code: diskFull ? "MODEL_DISK_FULL" : code,
-    stage: diskFull ? "storage.space" : stage,
+    code: diskFull ? 'MODEL_DISK_FULL' : code,
+    stage: diskFull ? 'storage.space' : stage,
     message: cause,
     recoverable: diskFull ? true : recoverable,
     context,

@@ -1,8 +1,8 @@
-import { memo } from "react";
-import { StyleSheet, View } from "react-native";
-import LottieView from "lottie-react-native";
+import { memo } from 'react';
+import { StyleSheet, View } from 'react-native';
+import LottieView from 'lottie-react-native';
 
-import { theme } from "@/constants/theme";
+import { theme } from '@/constants/theme';
 
 const SIZE = 48;
 
@@ -19,13 +19,11 @@ function VoiceLoaderComponent({ accessibilityLabel }: VoiceLoaderProps) {
       pointerEvents="none"
     >
       <LottieView
-        source={require("@/assets/lottie/voice-loader.json")}
+        source={require('@/assets/lottie/voice-loader.json')}
         autoPlay
         loop
         style={styles.lottie}
-        colorFilters={[
-          { keypath: "**", color: theme.colors.text },
-        ]}
+        colorFilters={[{ keypath: '**', color: theme.colors.text }]}
       />
     </View>
   );
@@ -37,8 +35,8 @@ const styles = StyleSheet.create({
   frame: {
     width: SIZE,
     height: SIZE,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   lottie: {
     width: SIZE,

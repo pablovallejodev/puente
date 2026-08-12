@@ -12,7 +12,7 @@
  * sentences. Upgrade path: install the Silero VAD model, which is 2.2 MB.
  */
 
-import type { SpeechDetector } from "./detector";
+import type { SpeechDetector } from './detector';
 
 export const ENERGY_FRAME_MS = 50;
 export const ENERGY_FRAME_SAMPLES = 800;
@@ -26,7 +26,7 @@ const NOISE_ATTACK = 0.05;
 const NOISE_RELEASE = 0.01;
 
 export class EnergyDetector implements SpeechDetector {
-  readonly id = "energy" as const;
+  readonly id = 'energy' as const;
   readonly frameSamples = ENERGY_FRAME_SAMPLES;
   readonly startThreshold = START_MARGIN;
   readonly continueThreshold = CONTINUE_MARGIN;
@@ -37,9 +37,7 @@ export class EnergyDetector implements SpeechDetector {
     const energy = rms(frame);
 
     if (!speechActive) {
-      this.noiseFloor +=
-        (energy - this.noiseFloor) *
-        (energy < this.noiseFloor ? NOISE_ATTACK : NOISE_RELEASE);
+      this.noiseFloor += (energy - this.noiseFloor) * (energy < this.noiseFloor ? NOISE_ATTACK : NOISE_RELEASE);
       this.noiseFloor = Math.max(ENERGY_FLOOR, this.noiseFloor);
     }
 

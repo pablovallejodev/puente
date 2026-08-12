@@ -1,12 +1,5 @@
-import {
-  ActivityIndicator,
-  Linking,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
-import { useCallback, useState } from "react";
+import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useState } from 'react';
 
 import {
   defaultCompanionPeakBytes,
@@ -16,10 +9,10 @@ import {
   pairBudgetBytes,
   RAM_TIER_LABEL,
   type ModelSpec,
-} from "@/constants/model-catalog";
-import { useModelCatalog } from "@/contexts/model-catalog-context";
-import { readModelPreferences } from "@/lib/model-preferences";
-import { theme } from "@/constants/theme";
+} from '@/constants/model-catalog';
+import { useModelCatalog } from '@/contexts/model-catalog-context';
+import { readModelPreferences } from '@/lib/model-preferences';
+import { theme } from '@/constants/theme';
 
 type ModelCardProps = {
   spec: ModelSpec;
@@ -35,19 +28,18 @@ export function ModelCard({
   companionPeakBytes = defaultCompanionPeakBytes(spec),
   onSelected,
 }: ModelCardProps) {
-  const { getModelState, download, pauseDownload, resumeDownload, select } =
-    useModelCatalog();
+  const { getModelState, download, pauseDownload, resumeDownload, select } = useModelCatalog();
   const state = getModelState(spec.id);
   const [busy, setBusy] = useState(false);
   const lowRam = isBelowRecommendedRam(spec, ramBytes, companionPeakBytes);
-  const selectable = spec.task !== "vad";
+  const selectable = spec.task !== 'vad';
 
   const onDownload = useCallback(async () => {
     setBusy(true);
     try {
       await download(spec.id);
       // First download for a task auto-selects — leave the picker like select.
-      if (spec.task !== "vad" && onSelected) {
+      if (spec.task !== 'vad' && onSelected) {
         const prefs = await readModelPreferences();
         if (prefs[spec.task] === spec.id) onSelected();
       }
@@ -62,7 +54,7 @@ export function ModelCard({
     setBusy(true);
     try {
       await resumeDownload(spec.id);
-      if (spec.task !== "vad" && onSelected) {
+      if (spec.task !== 'vad' && onSelected) {
         const prefs = await readModelPreferences();
         if (prefs[spec.task] === spec.id) onSelected();
       }
@@ -93,11 +85,10 @@ export function ModelCard({
     }
   }, [onSelected, select, spec.id]);
 
-  const downloading = state.status === "downloading";
-  const paused = state.status === "paused";
-  const installed =
-    state.status === "installed" || state.status === "selected";
-  const selected = state.status === "selected";
+  const downloading = state.status === 'downloading';
+  const paused = state.status === 'paused';
+  const installed = state.status === 'installed' || state.status === 'selected';
+  const selected = state.status === 'selected';
   const pct = Math.round(state.progress * 100);
 
   return (
@@ -117,38 +108,28 @@ export function ModelCard({
         </View>
         <View style={styles.metric}>
           <Text style={styles.metricLabel}>RAM</Text>
-          <Text style={styles.cardMeta}>
-            ~{formatBytes(spec.peakRamBytes)}
-          </Text>
+          <Text style={styles.cardMeta}>~{formatBytes(spec.peakRamBytes)}</Text>
         </View>
       </View>
       {lowRam ? (
         <Text style={styles.warn}>
-          Con el traductor o transcriptor en uso, este modelo pide más memoria
-          de la que el teléfono puede reservar con holgura (~
+          Con el traductor o transcriptor en uso, este modelo pide más memoria de la que el teléfono puede reservar con
+          holgura (~
           {formatBytes(pairBudgetBytes(ramBytes) ?? 0)} de presupuesto)
         </Text>
       ) : null}
-      {spec.task === "asr" && spec.languageDetection === "none" ? (
+      {spec.task === 'asr' && spec.languageDetection === 'none' ? (
         <Text style={styles.warn}>
-          No identifica el idioma: úsalo con un idioma de entrada fijo, no en
-          modo Universal
+          No identifica el idioma: úsalo con un idioma de entrada fijo, no en modo Universal
         </Text>
       ) : null}
-      {spec.task === "asr" && spec.languageDetection === "fixed-single" ? (
-        <Text style={styles.warn}>
-          Solo {spec.languageIds.join(", ").toUpperCase()}: fíjalo como idioma
-          de entrada
-        </Text>
+      {spec.task === 'asr' && spec.languageDetection === 'fixed-single' ? (
+        <Text style={styles.warn}>Solo {spec.languageIds.join(', ').toUpperCase()}: fíjalo como idioma de entrada</Text>
       ) : null}
 
       <Text style={styles.sourceNote}>{spec.sourceNote}</Text>
 
-      <Pressable
-        onPress={() => void Linking.openURL(spec.hfRepoUrl)}
-        hitSlop={8}
-        accessibilityRole="link"
-      >
+      <Pressable onPress={() => void Linking.openURL(spec.hfRepoUrl)} hitSlop={8} accessibilityRole="link">
         <Text style={styles.link}>Ver modelo en Hugging Face ↗</Text>
       </Pressable>
 
@@ -159,23 +140,13 @@ export function ModelCard({
         </View>
       ) : null}
 
-      {paused ? (
-        <Text style={[styles.progressLabel, styles.progressSpaced]}>
-          Pausada · {pct}%
-        </Text>
-      ) : null}
+      {paused ? <Text style={[styles.progressLabel, styles.progressSpaced]}>Pausada · {pct}%</Text> : null}
 
-      {state.error ? (
-        <Text style={styles.cardError}>{state.error.toDisplayString()}</Text>
-      ) : null}
+      {state.error ? <Text style={styles.cardError}>{state.error.toDisplayString()}</Text> : null}
 
       <View style={styles.cardActions}>
         {downloading ? (
-          <Pressable
-            style={styles.button}
-            onPress={() => void onPause()}
-            accessibilityRole="button"
-          >
+          <Pressable style={styles.button} onPress={() => void onPause()} accessibilityRole="button">
             <Text style={styles.buttonText}>Pausar</Text>
           </Pressable>
         ) : paused ? (
@@ -198,9 +169,7 @@ export function ModelCard({
           </Pressable>
         ) : selected || !selectable ? (
           <View style={[styles.button, styles.buttonSelected]}>
-            <Text style={[styles.buttonText, styles.buttonTextSelected]}>
-              ✓ En uso
-            </Text>
+            <Text style={[styles.buttonText, styles.buttonTextSelected]}>✓ En uso</Text>
           </View>
         ) : (
           <Pressable
@@ -238,8 +207,8 @@ const styles = StyleSheet.create({
     marginTop: theme.spacing.xs,
   },
   badges: {
-    flexDirection: "row",
-    flexWrap: "wrap",
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: theme.spacing.xs,
     marginTop: theme.spacing.sm,
   },
@@ -262,7 +231,7 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
   metrics: {
-    flexDirection: "row",
+    flexDirection: 'row',
     gap: theme.spacing.sm,
     marginTop: theme.spacing.md,
   },
@@ -299,8 +268,8 @@ const styles = StyleSheet.create({
     marginTop: theme.spacing.ml,
   },
   progressBlock: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: theme.spacing.sm,
     marginTop: theme.spacing.ml,
   },
@@ -327,8 +296,8 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.action,
     borderRadius: theme.radius.md,
     paddingVertical: theme.spacing.sm,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   buttonSelected: {
     backgroundColor: theme.colors.action,

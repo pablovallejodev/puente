@@ -4,15 +4,12 @@ import { Href, router } from 'expo-router';
 import { HEADER_HEIGHT, STANDARD_HORIZONTAL_PADDING } from '@/constants/ui';
 import { theme } from '@/constants/theme';
 
-const arrowLeftBlackImage = require("@/assets/icons/arrows/black/left.png");
+const arrowLeftBlackImage = require('@/assets/icons/arrows/black/left.png');
 
 export const ChatHeadComponent = React.memo<{
-  titleText: string,
-  onSettingsPress?: () => void,
-}>(({
-  titleText,
-  onSettingsPress,
-}) => {
+  titleText: string;
+  onSettingsPress?: () => void;
+}>(({ titleText, onSettingsPress }) => {
   return (
     <View style={styles.container}>
       <View style={styles.standardPropertyColumn}>
@@ -37,19 +34,14 @@ export const ChatHeadComponent = React.memo<{
     </View>
   );
 });
-ChatHeadComponent.displayName = "ChatHeadComponent";
+ChatHeadComponent.displayName = 'ChatHeadComponent';
 
 export const StandardHeadComponent = React.memo<{
-  urlTo?: Href,
-  onBack?: () => void,
-  titleText: string,
-  loading: boolean,
-}>(({
-  urlTo,
-  onBack,
-  titleText,
-  loading,
-}) => {
+  urlTo?: Href;
+  onBack?: () => void;
+  titleText: string;
+  loading: boolean;
+}>(({ urlTo, onBack, titleText, loading }) => {
   const goToUrl = () => {
     if (loading) return;
     if (onBack) {
@@ -70,13 +62,7 @@ export const StandardHeadComponent = React.memo<{
           accessibilityRole="button"
           activeOpacity={0.65}
         >
-          <Image
-            source={arrowLeftBlackImage}
-            style={[
-              styles.standardImageBack,
-              { tintColor: theme.colors.text },
-            ]}
-          />
+          <Image source={arrowLeftBlackImage} style={[styles.standardImageBack, { tintColor: theme.colors.text }]} />
         </TouchableOpacity>
       </View>
       <View style={styles.standardTitleColumn}>
@@ -86,14 +72,14 @@ export const StandardHeadComponent = React.memo<{
     </View>
   );
 });
-StandardHeadComponent.displayName = "StandardHeadComponent";
+StandardHeadComponent.displayName = 'StandardHeadComponent';
 
 const styles = StyleSheet.create({
   container: {
-    width: "100%",
+    width: '100%',
     minHeight: HEADER_HEIGHT + 8,
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: STANDARD_HORIZONTAL_PADDING,
     backgroundColor: theme.colors.background,
     borderBottomWidth: StyleSheet.hairlineWidth,
@@ -101,18 +87,18 @@ const styles = StyleSheet.create({
   },
   standardPropertyColumn: {
     width: 96,
-    justifyContent: "center",
-    alignItems: "flex-start",
+    justifyContent: 'center',
+    alignItems: 'flex-start',
   },
   propertyColumnEnd: {
-    alignItems: "flex-end",
+    alignItems: 'flex-end',
   },
   standardPropertyButton: {
     width: 44,
     height: 44,
     borderRadius: theme.radius.pill,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: theme.colors.surface,
     borderWidth: 1,
     borderColor: theme.colors.hairline,
@@ -123,14 +109,14 @@ const styles = StyleSheet.create({
   },
   standardTitleColumn: {
     flex: 1,
-    justifyContent: "center",
+    justifyContent: 'center',
   },
   standardTitle: {
     fontFamily: theme.font.heading,
     fontSize: 18,
     color: theme.colors.text,
-    alignSelf: "center",
-    textAlign: "center",
+    alignSelf: 'center',
+    textAlign: 'center',
   },
   brandMark: {
     fontFamily: theme.font.display,

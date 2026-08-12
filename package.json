@@ -4,6 +4,8 @@
   "version": "1.0.0",
   "packageManager": "pnpm@11.21.0",
   "scripts": {
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "clear": "rm -r ./android && rm -r ./ios",
     "rebuild": "npx expo prebuild --clean",
     "start": "NODE_ENV=development expo start --reset-cache",
@@ -72,6 +74,7 @@
     "eslint": "^9.39.4",
     "eslint-config-expo": "~56.0.4",
     "onnxruntime-node": "1.24.3",
+    "prettier": "^3.9.6",
     "tsx": "^4.20.3",
     "typescript": "~6.0.3"
   },

@@ -11,17 +11,13 @@
  * so clearly instead of crashing, so it is required lazily.
  */
 
-import type {
-  AsrModelSpec,
-  SherpaAsrRuntime,
-  SherpaModelType,
-} from "@/constants/model-catalog";
-import { whisperLangToSpeechLocale } from "@/constants/whisper-languages";
-import { EngineError, moduleUnavailable, wrapEngineError } from "@/lib/engine-errors";
-import { getModelDir, toNativePath } from "@/lib/model-paths";
-import type { AsrEngine, AsrRequest, AsrResult } from "@/lib/engines/types";
+import type { AsrModelSpec, SherpaAsrRuntime, SherpaModelType } from '@/constants/model-catalog';
+import { whisperLangToSpeechLocale } from '@/constants/whisper-languages';
+import { EngineError, moduleUnavailable, wrapEngineError } from '@/lib/engine-errors';
+import { getModelDir, toNativePath } from '@/lib/model-paths';
+import type { AsrEngine, AsrRequest, AsrResult } from '@/lib/engines/types';
 
-const PACKAGE = "react-native-sherpa-onnx";
+const PACKAGE = 'react-native-sherpa-onnx';
 
 // ---------------------------------------------------------------------------
 // Native module surface
@@ -33,21 +29,18 @@ type SherpaResult = {
 };
 
 type SherpaEngine = {
-  transcribeSamples(
-    samples: number[],
-    sampleRate: number,
-  ): Promise<SherpaResult>;
+  transcribeSamples(samples: number[], sampleRate: number): Promise<SherpaResult>;
   destroy(): Promise<void>;
 };
 
 type SherpaSttModule = {
   createSTT(options: {
-    modelPath: { type: "file"; path: string };
+    modelPath: { type: 'file'; path: string };
     modelType?: SherpaModelType;
     preferInt8?: boolean;
     numThreads?: number;
     modelOptions?: {
-      whisper?: { language?: string; task?: "transcribe" };
+      whisper?: { language?: string; task?: 'transcribe' };
       senseVoice?: { language?: string; useItn?: boolean };
     };
   }): Promise<SherpaEngine>;
@@ -58,9 +51,9 @@ function loadModule(): SherpaSttModule {
     // Required lazily: importing at module scope would run the TurboModule
     // lookup during the first render of any screen that touches the catalog.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    return require("react-native-sherpa-onnx/stt") as SherpaSttModule;
+    return require('react-native-sherpa-onnx/stt') as SherpaSttModule;
   } catch (err) {
-    throw moduleUnavailable("sherpa-onnx", PACKAGE, err);
+    throw moduleUnavailable('sherpa-onnx', PACKAGE, err);
   }
 }
 
@@ -70,10 +63,7 @@ function loadModule(): SherpaSttModule {
  * sherpa exposes no way to change it afterwards, so switching between Universal
  * and a forced language means rebuilding — see `ensureLanguage` below.
  */
-const LANGUAGE_AT_INIT: ReadonlySet<SherpaModelType> = new Set([
-  "whisper",
-  "sense_voice",
-]);
+const LANGUAGE_AT_INIT: ReadonlySet<SherpaModelType> = new Set(['whisper', 'sense_voice']);
 
 /** sherpa reports the language as a Whisper special token, e.g. "<|es|>". */
 function parseLang(raw: string): string {
@@ -84,7 +74,7 @@ function parseLang(raw: string): string {
 // ---------------------------------------------------------------------------
 
 export class SherpaAsrEngine implements AsrEngine {
-  readonly engineId = "sherpa" as const;
+  readonly engineId = 'sherpa' as const;
 
   private native: SherpaEngine | null;
   /** Language the current recognizer was built with; "" means auto-detect. */
@@ -104,26 +94,22 @@ export class SherpaAsrEngine implements AsrEngine {
     return this.spec.id;
   }
 
-  get languageDetection(): AsrModelSpec["languageDetection"] {
+  get languageDetection(): AsrModelSpec['languageDetection'] {
     return this.spec.languageDetection;
   }
 
   static async create(spec: AsrModelSpec): Promise<SherpaAsrEngine> {
     const runtime = spec.runtime as SherpaAsrRuntime;
-    const language = runtime.language ?? "";
+    const language = runtime.language ?? '';
     const native = await SherpaAsrEngine.build(spec, runtime, language);
     return new SherpaAsrEngine(spec, runtime, native, language);
   }
 
-  private static async build(
-    spec: AsrModelSpec,
-    runtime: SherpaAsrRuntime,
-    language: string,
-  ): Promise<SherpaEngine> {
+  private static async build(spec: AsrModelSpec, runtime: SherpaAsrRuntime, language: string): Promise<SherpaEngine> {
     const stt = loadModule();
     try {
       return await stt.createSTT({
-        modelPath: { type: "file", path: toNativePath(getModelDir(spec)) },
+        modelPath: { type: 'file', path: toNativePath(getModelDir(spec)) },
         // Passed explicitly rather than relying on auto-detection, which
         // guesses from filenames and directory names.
         modelType: runtime.modelType,
@@ -133,15 +119,15 @@ export class SherpaAsrEngine implements AsrEngine {
         numThreads: 4,
         modelOptions: {
           // An empty language makes sherpa detect it; anything else forces it.
-          whisper: { language, task: "transcribe" },
+          whisper: { language, task: 'transcribe' },
           senseVoice: { language, useItn: true },
         },
       });
     } catch (err) {
-      throw wrapEngineError(err, "engine.init", "ENGINE_INIT_FAILED", false, {
+      throw wrapEngineError(err, 'engine.init', 'ENGINE_INIT_FAILED', false, {
         modelId: spec.id,
         modelType: runtime.modelType,
-        language: language || "auto",
+        language: language || 'auto',
       });
     }
   }
@@ -158,16 +144,13 @@ export class SherpaAsrEngine implements AsrEngine {
   private async ensureLanguage(requested: string): Promise<SherpaEngine> {
     if (!this.native) {
       throw new EngineError({
-        code: "ENGINE_DISPOSED",
-        stage: "asr.run",
+        code: 'ENGINE_DISPOSED',
+        stage: 'asr.run',
         message: `El motor ${this.spec.id} ya fue liberado`,
         recoverable: true,
       });
     }
-    if (
-      !LANGUAGE_AT_INIT.has(this.runtime.modelType) ||
-      requested === this.builtLanguage
-    ) {
+    if (!LANGUAGE_AT_INIT.has(this.runtime.modelType) || requested === this.builtLanguage) {
       return this.native;
     }
 
@@ -184,7 +167,7 @@ export class SherpaAsrEngine implements AsrEngine {
   }
 
   async transcribe(pcm: Float32Array, request: AsrRequest): Promise<AsrResult> {
-    const requested = request.language === "auto" ? "" : request.language;
+    const requested = request.language === 'auto' ? '' : request.language;
     const native = await this.ensureLanguage(requested);
 
     let result: SherpaResult;
@@ -194,19 +177,18 @@ export class SherpaAsrEngine implements AsrEngine {
       // inference cost. Upgrade path: an ArrayBuffer overload in the binding.
       result = await native.transcribeSamples(Array.from(pcm), 16000);
     } catch (err) {
-      throw wrapEngineError(err, "asr.run", "ENGINE_RUN_FAILED", true, {
+      throw wrapEngineError(err, 'asr.run', 'ENGINE_RUN_FAILED', true, {
         modelId: this.spec.id,
         samples: pcm.length,
       });
     }
 
     const text = result.text.trim();
-    const detected = parseLang(result.lang ?? "");
+    const detected = parseLang(result.lang ?? '');
     // Fall back in the order the caller can trust: what the model said, then
     // what the caller forced, then the language carried over from the previous
     // chunk. Transducers report nothing, so for them only the last two apply.
-    const language =
-      detected || requested || request.stickyLanguage?.trim() || "";
+    const language = detected || requested || request.stickyLanguage?.trim() || '';
 
     return {
       text,
@@ -215,7 +197,7 @@ export class SherpaAsrEngine implements AsrEngine {
       // for "it told us" and 0 for "we guessed" keeps the field meaningful
       // against the ORT path, which reports a real softmax peak.
       languageProb: detected ? 1 : 0,
-      speechLocale: (language && whisperLangToSpeechLocale(language)) || "",
+      speechLocale: (language && whisperLangToSpeechLocale(language)) || '',
       usedSticky: !detected && !requested && Boolean(request.stickyLanguage),
       noSpeech: text.length === 0,
       noSpeechProb: text.length === 0 ? 1 : 0,

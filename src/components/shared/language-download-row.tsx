@@ -1,19 +1,10 @@
-import {
-  ActivityIndicator,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import type { TraductorLanguage } from "@/constants/traductor-languages";
-import type { SttDownloadState } from "@/hooks/use-offline-stt-download";
-import { LanguageFlag } from "@/components/shared/language-flag";
-import {
-  getTraductorLanguageDisplayName,
-  type UiLocale,
-} from "@/lib/language-display-name";
-import { theme } from "@/constants/theme";
+import type { TraductorLanguage } from '@/constants/traductor-languages';
+import type { SttDownloadState } from '@/hooks/use-offline-stt-download';
+import { LanguageFlag } from '@/components/shared/language-flag';
+import { getTraductorLanguageDisplayName, type UiLocale } from '@/lib/language-display-name';
+import { theme } from '@/constants/theme';
 
 type LanguageDownloadRowProps = {
   language: TraductorLanguage;
@@ -35,24 +26,17 @@ export function LanguageDownloadRow({
   onDownload,
 }: LanguageDownloadRowProps) {
   const isBusy =
-    downloadState.status === "downloading" ||
-    downloadState.status === "scheduled" ||
-    downloadState.status === "checking";
-  const isInstalled = downloadState.status === "installed";
-  const displayName = getTraductorLanguageDisplayName(
-    language,
-    uiLocale ?? "en",
-  );
+    downloadState.status === 'downloading' ||
+    downloadState.status === 'scheduled' ||
+    downloadState.status === 'checking';
+  const isInstalled = downloadState.status === 'installed';
+  const displayName = getTraductorLanguageDisplayName(language, uiLocale ?? 'en');
 
   return (
     <Pressable
-      style={({ pressed }) => [
-        styles.row,
-        selected && styles.rowSelected,
-        pressed && styles.rowPressed,
-      ]}
+      style={({ pressed }) => [styles.row, selected && styles.rowSelected, pressed && styles.rowPressed]}
       onPress={onSelect}
-      accessibilityRole={showDownload ? "button" : "radio"}
+      accessibilityRole={showDownload ? 'button' : 'radio'}
       accessibilityState={showDownload ? undefined : { selected }}
     >
       <View style={styles.flagWrap}>
@@ -60,15 +44,11 @@ export function LanguageDownloadRow({
       </View>
       <View style={styles.labelColumn}>
         <Text style={styles.label}>{displayName}</Text>
-        {showDownload ? (
-          <Text style={styles.locale}>{language.speechLocale}</Text>
-        ) : null}
-        {downloadState.status === "error" && downloadState.error ? (
+        {showDownload ? <Text style={styles.locale}>{language.speechLocale}</Text> : null}
+        {downloadState.status === 'error' && downloadState.error ? (
           <>
             <Text style={styles.error}>{downloadState.error}</Text>
-            {downloadState.code ? (
-              <Text style={styles.errorCode}>{downloadState.code}</Text>
-            ) : null}
+            {downloadState.code ? <Text style={styles.errorCode}>{downloadState.code}</Text> : null}
           </>
         ) : null}
       </View>
@@ -113,8 +93,8 @@ export function LanguageDownloadRow({
 
 const styles = StyleSheet.create({
   row: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     minHeight: 72,
     marginHorizontal: theme.spacing.md,
     marginBottom: theme.spacing.sm,
@@ -135,8 +115,8 @@ const styles = StyleSheet.create({
   },
   flagWrap: {
     width: 32,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   labelColumn: {
     flex: 1,
@@ -166,17 +146,17 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   actionColumn: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 8,
     minWidth: 40,
-    justifyContent: "flex-end",
+    justifyContent: 'flex-end',
   },
   selectedMark: {
     width: 28,
     height: 28,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
     borderRadius: theme.radius.pill,
     backgroundColor: theme.colors.action,
   },
@@ -191,8 +171,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.colors.action,
     borderRadius: theme.radius.pill,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   downloadButtonPressed: {
     backgroundColor: theme.colors.pressed,

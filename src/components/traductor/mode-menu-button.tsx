@@ -1,24 +1,17 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  Modal,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-  useWindowDimensions,
-} from "react-native";
-import * as Haptics from "expo-haptics";
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Modal, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import * as Haptics from 'expo-haptics';
 
-import type { TraductorMode } from "@/lib/traductor-mode";
-import { theme } from "@/constants/theme";
+import type { TraductorMode } from '@/lib/traductor-mode';
+import { theme } from '@/constants/theme';
 
 const MENU_ESTIMATED_HEIGHT = 104;
 const MENU_GAP = 8;
 const MENU_WIDTH = 168;
 
 const MODE_OPTIONS: { mode: TraductorMode; label: string }[] = [
-  { mode: "one_way", label: "∞ → 1" },
-  { mode: "conversation", label: "Conversación" },
+  { mode: 'one_way', label: '∞ → 1' },
+  { mode: 'conversation', label: 'Conversación' },
 ];
 
 type ModeMenuButtonProps = {
@@ -27,11 +20,7 @@ type ModeMenuButtonProps = {
   initiallyOpen?: boolean;
 };
 
-export function ModeMenuButton({
-  mode,
-  onChangeMode,
-  initiallyOpen = false,
-}: ModeMenuButtonProps) {
+export function ModeMenuButton({ mode, onChangeMode, initiallyOpen = false }: ModeMenuButtonProps) {
   const buttonRef = useRef<View>(null);
   const introStartedRef = useRef(false);
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
@@ -75,37 +64,26 @@ export function ModeMenuButton({
     [mode, onChangeMode],
   );
 
-  const placeAbove =
-    anchor != null && anchor.y >= MENU_ESTIMATED_HEIGHT + MENU_GAP;
+  const placeAbove = anchor != null && anchor.y >= MENU_ESTIMATED_HEIGHT + MENU_GAP;
   const menuTop =
     anchor == null
       ? 0
       : placeAbove
         ? anchor.y - MENU_ESTIMATED_HEIGHT - MENU_GAP
-        : Math.min(
-            anchor.y + anchor.height + MENU_GAP,
-            windowHeight - MENU_ESTIMATED_HEIGHT - MENU_GAP,
-          );
+        : Math.min(anchor.y + anchor.height + MENU_GAP, windowHeight - MENU_ESTIMATED_HEIGHT - MENU_GAP);
   const menuLeft =
     anchor == null
       ? 0
       : Math.max(
           theme.spacing.md,
-          Math.min(
-            anchor.x + anchor.width / 2 - MENU_WIDTH / 2,
-            windowWidth - MENU_WIDTH - theme.spacing.md,
-          ),
+          Math.min(anchor.x + anchor.width / 2 - MENU_WIDTH / 2, windowWidth - MENU_WIDTH - theme.spacing.md),
         );
 
   return (
     <>
       <View ref={buttonRef} collapsable={false}>
         <Pressable
-          style={({ pressed }) => [
-            styles.button,
-            open && styles.buttonOpen,
-            pressed && styles.buttonPressed,
-          ]}
+          style={({ pressed }) => [styles.button, open && styles.buttonOpen, pressed && styles.buttonPressed]}
           onPress={() => {
             if (open) {
               close();
@@ -122,12 +100,7 @@ export function ModeMenuButton({
         </Pressable>
       </View>
 
-      <Modal
-        visible={open}
-        transparent
-        animationType="fade"
-        onRequestClose={close}
-      >
+      <Modal visible={open} transparent animationType="fade" onRequestClose={close}>
         <View style={styles.overlay}>
           <Pressable
             style={StyleSheet.absoluteFill}
@@ -161,9 +134,7 @@ export function ModeMenuButton({
                     accessibilityState={{ selected }}
                   >
                     <Text style={styles.menuLabel}>{option.label}</Text>
-                    {selected ? (
-                      <Text style={styles.menuCheck}>✓</Text>
-                    ) : null}
+                    {selected ? <Text style={styles.menuCheck}>✓</Text> : null}
                   </Pressable>
                 );
               })}
@@ -179,8 +150,8 @@ const styles = StyleSheet.create({
   button: {
     width: 36,
     height: 36,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
     borderRadius: theme.radius.pill,
     backgroundColor: theme.colors.background,
     borderWidth: 1,
@@ -201,23 +172,23 @@ const styles = StyleSheet.create({
   },
   overlay: {
     flex: 1,
-    backgroundColor: "transparent",
+    backgroundColor: 'transparent',
   },
   menu: {
-    position: "absolute",
+    position: 'absolute',
     borderRadius: theme.radius.lg,
     backgroundColor: theme.colors.surface,
     borderWidth: 1,
     borderColor: theme.colors.hairline,
     paddingVertical: theme.spacing.xs,
-    overflow: "hidden",
+    overflow: 'hidden',
   },
   menuRow: {
     minHeight: 44,
     paddingHorizontal: theme.spacing.md,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   menuRowSelected: {
     backgroundColor: theme.colors.pressed,

@@ -18,7 +18,7 @@
  * is the backstop for loops longer than the n-gram window.
  */
 
-import type { OrtTensor } from "@/lib/nllb-inference";
+import type { OrtTensor } from '@/lib/nllb-inference';
 
 export type RepetitionGuardConfig = {
   /**
@@ -94,10 +94,7 @@ function lastLogitsWindow(
  * Takes the last n-1 tokens as a prefix and bans whatever followed that same
  * prefix earlier in the sequence.
  */
-function bannedByNoRepeatNgram(
-  generated: number[],
-  ngramSize: number,
-): number[] {
+function bannedByNoRepeatNgram(generated: number[], ngramSize: number): number[] {
   if (ngramSize <= 1 || generated.length < ngramSize) return [];
 
   const prefixLength = ngramSize - 1;
@@ -125,10 +122,7 @@ function bannedByNoRepeatNgram(
  * Only the tail is examined: a phrase repeated once earlier in a long
  * transcript does not trip it, the model has to still be looping right now.
  */
-export function detectLoopPeriod(
-  generated: number[],
-  config: RepetitionGuardConfig,
-): number | null {
+export function detectLoopPeriod(generated: number[], config: RepetitionGuardConfig): number | null {
   const { loopRepeats, maxLoopPeriod } = config;
   if (loopRepeats < 2) return null;
 
@@ -163,10 +157,7 @@ export function selectNextToken(
   generated: number[],
   config: RepetitionGuardConfig,
 ): number {
-  const { data, offset, vocabSize } = lastLogitsWindow(
-    logits,
-    fallbackVocabSize,
-  );
+  const { data, offset, vocabSize } = lastLogitsWindow(logits, fallbackVocabSize);
 
   if (generated.length === 0) {
     let bestId = 0;

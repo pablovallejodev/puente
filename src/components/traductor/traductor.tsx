@@ -1,48 +1,35 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  FlatList,
-  Image,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { useFocusEffect, useRouter, type Href } from "expo-router";
-import * as Haptics from "expo-haptics";
-import {
-  activateKeepAwakeAsync,
-  deactivateKeepAwake,
-} from "expo-keep-awake";
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { FlatList, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect, useRouter, type Href } from 'expo-router';
+import * as Haptics from 'expo-haptics';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 
-import { ChatHeadComponent } from "@/components/basics/headers";
-import { ChatMessageItem } from "@/components/traductor/chat-message-item";
-import { LanguageSlotButton } from "@/components/traductor/language-slot-button";
-import { ModeMenuButton } from "@/components/traductor/mode-menu-button";
-import {
-  findTraductorLanguageById,
-  findTraductorLanguageByLocale,
-} from "@/constants/traductor-languages";
-import { useTraductorSession } from "@/contexts/traductor-session-context";
-import { useModelCatalog } from "@/contexts/model-catalog-context";
-import { useChatMessages } from "@/hooks/use-chat-messages";
+import { ChatHeadComponent } from '@/components/basics/headers';
+import { ChatMessageItem } from '@/components/traductor/chat-message-item';
+import { LanguageSlotButton } from '@/components/traductor/language-slot-button';
+import { ModeMenuButton } from '@/components/traductor/mode-menu-button';
+import { findTraductorLanguageById, findTraductorLanguageByLocale } from '@/constants/traductor-languages';
+import { useTraductorSession } from '@/contexts/traductor-session-context';
+import { useModelCatalog } from '@/contexts/model-catalog-context';
+import { useChatMessages } from '@/hooks/use-chat-messages';
 import {
   useSpeechTranscriptor,
   type SpeechInputMode,
   type TranscriptionOutcome,
-} from "@/hooks/use-speech-transcriptor";
-import { useTranslator } from "@/hooks/use-translator";
-import { readMicPaused, writeMicPaused } from "@/lib/model-preferences";
-import { resolveSpeechDisableMode } from "@/lib/speech-disable-mode";
-import { resolveTranslationTarget } from "@/lib/traductor-target";
-import { STANDARD_HORIZONTAL_PADDING } from "@/constants/ui";
-import { StatusBarDarkComponent } from "@/utils/statusbar";
-import { theme } from "@/constants/theme";
+} from '@/hooks/use-speech-transcriptor';
+import { useTranslator } from '@/hooks/use-translator';
+import { readMicPaused, writeMicPaused } from '@/lib/model-preferences';
+import { resolveSpeechDisableMode } from '@/lib/speech-disable-mode';
+import { resolveTranslationTarget } from '@/lib/traductor-target';
+import { STANDARD_HORIZONTAL_PADDING } from '@/constants/ui';
+import { StatusBarDarkComponent } from '@/utils/statusbar';
+import { theme } from '@/constants/theme';
 
-const directionArrowIcon = require("@/assets/icons/arrows/white/right.png");
-const directionArrowLeftIcon = require("@/assets/icons/arrows/white/left.png");
-const micOnIcon = require("@/assets/icons/mic/white.png");
-const micOffIcon = require("@/assets/icons/mic/off.png");
+const directionArrowIcon = require('@/assets/icons/arrows/white/right.png');
+const directionArrowLeftIcon = require('@/assets/icons/arrows/white/left.png');
+const micOnIcon = require('@/assets/icons/mic/white.png');
+const micOffIcon = require('@/assets/icons/mic/off.png');
 
 /** Soft transcription errors stay visible briefly, then leave the list. */
 const TRANSCRIPTION_ERROR_DISMISS_MS = 2500;
@@ -50,13 +37,13 @@ const TRANSCRIPTION_ERROR_DISMISS_MS = 2500;
 function sourceIdFromLocale(locale: string): string {
   const byLocale = findTraductorLanguageByLocale(locale);
   if (byLocale) return byLocale.id;
-  const prefix = locale.split("-")[0]?.toLowerCase();
+  const prefix = locale.split('-')[0]?.toLowerCase();
   if (prefix) {
     const byId = findTraductorLanguageById(prefix);
     if (byId) return byId.id;
     return prefix;
   }
-  return "und";
+  return 'und';
 }
 
 export default function TraductorComponent() {
@@ -68,23 +55,16 @@ export default function TraductorComponent() {
   useFocusEffect(
     useCallback(() => {
       setIsFocused(true);
-      void activateKeepAwakeAsync("traductor-session");
+      void activateKeepAwakeAsync('traductor-session');
       return () => {
         setIsFocused(false);
-        deactivateKeepAwake("traductor-session");
+        deactivateKeepAwake('traductor-session');
       };
     }, []),
   );
 
-  const {
-    mode,
-    setMode,
-    modeMenuInitiallyOpen,
-    inputLanguage,
-    outputLanguage,
-    languageTwo,
-    baseHydrated,
-  } = useTraductorSession();
+  const { mode, setMode, modeMenuInitiallyOpen, inputLanguage, outputLanguage, languageTwo, baseHydrated } =
+    useTraductorSession();
 
   const {
     messages,
@@ -99,13 +79,11 @@ export default function TraductorComponent() {
 
   const flatListRef = useRef<FlatList>(null);
   const pendingIdRef = useRef<string | null>(null);
-  const errorTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(
-    new Map(),
-  );
+  const errorTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   // Accent + scroll track the last completed transcript, not ephemeral pending/error.
   const latestMessageId = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].transcriptionStatus === "done") return messages[i].id;
+      if (messages[i].transcriptionStatus === 'done') return messages[i].id;
     }
     return null;
   }, [messages]);
@@ -156,9 +134,9 @@ export default function TraductorComponent() {
   }, []);
 
   const speechInput: SpeechInputMode = useMemo(() => {
-    if (mode === "conversation") return { mode: "auto" };
-    if (inputLanguage.kind === "universal") return { mode: "auto" };
-    return { mode: "fixed", locale: inputLanguage.language.speechLocale };
+    if (mode === 'conversation') return { mode: 'auto' };
+    if (inputLanguage.kind === 'universal') return { mode: 'auto' };
+    return { mode: 'fixed', locale: inputLanguage.language.speechLocale };
   }, [inputLanguage, mode]);
 
   const prefsReady = baseHydrated && micHydrated;
@@ -181,36 +159,19 @@ export default function TraductorComponent() {
   }, []);
 
   const handleTranslation = useCallback(
-    (
-      messageId: string,
-      translated: string,
-      status: "queued" | "translating" | "done" | "error",
-    ) => {
+    (messageId: string, translated: string, status: 'queued' | 'translating' | 'done' | 'error') => {
       onTranslationUpdate(messageId, translated, status);
     },
     [onTranslationUpdate],
   );
 
-  const {
-    status,
-    error,
-    diagnostics,
-    ready,
-    retry,
-    canRetryLoad,
-    isTranslating,
-    pendingCount,
-    enqueueTranslation,
-  } = useTranslator(handleTranslation);
+  const { status, error, diagnostics, ready, retry, canRetryLoad, isTranslating, pendingCount, enqueueTranslation } =
+    useTranslator(handleTranslation);
 
   const handleTranscriptionStart = useCallback(() => {
     if (pendingIdRef.current) return;
     const sourceLanguageId =
-      mode === "conversation"
-        ? "und"
-        : inputLanguage.kind === "fixed"
-          ? inputLanguage.language.id
-          : "und";
+      mode === 'conversation' ? 'und' : inputLanguage.kind === 'fixed' ? inputLanguage.language.id : 'und';
     pendingIdRef.current = beginPendingTranscript(sourceLanguageId);
   }, [beginPendingTranscript, inputLanguage, mode]);
 
@@ -220,16 +181,13 @@ export default function TraductorComponent() {
       pendingIdRef.current = null;
       if (!id) return;
 
-      if (outcome.type === "cancel") {
+      if (outcome.type === 'cancel') {
         clearErrorTimer(id);
         discardPendingTranscript(id);
         return;
       }
 
-      failPendingWithDismiss(
-        id,
-        outcome.type === "empty" ? "No se entendió" : "No se pudo transcribir",
-      );
+      failPendingWithDismiss(id, outcome.type === 'empty' ? 'No se entendió' : 'No se pudo transcribir');
     },
     [clearErrorTimer, discardPendingTranscript, failPendingWithDismiss],
   );
@@ -238,14 +196,12 @@ export default function TraductorComponent() {
     (text: string, _isFinal: boolean, detectedLocale?: string) => {
       const locale =
         detectedLocale ??
-        (mode === "one_way" && inputLanguage.kind === "fixed"
-          ? inputLanguage.language.speechLocale
-          : "");
+        (mode === 'one_way' && inputLanguage.kind === 'fixed' ? inputLanguage.language.speechLocale : '');
       const trimmed = text.trim();
       if (!locale || !trimmed) {
         const id = pendingIdRef.current;
         pendingIdRef.current = null;
-        if (id) failPendingWithDismiss(id, "No se entendió");
+        if (id) failPendingWithDismiss(id, 'No se entendió');
         return;
       }
 
@@ -301,7 +257,7 @@ export default function TraductorComponent() {
     onInterimTranscript: handleFinalTranscript,
     enabled: speechEnabled,
     disableMode: speechDisableMode,
-    clearStickyAfterAccept: mode === "conversation",
+    clearStickyAfterAccept: mode === 'conversation',
   });
 
   const { isReady: modelsReady, booting: modelsBooting } = useModelCatalog();
@@ -309,7 +265,7 @@ export default function TraductorComponent() {
   useEffect(() => {
     if (modelsBooting) return;
     if (!modelsReady) {
-      router.replace("/modelos" as Href);
+      router.replace('/modelos' as Href);
     }
   }, [modelsBooting, modelsReady, router]);
 
@@ -321,50 +277,43 @@ export default function TraductorComponent() {
   }, [latestMessageId]);
 
   const statusLabel = !prefsReady
-    ? "Preparando preferencias…"
-    : status === "loading"
-      ? "Cargando motor de traducción…"
+    ? 'Preparando preferencias…'
+    : status === 'loading'
+      ? 'Cargando motor de traducción…'
       : checkingPermissions
-        ? "Cargando reconocimiento (Whisper)…"
+        ? 'Cargando reconocimiento (Whisper)…'
         : speechError
-          ? "Error de reconocimiento"
-          : status === "error"
-            ? "Error"
+          ? 'Error de reconocimiento'
+          : status === 'error'
+            ? 'Error'
             : isTranscribing
-              ? "Entendiendo…"
+              ? 'Entendiendo…'
               : isTranslating
                 ? pendingCount > 0
                   ? `Traduciendo… (+${pendingCount} en cola)`
-                  : "Traduciendo…"
+                  : 'Traduciendo…'
                 : micPaused
-                  ? "Micrófono pausado"
+                  ? 'Micrófono pausado'
                   : backlogDropped
-                    ? "Algunos fragmentos se omitieron"
+                    ? 'Algunos fragmentos se omitieron'
                     : isListening
-                      ? "Escuchando"
+                      ? 'Escuchando'
                       : ready
-                        ? "Listo en el dispositivo"
-                        : "Error";
+                        ? 'Listo en el dispositivo'
+                        : 'Error';
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBarDarkComponent />
-      <ChatHeadComponent
-        titleText="Traductor"
-        onSettingsPress={() => router.push("/modelos" as Href)}
-      />
+      <ChatHeadComponent titleText="Traductor" onSettingsPress={() => router.push('/modelos' as Href)} />
 
       <View style={styles.statusRow}>
-        <View
-          style={styles.statusPill}
-          accessibilityLiveRegion="polite"
-        >
+        <View style={styles.statusPill} accessibilityLiveRegion="polite">
           <View
             style={[
               styles.statusDot,
-              (isListening || isTranscribing || isTranslating) &&
-                styles.statusDotActive,
-              (speechError || status === "error") && styles.statusDotError,
+              (isListening || isTranscribing || isTranslating) && styles.statusDotActive,
+              (speechError || status === 'error') && styles.statusDotError,
             ]}
           />
           <Text style={styles.statusText}>{statusLabel}</Text>
@@ -377,25 +326,15 @@ export default function TraductorComponent() {
         contentContainerStyle={styles.listContent}
         data={messages}
         keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <ChatMessageItem
-            message={item}
-            isLatest={item.id === latestMessageId}
-          />
-        )}
+        renderItem={({ item }) => <ChatMessageItem message={item} isLatest={item.id === latestMessageId} />}
         ListEmptyComponent={
           <View style={styles.empty}>
             <View style={styles.emptyMarkFrame}>
-              <Image
-                source={require("@/assets/icon.png")}
-                style={styles.emptyMark}
-                accessibilityIgnoresInvertColors
-              />
+              <Image source={require('@/assets/icon.png')} style={styles.emptyMark} accessibilityIgnoresInvertColors />
             </View>
             <Text style={styles.emptyTitle}>Habla. Escucha. Entiende.</Text>
             <Text style={styles.emptyText}>
-              Empieza a hablar y Puente traducirá la conversación aquí, sin
-              sacar tu voz del teléfono.
+              Empieza a hablar y Puente traducirá la conversación aquí, sin sacar tu voz del teléfono.
             </Text>
             <Text style={styles.emptyPrivacy}>TU VOZ NO SALE DEL TELÉFONO</Text>
           </View>
@@ -427,11 +366,7 @@ export default function TraductorComponent() {
       <View style={styles.bottomPanel}>
         <View style={styles.controlsRow}>
           <View style={styles.controlsSide} />
-          <ModeMenuButton
-            mode={mode}
-            onChangeMode={setMode}
-            initiallyOpen={modeMenuInitiallyOpen}
-          />
+          <ModeMenuButton mode={mode} onChangeMode={setMode} initiallyOpen={modeMenuInitiallyOpen} />
           <View style={[styles.controlsSide, styles.controlsSideEnd]}>
             <Pressable
               style={({ pressed }) => [
@@ -442,40 +377,27 @@ export default function TraductorComponent() {
               onPress={toggleMicPaused}
               accessibilityRole="button"
               accessibilityState={{ checked: !micPaused }}
-              accessibilityLabel={
-                micPaused ? "Reanudar micrófono" : "Pausar micrófono"
-              }
+              accessibilityLabel={micPaused ? 'Reanudar micrófono' : 'Pausar micrófono'}
               hitSlop={8}
             >
               <Image
                 source={micPaused ? micOffIcon : micOnIcon}
-                style={[
-                  styles.micIcon,
-                  micPaused && styles.micIconPaused,
-                ]}
+                style={[styles.micIcon, micPaused && styles.micIconPaused]}
                 accessibilityIgnoresInvertColors
               />
             </Pressable>
           </View>
         </View>
         <View style={styles.languagePair}>
-          {mode === "conversation" ? (
-            <LanguageSlotButton
-              slot="output"
-              language={outputLanguage}
-              slotLabel="Idioma 1"
-            />
-          ) : inputLanguage.kind === "universal" ? (
+          {mode === 'conversation' ? (
+            <LanguageSlotButton slot="output" language={outputLanguage} slotLabel="Idioma 1" />
+          ) : inputLanguage.kind === 'universal' ? (
             <LanguageSlotButton slot="input" kind="universal" />
           ) : (
-            <LanguageSlotButton
-              slot="input"
-              kind="fixed"
-              language={inputLanguage.language}
-            />
+            <LanguageSlotButton slot="input" kind="fixed" language={inputLanguage.language} />
           )}
           <View style={styles.directionMark} accessibilityElementsHidden>
-            {mode === "conversation" ? (
+            {mode === 'conversation' ? (
               <View style={styles.bidirectionalMark}>
                 <Image
                   source={directionArrowIcon}
@@ -489,31 +411,17 @@ export default function TraductorComponent() {
                 />
               </View>
             ) : (
-              <Image
-                source={directionArrowIcon}
-                style={styles.directionArrowIcon}
-                accessibilityIgnoresInvertColors
-              />
+              <Image source={directionArrowIcon} style={styles.directionArrowIcon} accessibilityIgnoresInvertColors />
             )}
           </View>
-          {mode === "conversation" ? (
-            <LanguageSlotButton
-              slot="lang2"
-              language={languageTwo}
-              slotLabel="Idioma 2"
-            />
+          {mode === 'conversation' ? (
+            <LanguageSlotButton slot="lang2" language={languageTwo} slotLabel="Idioma 2" />
           ) : (
-            <LanguageSlotButton
-              slot="output"
-              language={outputLanguage}
-              slotLabel="Traduce a"
-            />
+            <LanguageSlotButton slot="output" language={outputLanguage} slotLabel="Traduce a" />
           )}
         </View>
-        {mode === "one_way" && inputLanguage.kind === "universal" ? (
-          <Text style={styles.helperText}>
-            Si la detección automática falla, fija el idioma de entrada.
-          </Text>
+        {mode === 'one_way' && inputLanguage.kind === 'universal' ? (
+          <Text style={styles.helperText}>Si la detección automática falla, fija el idioma de entrada.</Text>
         ) : null}
       </View>
     </SafeAreaView>
@@ -526,14 +434,14 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.background,
   },
   statusRow: {
-    alignItems: "center",
+    alignItems: 'center',
     paddingVertical: theme.spacing.sm,
     paddingHorizontal: STANDARD_HORIZONTAL_PADDING,
   },
   statusPill: {
     minHeight: 28,
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: theme.spacing.ml,
     borderRadius: theme.radius.pill,
     backgroundColor: theme.colors.surface,
@@ -568,8 +476,8 @@ const styles = StyleSheet.create({
   },
   empty: {
     flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
+    justifyContent: 'center',
+    alignItems: 'center',
     paddingHorizontal: theme.spacing.xl,
     paddingVertical: theme.spacing.xl,
   },
@@ -579,13 +487,13 @@ const styles = StyleSheet.create({
     padding: 5,
     borderRadius: theme.radius.lg,
     backgroundColor: theme.colors.surfaceStone,
-    overflow: "hidden",
+    overflow: 'hidden',
     borderWidth: 1,
     borderColor: theme.colors.hairline,
   },
   emptyMark: {
-    width: "100%",
-    height: "100%",
+    width: '100%',
+    height: '100%',
     borderRadius: theme.radius.md,
   },
   emptyTitle: {
@@ -593,7 +501,7 @@ const styles = StyleSheet.create({
     fontFamily: theme.font.heading,
     fontSize: theme.type.title,
     color: theme.colors.text,
-    textAlign: "center",
+    textAlign: 'center',
   },
   emptyText: {
     maxWidth: 300,
@@ -602,7 +510,7 @@ const styles = StyleSheet.create({
     fontSize: theme.type.body,
     lineHeight: 22,
     color: theme.colors.textMuted,
-    textAlign: "center",
+    textAlign: 'center',
   },
   emptyPrivacy: {
     marginTop: theme.spacing.md,
@@ -610,7 +518,7 @@ const styles = StyleSheet.create({
     fontSize: theme.type.micro,
     letterSpacing: 1.1,
     color: theme.colors.text,
-    textAlign: "center",
+    textAlign: 'center',
   },
   errorBox: {
     marginHorizontal: STANDARD_HORIZONTAL_PADDING,
@@ -635,10 +543,10 @@ const styles = StyleSheet.create({
   retryButton: {
     minHeight: 44,
     marginTop: 10,
-    alignSelf: "flex-start",
+    alignSelf: 'flex-start',
     paddingHorizontal: 12,
     paddingVertical: 8,
-    justifyContent: "center",
+    justifyContent: 'center',
     borderWidth: 1,
     borderColor: theme.colors.action,
     borderRadius: theme.radius.sm,
@@ -660,21 +568,21 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.hairline,
   },
   controlsRow: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     marginBottom: theme.spacing.sm,
   },
   controlsSide: {
     flex: 1,
   },
   controlsSideEnd: {
-    alignItems: "flex-end",
+    alignItems: 'flex-end',
   },
   micButton: {
     width: 36,
     height: 36,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
     borderRadius: theme.radius.pill,
     backgroundColor: theme.colors.background,
     borderWidth: 1,
@@ -697,15 +605,15 @@ const styles = StyleSheet.create({
     opacity: 0.85,
   },
   languagePair: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: theme.spacing.sm,
   },
   directionMark: {
     width: 28,
     height: 28,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
     borderRadius: theme.radius.pill,
     backgroundColor: theme.colors.action,
   },
@@ -715,8 +623,8 @@ const styles = StyleSheet.create({
     tintColor: theme.colors.onAction,
   },
   bidirectionalMark: {
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
     gap: 1,
   },
   directionArrowIconBi: {
@@ -731,6 +639,6 @@ const styles = StyleSheet.create({
     lineHeight: 14,
     marginTop: theme.spacing.sm,
     paddingHorizontal: theme.spacing.xs,
-    textAlign: "center",
+    textAlign: 'center',
   },
 });

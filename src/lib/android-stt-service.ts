@@ -1,9 +1,8 @@
-import { Platform } from "react-native";
-import { ExpoSpeechRecognitionModule } from "expo-speech-recognition";
+import { Platform } from 'react-native';
+import { ExpoSpeechRecognitionModule } from 'expo-speech-recognition';
 
-export const ANDROID_AS_PACKAGE = "com.google.android.as";
-export const ANDROID_GOOGLE_APP_PACKAGE =
-  "com.google.android.googlequicksearchbox";
+export const ANDROID_AS_PACKAGE = 'com.google.android.as';
+export const ANDROID_GOOGLE_APP_PACKAGE = 'com.google.android.googlequicksearchbox';
 
 export type AndroidLocaleSnapshot = {
   supportedLocales: string[];
@@ -39,14 +38,13 @@ async function probePackage(pkg: string): Promise<{
 
 /** Framework-level check — false on GrapheneOS / devices without on-device service. */
 export function isOnDeviceSttSupported(): boolean {
-  if (Platform.OS === "ios") {
+  if (Platform.OS === 'ios') {
     return ExpoSpeechRecognitionModule.supportsOnDeviceRecognition();
   }
-  if (Platform.OS !== "android") return false;
+  if (Platform.OS !== 'android') return false;
   if (onDeviceAvailableCache !== undefined) return onDeviceAvailableCache;
   try {
-    onDeviceAvailableCache =
-      ExpoSpeechRecognitionModule.supportsOnDeviceRecognition();
+    onDeviceAvailableCache = ExpoSpeechRecognitionModule.supportsOnDeviceRecognition();
   } catch {
     onDeviceAvailableCache = false;
   }
@@ -55,7 +53,7 @@ export function isOnDeviceSttSupported(): boolean {
 
 export async function getOnDeviceSttPackage(): Promise<string | null> {
   if (onDevicePackage !== undefined) return onDevicePackage;
-  if (Platform.OS !== "android") {
+  if (Platform.OS !== 'android') {
     onDevicePackage = null;
     return null;
   }
@@ -74,7 +72,7 @@ export function getOnDeviceSttPackageSync(): string | null {
 
 export async function getOnlineSttPackage(): Promise<string | null> {
   if (onlinePackage !== undefined) return onlinePackage;
-  if (Platform.OS !== "android") {
+  if (Platform.OS !== 'android') {
     onlinePackage = null;
     return null;
   }
@@ -123,7 +121,7 @@ export async function fetchAndroidLocaleSnapshot(): Promise<AndroidLocaleSnapsho
     };
   }
 
-  throw new Error("Failed to retrieve recognition service package");
+  throw new Error('Failed to retrieve recognition service package');
 }
 
 export function resetAndroidSttPackageCache(): void {

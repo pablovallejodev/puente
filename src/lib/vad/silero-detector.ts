@@ -6,14 +6,14 @@
  * does not split the utterance in two.
  */
 
-import type { SpeechDetector } from "./detector";
-import { SileroVad } from "./silero-vad";
+import type { SpeechDetector } from './detector';
+import { SileroVad } from './silero-vad';
 
 const START_THRESHOLD = 0.5;
 const CONTINUE_THRESHOLD = 0.35;
 
 export class SileroDetector implements SpeechDetector {
-  readonly id = "silero" as const;
+  readonly id = 'silero' as const;
   readonly frameSamples: number;
   readonly startThreshold = START_THRESHOLD;
   readonly continueThreshold = CONTINUE_THRESHOLD;
@@ -22,10 +22,7 @@ export class SileroDetector implements SpeechDetector {
     this.frameSamples = vad.frameSamples;
   }
 
-  static async create(
-    modelPath: string,
-    frameSamples: number,
-  ): Promise<SileroDetector> {
+  static async create(modelPath: string, frameSamples: number): Promise<SileroDetector> {
     return new SileroDetector(await SileroVad.create(modelPath, frameSamples));
   }
 

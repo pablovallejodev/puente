@@ -7,38 +7,20 @@
  * names an engine.
  */
 
-import {
-  getAsrModelSpec,
-  getMtModelSpec,
-  type AsrModelSpec,
-  type MtModelSpec,
-} from "@/constants/model-catalog";
-import { mapSpeechLocaleToFlores } from "@/constants/languages";
-import { assertModelInstalled } from "@/lib/model-install-state";
-import { isModelError, ModelError } from "@/lib/model-errors";
-import {
-  readSelectedModelId,
-  type SelectableTask,
-} from "@/lib/model-preferences";
-import { isWhisperError, WhisperError, wrapWhisperError } from "@/lib/whisper-errors";
-import {
-  isTranslatorError,
-  TranslatorError,
-  wrapUnknownError,
-} from "@/lib/translator-errors";
-import { isEngineError } from "@/lib/engine-errors";
-import { EngineSlot } from "@/lib/engines/slot";
-import { LlamaMtEngine } from "@/lib/engines/llama-mt";
-import { SherpaAsrEngine } from "@/lib/engines/sherpa-asr";
-import type { AsrEngine, MtEngine } from "@/lib/engines/types";
+import { getAsrModelSpec, getMtModelSpec, type AsrModelSpec, type MtModelSpec } from '@/constants/model-catalog';
+import { mapSpeechLocaleToFlores } from '@/constants/languages';
+import { assertModelInstalled } from '@/lib/model-install-state';
+import { isModelError, ModelError } from '@/lib/model-errors';
+import { readSelectedModelId, type SelectableTask } from '@/lib/model-preferences';
+import { isWhisperError, WhisperError, wrapWhisperError } from '@/lib/whisper-errors';
+import { isTranslatorError, TranslatorError, wrapUnknownError } from '@/lib/translator-errors';
+import { isEngineError } from '@/lib/engine-errors';
+import { EngineSlot } from '@/lib/engines/slot';
+import { LlamaMtEngine } from '@/lib/engines/llama-mt';
+import { SherpaAsrEngine } from '@/lib/engines/sherpa-asr';
+import type { AsrEngine, MtEngine } from '@/lib/engines/types';
 
-export type {
-  AsrEngine,
-  AsrRequest,
-  AsrResult,
-  MtEngine,
-  MtRequest,
-} from "@/lib/engines/types";
+export type { AsrEngine, AsrRequest, AsrResult, MtEngine, MtRequest } from '@/lib/engines/types';
 
 /**
  * Two: one to hit a transient failure, one to confirm it is not transient.
@@ -52,16 +34,12 @@ export const MAX_ENGINE_LOAD_ATTEMPTS = 2;
 // ---------------------------------------------------------------------------
 
 /** Resolve the spec and refuse early if the files are not actually on disk. */
-async function specFor(
-  task: SelectableTask,
-  modelId: string,
-): Promise<AsrModelSpec | MtModelSpec> {
-  const spec =
-    task === "asr" ? getAsrModelSpec(modelId) : getMtModelSpec(modelId);
+async function specFor(task: SelectableTask, modelId: string): Promise<AsrModelSpec | MtModelSpec> {
+  const spec = task === 'asr' ? getAsrModelSpec(modelId) : getMtModelSpec(modelId);
   if (!spec) {
     throw new ModelError({
-      code: "MODEL_UNKNOWN_ID",
-      stage: "catalog.resolve",
+      code: 'MODEL_UNKNOWN_ID',
+      stage: 'catalog.resolve',
       message: `Modelo desconocido para ${task}: ${modelId}`,
       recoverable: false,
       context: { modelId, task },
@@ -72,26 +50,26 @@ async function specFor(
 }
 
 async function createAsrEngine(modelId: string): Promise<AsrEngine> {
-  const spec = (await specFor("asr", modelId)) as AsrModelSpec;
+  const spec = (await specFor('asr', modelId)) as AsrModelSpec;
   switch (spec.runtime.engine) {
-    case "ort": {
+    case 'ort': {
       // Dynamic import: static ORT pulls onnxruntime-react-native JSI at cold start.
-      const { OrtWhisperEngine } = await import("./ort-whisper");
+      const { OrtWhisperEngine } = await import('./ort-whisper');
       return OrtWhisperEngine.create(spec);
     }
-    case "sherpa":
+    case 'sherpa':
       return SherpaAsrEngine.create(spec);
   }
 }
 
 async function createMtEngine(modelId: string): Promise<MtEngine> {
-  const spec = (await specFor("mt", modelId)) as MtModelSpec;
+  const spec = (await specFor('mt', modelId)) as MtModelSpec;
   switch (spec.runtime.engine) {
-    case "ort": {
-      const { OrtNllbEngine } = await import("./ort-nllb");
+    case 'ort': {
+      const { OrtNllbEngine } = await import('./ort-nllb');
       return OrtNllbEngine.create(spec);
     }
-    case "llama":
+    case 'llama':
       return LlamaMtEngine.create(spec);
   }
 }
@@ -110,18 +88,17 @@ const asrSlot = new EngineSlot<AsrEngine>({
   errors: {
     noSelection: () =>
       new WhisperError({
-        code: "ENGINE_LOAD_FAILED",
-        stage: "asset.prepare",
-        message:
-          "[MODEL_NOT_INSTALLED@engine.load] No hay un modelo de transcripción seleccionado",
+        code: 'ENGINE_LOAD_FAILED',
+        stage: 'asset.prepare',
+        message: '[MODEL_NOT_INSTALLED@engine.load] No hay un modelo de transcripción seleccionado',
         recoverable: true,
-        context: { modelCode: "MODEL_NOT_INSTALLED" },
+        context: { modelCode: 'MODEL_NOT_INSTALLED' },
       }),
     exhausted: (attempts, modelId) =>
       new WhisperError({
-        code: "ENGINE_LOAD_FAILED",
-        stage: "session.encoder",
-        message: "Se agotaron los reintentos de carga del modelo de voz",
+        code: 'ENGINE_LOAD_FAILED',
+        stage: 'session.encoder',
+        message: 'Se agotaron los reintentos de carga del modelo de voz',
         recoverable: false,
         context: { attempts, modelId },
       }),
@@ -129,8 +106,8 @@ const asrSlot = new EngineSlot<AsrEngine>({
       if (isWhisperError(err)) return err;
       if (isEngineError(err)) {
         return new WhisperError({
-          code: "ENGINE_LOAD_FAILED",
-          stage: "asset.prepare",
+          code: 'ENGINE_LOAD_FAILED',
+          stage: 'asset.prepare',
           message: err.toDisplayString(),
           recoverable: err.recoverable,
           context: { modelId, engineCode: err.code },
@@ -138,20 +115,14 @@ const asrSlot = new EngineSlot<AsrEngine>({
       }
       if (isModelError(err)) {
         return new WhisperError({
-          code: "ENGINE_LOAD_FAILED",
-          stage: "asset.prepare",
+          code: 'ENGINE_LOAD_FAILED',
+          stage: 'asset.prepare',
           message: err.toDisplayString(),
           recoverable: err.recoverable,
           context: { modelId, modelCode: err.code },
         });
       }
-      return wrapWhisperError(
-        err,
-        "session.encoder",
-        "ENGINE_LOAD_FAILED",
-        true,
-        { modelId, attempt },
-      );
+      return wrapWhisperError(err, 'session.encoder', 'ENGINE_LOAD_FAILED', true, { modelId, attempt });
     },
   },
 });
@@ -162,18 +133,17 @@ const mtSlot = new EngineSlot<MtEngine>({
   errors: {
     noSelection: () =>
       new TranslatorError({
-        code: "ENGINE_LOAD_FAILED",
-        stage: "asset.prepare",
-        message:
-          "[MODEL_NOT_INSTALLED@engine.load] No hay un modelo de traducción seleccionado",
+        code: 'ENGINE_LOAD_FAILED',
+        stage: 'asset.prepare',
+        message: '[MODEL_NOT_INSTALLED@engine.load] No hay un modelo de traducción seleccionado',
         recoverable: true,
-        context: { modelCode: "MODEL_NOT_INSTALLED" },
+        context: { modelCode: 'MODEL_NOT_INSTALLED' },
       }),
     exhausted: (attempts, modelId) =>
       new TranslatorError({
-        code: "ENGINE_LOAD_FAILED",
-        stage: "session.encoder",
-        message: "Se agotaron los reintentos de carga del traductor",
+        code: 'ENGINE_LOAD_FAILED',
+        stage: 'session.encoder',
+        message: 'Se agotaron los reintentos de carga del traductor',
         recoverable: false,
         context: { attempts, modelId },
       }),
@@ -181,8 +151,8 @@ const mtSlot = new EngineSlot<MtEngine>({
       if (isTranslatorError(err)) return err;
       if (isEngineError(err)) {
         return new TranslatorError({
-          code: "ENGINE_LOAD_FAILED",
-          stage: "asset.prepare",
+          code: 'ENGINE_LOAD_FAILED',
+          stage: 'asset.prepare',
           message: err.toDisplayString(),
           recoverable: err.recoverable,
           context: { modelId, engineCode: err.code },
@@ -190,20 +160,14 @@ const mtSlot = new EngineSlot<MtEngine>({
       }
       if (isModelError(err)) {
         return new TranslatorError({
-          code: "ENGINE_LOAD_FAILED",
-          stage: "asset.prepare",
+          code: 'ENGINE_LOAD_FAILED',
+          stage: 'asset.prepare',
           message: err.toDisplayString(),
           recoverable: err.recoverable,
           context: { modelId, modelCode: err.code },
         });
       }
-      return wrapUnknownError(
-        err,
-        "session.encoder",
-        "ENGINE_LOAD_FAILED",
-        true,
-        { modelId, attempt },
-      );
+      return wrapUnknownError(err, 'session.encoder', 'ENGINE_LOAD_FAILED', true, { modelId, attempt });
     },
   },
 });
@@ -212,19 +176,13 @@ const mtSlot = new EngineSlot<MtEngine>({
 // Public API
 // ---------------------------------------------------------------------------
 
-export async function loadAsrEngine(
-  forceRetry = false,
-  modelId?: string,
-): Promise<AsrEngine> {
-  const id = modelId ?? (await readSelectedModelId("asr"));
+export async function loadAsrEngine(forceRetry = false, modelId?: string): Promise<AsrEngine> {
+  const id = modelId ?? (await readSelectedModelId('asr'));
   return asrSlot.load(id, forceRetry);
 }
 
-export async function loadMtEngine(
-  forceRetry = false,
-  modelId?: string,
-): Promise<MtEngine> {
-  const id = modelId ?? (await readSelectedModelId("mt"));
+export async function loadMtEngine(forceRetry = false, modelId?: string): Promise<MtEngine> {
+  const id = modelId ?? (await readSelectedModelId('mt'));
   return mtSlot.load(id, forceRetry);
 }
 

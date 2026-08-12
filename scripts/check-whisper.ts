@@ -4,37 +4,32 @@
  *
  * Validates ONNX inference and tokenizer — not Metro asset registry.
  */
-import { readFileSync, statSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { readFileSync, statSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-import { Tokenizer } from "@huggingface/tokenizers";
-import { InferenceSession, Tensor } from "onnxruntime-node";
+import { Tokenizer } from '@huggingface/tokenizers';
+import { InferenceSession, Tensor } from 'onnxruntime-node';
 
-import {
-  DEFAULT_PREPROCESSOR,
-  type WhisperPreprocessorConfig,
-} from "../src/lib/whisper-mel";
+import { DEFAULT_PREPROCESSOR, type WhisperPreprocessorConfig } from '../src/lib/whisper-mel';
 import {
   WHISPER_SESSION_OPTIONS,
   transcribePcm,
   type WhisperGenerationConfig,
   type WhisperModelConfig,
-} from "../src/lib/whisper-inference";
+} from '../src/lib/whisper-inference';
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const MODELS =
-  process.env.WHISPER_MODEL_DIR?.trim() ||
-  path.join(ROOT, "assets", "models", "whisper-tiny");
-const FIXTURE = path.join(ROOT, "scripts", "fixtures", "jfk.wav");
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const MODELS = process.env.WHISPER_MODEL_DIR?.trim() || path.join(ROOT, 'assets', 'models', 'whisper-tiny');
+const FIXTURE = path.join(ROOT, 'scripts', 'fixtures', 'jfk.wav');
 
 const MIN_ENCODER_BYTES = 1_000_000;
 const MIN_DECODER_BYTES = 5_000_000;
 const MIN_TOKENIZER_BYTES = 100_000;
 
 function resolveTokenizerPath(): string {
-  const json = path.join(MODELS, "tokenizer.json");
-  const jsondata = path.join(MODELS, "tokenizer.jsondata");
+  const json = path.join(MODELS, 'tokenizer.json');
+  const jsondata = path.join(MODELS, 'tokenizer.jsondata');
   try {
     statSync(json);
     return json;
@@ -44,15 +39,13 @@ function resolveTokenizerPath(): string {
 }
 
 function loadJson<T>(filename: string): T {
-  return JSON.parse(
-    readFileSync(path.join(MODELS, filename), "utf8"),
-  ) as T;
+  return JSON.parse(readFileSync(path.join(MODELS, filename), 'utf8')) as T;
 }
 
 /** Decode PCM WAV → mono float32 @ 16 kHz (linear resample). */
 function loadWavPcm16k(filePath: string): Float32Array {
   const buf = readFileSync(filePath);
-  if (buf.toString("ascii", 0, 4) !== "RIFF" || buf.toString("ascii", 8, 12) !== "WAVE") {
+  if (buf.toString('ascii', 0, 4) !== 'RIFF' || buf.toString('ascii', 8, 12) !== 'WAVE') {
     throw new Error(`Not a WAV file: ${filePath}`);
   }
 
@@ -64,14 +57,14 @@ function loadWavPcm16k(filePath: string): Float32Array {
   let dataSize = 0;
 
   while (offset + 8 <= buf.length) {
-    const id = buf.toString("ascii", offset, offset + 4);
+    const id = buf.toString('ascii', offset, offset + 4);
     const size = buf.readUInt32LE(offset + 4);
     const chunkStart = offset + 8;
-    if (id === "fmt ") {
+    if (id === 'fmt ') {
       channels = buf.readUInt16LE(chunkStart + 2);
       sampleRate = buf.readUInt32LE(chunkStart + 4);
       bitsPerSample = buf.readUInt16LE(chunkStart + 14);
-    } else if (id === "data") {
+    } else if (id === 'data') {
       dataOffset = chunkStart;
       dataSize = size;
       break;
@@ -80,7 +73,7 @@ function loadWavPcm16k(filePath: string): Float32Array {
   }
 
   if (!sampleRate || !channels || !dataOffset) {
-    throw new Error("Invalid WAV: missing fmt/data");
+    throw new Error('Invalid WAV: missing fmt/data');
   }
   if (bitsPerSample !== 16) {
     throw new Error(`Unsupported bitsPerSample=${bitsPerSample}`);
@@ -115,23 +108,23 @@ function loadWavPcm16k(filePath: string): Float32Array {
 async function main(): Promise<void> {
   if (!process.env.WHISPER_MODEL_DIR?.trim()) {
     console.error(
-      "WHISPER_MODEL_DIR no definido.\n" +
-        "Los modelos ya no están en assets/. Descarga Whisper Tiny (Xenova) y apunta la variable al directorio\n" +
-        "con encoder_model_quantized.onnx, decoder_model_merged_quantized.onnx, configs y tokenizer.json.\n" +
-        "Ver TESTING.md y src/constants/model-catalog.ts.",
+      'WHISPER_MODEL_DIR no definido.\n' +
+        'Los modelos ya no están en assets/. Descarga Whisper Tiny (Xenova) y apunta la variable al directorio\n' +
+        'con encoder_model_quantized.onnx, decoder_model_merged_quantized.onnx, configs y tokenizer.json.\n' +
+        'Ver TESTING.md y src/constants/model-catalog.ts.',
     );
     process.exit(2);
   }
 
   const started = Date.now();
-  console.log("Whisper quantized golden check");
+  console.log('Whisper quantized golden check');
   console.log(`models: ${MODELS}`);
 
   const tokenizerPath = resolveTokenizerPath();
 
   for (const [label, file, min] of [
-    ["encoder", "encoder_model_quantized.onnx", MIN_ENCODER_BYTES],
-    ["decoder", "decoder_model_merged_quantized.onnx", MIN_DECODER_BYTES],
+    ['encoder', 'encoder_model_quantized.onnx', MIN_ENCODER_BYTES],
+    ['decoder', 'decoder_model_merged_quantized.onnx', MIN_DECODER_BYTES],
   ] as const) {
     const p = path.join(MODELS, file);
     const size = statSync(p).size;
@@ -148,41 +141,26 @@ async function main(): Promise<void> {
     console.log(`tokenizer: ${size} bytes OK (${path.basename(tokenizerPath)})`);
   }
 
-  const modelConfig = loadJson<WhisperModelConfig>("config.json");
-  const generationConfig = loadJson<WhisperGenerationConfig>(
-    "generation_config.json",
-  );
+  const modelConfig = loadJson<WhisperModelConfig>('config.json');
+  const generationConfig = loadJson<WhisperGenerationConfig>('generation_config.json');
   const preprocessor = {
     ...DEFAULT_PREPROCESSOR,
-    ...loadJson<Partial<WhisperPreprocessorConfig>>("preprocessor_config.json"),
+    ...loadJson<Partial<WhisperPreprocessorConfig>>('preprocessor_config.json'),
   };
-  const tokenizerJson = JSON.parse(
-    readFileSync(tokenizerPath, "utf8"),
-  ) as Record<string, unknown>;
-  const tokenizerConfig = loadJson<Record<string, unknown>>(
-    "tokenizer_config.json",
-  );
+  const tokenizerJson = JSON.parse(readFileSync(tokenizerPath, 'utf8')) as Record<string, unknown>;
+  const tokenizerConfig = loadJson<Record<string, unknown>>('tokenizer_config.json');
 
-  console.log("loading tokenizer…");
+  console.log('loading tokenizer…');
   const tokenizer = new Tokenizer(tokenizerJson, tokenizerConfig);
 
-  const encoderPath = path.join(MODELS, "encoder_model_quantized.onnx");
-  const decoderPath = path.join(
-    MODELS,
-    "decoder_model_merged_quantized.onnx",
-  );
+  const encoderPath = path.join(MODELS, 'encoder_model_quantized.onnx');
+  const decoderPath = path.join(MODELS, 'decoder_model_merged_quantized.onnx');
 
-  console.log("creating sessions…");
-  const encoderSession = await InferenceSession.create(
-    encoderPath,
-    WHISPER_SESSION_OPTIONS,
-  );
-  const decoderSession = await InferenceSession.create(
-    decoderPath,
-    WHISPER_SESSION_OPTIONS,
-  );
-  console.log("encoder inputs:", encoderSession.inputNames);
-  console.log("decoder inputs:", decoderSession.inputNames.slice(0, 4), "…");
+  console.log('creating sessions…');
+  const encoderSession = await InferenceSession.create(encoderPath, WHISPER_SESSION_OPTIONS);
+  const decoderSession = await InferenceSession.create(decoderPath, WHISPER_SESSION_OPTIONS);
+  console.log('encoder inputs:', encoderSession.inputNames);
+  console.log('decoder inputs:', decoderSession.inputNames.slice(0, 4), '…');
 
   console.log(`loading fixture: ${FIXTURE}`);
   const pcm = loadWavPcm16k(FIXTURE);
@@ -191,14 +169,14 @@ async function main(): Promise<void> {
   const t0 = Date.now();
   const result = await transcribePcm({
     pcm,
-    language: "en",
+    language: 'en',
     tokenizer,
     encoderSession,
     decoderSession,
     modelConfig,
     generationConfig,
     preprocessor,
-    TensorCtor: Tensor as unknown as import("../src/lib/nllb-inference").TensorConstructor,
+    TensorCtor: Tensor as unknown as import('../src/lib/nllb-inference').TensorConstructor,
   });
   const ms = Date.now() - t0;
   const text = result.text;
@@ -210,38 +188,36 @@ async function main(): Promise<void> {
 
   const lower = text.toLowerCase();
   const ok =
-    lower.includes("ask") ||
-    lower.includes("country") ||
-    lower.includes("kennedy") ||
-    lower.includes("fellow") ||
+    lower.includes('ask') ||
+    lower.includes('country') ||
+    lower.includes('kennedy') ||
+    lower.includes('fellow') ||
     text.length >= 8;
   if (!ok) {
     throw new Error(`Unexpected transcript: "${text}"`);
   }
   if (result.noSpeech) {
-    throw new Error("jfk.wav incorrectly classified as no_speech");
+    throw new Error('jfk.wav incorrectly classified as no_speech');
   }
 
-  console.log("silence probe…");
+  console.log('silence probe…');
   const silence = new Float32Array(16000);
   const silentResult = await transcribePcm({
     pcm: silence,
-    language: "en",
+    language: 'en',
     tokenizer,
     encoderSession,
     decoderSession,
     modelConfig,
     generationConfig,
     preprocessor,
-    TensorCtor: Tensor as unknown as import("../src/lib/nllb-inference").TensorConstructor,
+    TensorCtor: Tensor as unknown as import('../src/lib/nllb-inference').TensorConstructor,
   });
   console.log(
     `  silence noSpeech=${silentResult.noSpeech} prob=${silentResult.noSpeechProb.toFixed(3)} text="${silentResult.text}"`,
   );
   if (!silentResult.noSpeech && silentResult.text.trim()) {
-    throw new Error(
-      `silence produced speech text: "${silentResult.text}" (prob=${silentResult.noSpeechProb})`,
-    );
+    throw new Error(`silence produced speech text: "${silentResult.text}" (prob=${silentResult.noSpeechProb})`);
   }
 
   encoderSession.release();
@@ -250,7 +226,7 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error("\n✗ whisper check failed");
+  console.error('\n✗ whisper check failed');
   console.error(err instanceof Error ? err.message : err);
   process.exit(1);
 });

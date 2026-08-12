@@ -13,34 +13,30 @@
  * share.
  */
 
-import { InferenceSession } from "onnxruntime-react-native";
-import { Platform } from "react-native";
+import { InferenceSession } from 'onnxruntime-react-native';
+import { Platform } from 'react-native';
 
-import {
-  buildSessionOptions,
-  type OrtProviderName,
-  type OrtSessionRole,
-} from "@/lib/ort/session-options";
+import { buildSessionOptions, type OrtProviderName, type OrtSessionRole } from '@/lib/ort/session-options';
 
 export {
   buildSessionOptions,
   THREADS_BY_ROLE,
   type OrtProviderName,
   type OrtSessionRole,
-} from "@/lib/ort/session-options";
+} from '@/lib/ort/session-options';
 
 export function defaultProviderLadder(): OrtProviderName[] {
-  if (Platform.OS === "android" || Platform.OS === "ios") {
-    return ["xnnpack", "cpu"];
+  if (Platform.OS === 'android' || Platform.OS === 'ios') {
+    return ['xnnpack', 'cpu'];
   }
-  return ["cpu"];
+  return ['cpu'];
 }
 
 /**
  * Opt-in ladder for benchmarking NNAPI. Read the note at the top of this file
  * before reaching for it.
  */
-export const NNAPI_PROVIDER_LADDER: OrtProviderName[] = ["nnapi", "cpu"];
+export const NNAPI_PROVIDER_LADDER: OrtProviderName[] = ['nnapi', 'cpu'];
 
 export type OrtSessionHandle = {
   session: InferenceSession;
@@ -74,15 +70,10 @@ export async function createOrtSession(
 
   for (const provider of providers) {
     try {
-      const session = await InferenceSession.create(
-        modelPath,
-        buildSessionOptions(role, provider),
-      );
+      const session = await InferenceSession.create(modelPath, buildSessionOptions(role, provider));
       lastProvider.set(label, provider);
       if (__DEV__ && provider !== providers[0]) {
-        console.info(
-          `[ort] ${label}: "${providers[0]}" no disponible, usando "${provider}"`,
-        );
+        console.info(`[ort] ${label}: "${providers[0]}" no disponible, usando "${provider}"`);
       }
       return { session, provider };
     } catch (err) {
@@ -96,7 +87,7 @@ export async function createOrtSession(
 export function releaseOrtSession(session: InferenceSession | null): void {
   if (!session) return;
   try {
-    if (typeof session.release === "function") {
+    if (typeof session.release === 'function') {
       session.release();
     }
   } catch {
@@ -110,8 +101,8 @@ export function releaseOrtSession(session: InferenceSession | null): void {
  */
 export function isOrtNotRegistered(message: string): boolean {
   return (
-    message.includes("OrtApi is not initialized") ||
-    message.includes("onnxruntime-react-native") ||
+    message.includes('OrtApi is not initialized') ||
+    message.includes('onnxruntime-react-native') ||
     /\binstall\b/.test(message)
   );
 }

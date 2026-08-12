@@ -1,7 +1,7 @@
-import * as FileSystem from "expo-file-system/legacy";
+import * as FileSystem from 'expo-file-system/legacy';
 
-import type { ModelSpec } from "@/constants/model-catalog";
-import { ModelError } from "@/lib/model-errors";
+import type { ModelSpec } from '@/constants/model-catalog';
+import { ModelError } from '@/lib/model-errors';
 
 /**
  * On-disk layout:
@@ -18,9 +18,9 @@ export function getModelsRoot(): string {
   const root = FileSystem.documentDirectory;
   if (!root) {
     throw new ModelError({
-      code: "MODEL_ENGINE_PATH_MISSING",
-      stage: "engine.load",
-      message: "Directorio de documentos no disponible en este dispositivo",
+      code: 'MODEL_ENGINE_PATH_MISSING',
+      stage: 'engine.load',
+      message: 'Directorio de documentos no disponible en este dispositivo',
       recoverable: false,
     });
   }
@@ -54,5 +54,5 @@ export function getCompleteMarkerPath(spec: ModelSpec): string {
 
 /** ONNX Runtime and the native engines take plain paths, not file:// URIs. */
 export function toNativePath(uri: string): string {
-  return uri.replace(/^file:\/\//, "");
+  return uri.replace(/^file:\/\//, '');
 }

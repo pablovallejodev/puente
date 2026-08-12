@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+import assert from 'node:assert/strict';
 
 import {
   FALLBACK_OUTPUT_LANGUAGE,
@@ -9,44 +9,25 @@ import {
   TRADUCTOR_LANGUAGES,
   UNIVERSAL_INPUT,
   type InputLanguageSelection,
-} from "../src/constants/traductor-languages";
-import {
-  getTraductorLanguageDisplayName,
-  resolveUiLocale,
-} from "../src/lib/language-display-name";
+} from '../src/constants/traductor-languages';
+import { getTraductorLanguageDisplayName, resolveUiLocale } from '../src/lib/language-display-name';
 import {
   speechLocaleToWhisperLang,
   whisperLangToSpeechLocale,
   UNIVERSAL_CANDIDATE_LANGS,
   WHISPER_OFFICIAL_LANGS,
   WHISPER_EXCLUDED_FROM_PRODUCT,
-} from "../src/constants/whisper-languages";
-import {
-  LANG_DETECT_MIN_PROB,
-  noSpeechProbFromLogits,
-  softmaxLangAmong,
-} from "../src/lib/whisper-inference";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
-import type { OrtTensor } from "../src/lib/nllb-inference";
-import {
-  isLocaleInstalled,
-  isLocaleSupported,
-  localeMatches,
-  normalizeLocale,
-} from "../src/lib/stt-locale";
-import { formatSttError, sttError } from "../src/lib/stt-errors";
-import { getMissingInputLocales } from "../src/lib/traductor-offline";
-import {
-  acceptTranscript,
-  stripBracketAnnotations,
-} from "../src/lib/transcript-filter";
-import {
-  ENERGY_FLOOR,
-  ENERGY_FRAME_SAMPLES,
-  EnergyDetector,
-} from "../src/lib/vad/energy-detector";
-import type { SpeechDetector } from "../src/lib/vad/detector";
+} from '../src/constants/whisper-languages';
+import { LANG_DETECT_MIN_PROB, noSpeechProbFromLogits, softmaxLangAmong } from '../src/lib/whisper-inference';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+import type { OrtTensor } from '../src/lib/nllb-inference';
+import { isLocaleInstalled, isLocaleSupported, localeMatches, normalizeLocale } from '../src/lib/stt-locale';
+import { formatSttError, sttError } from '../src/lib/stt-errors';
+import { getMissingInputLocales } from '../src/lib/traductor-offline';
+import { acceptTranscript, stripBracketAnnotations } from '../src/lib/transcript-filter';
+import { ENERGY_FLOOR, ENERGY_FRAME_SAMPLES, EnergyDetector } from '../src/lib/vad/energy-detector';
+import type { SpeechDetector } from '../src/lib/vad/detector';
 import {
   MAX_CHUNK_MS,
   MIN_SPEECH_MS,
@@ -54,64 +35,46 @@ import {
   SAMPLE_RATE,
   SILENCE_MS,
   SpeechSegmenter,
-} from "../src/lib/vad/segmenter";
-import {
-  detectLoopPeriod,
-  selectNextToken,
-  TRANSLATION_GUARDS,
-  WHISPER_GUARDS,
-} from "../src/lib/ort/decode-guards";
-import {
-  LatestFirstPreserveScheduler,
-  translationJobKey,
-} from "../src/lib/translation-scheduler";
-import { DEFAULT_PREPROCESSOR, extractWhisperMel } from "../src/lib/whisper-mel";
-import {
-  lookupPhrase,
-  normalizePhrase,
-  phrasePairCount,
-} from "../src/lib/mt/phrase-lookup";
-import { resolveSpeechDisableMode } from "../src/lib/speech-disable-mode";
-import {
-  blockedLanguageIdsForSlot,
-  occupiedLanguageIds,
-} from "../src/lib/blocked-language-ids";
-import {
-  resolveDefaultLanguageTwo,
-  resolveLanguageTwo,
-} from "../src/lib/language-two-default";
-import { resolveTranslationTarget } from "../src/lib/traductor-target";
+} from '../src/lib/vad/segmenter';
+import { detectLoopPeriod, selectNextToken, TRANSLATION_GUARDS, WHISPER_GUARDS } from '../src/lib/ort/decode-guards';
+import { LatestFirstPreserveScheduler, translationJobKey } from '../src/lib/translation-scheduler';
+import { DEFAULT_PREPROCESSOR, extractWhisperMel } from '../src/lib/whisper-mel';
+import { lookupPhrase, normalizePhrase, phrasePairCount } from '../src/lib/mt/phrase-lookup';
+import { resolveSpeechDisableMode } from '../src/lib/speech-disable-mode';
+import { blockedLanguageIdsForSlot, occupiedLanguageIds } from '../src/lib/blocked-language-ids';
+import { resolveDefaultLanguageTwo, resolveLanguageTwo } from '../src/lib/language-two-default';
+import { resolveTranslationTarget } from '../src/lib/traductor-target';
 
 function testLocaleMatching(): void {
-  assert.equal(normalizeLocale("en_US"), "en-us");
-  assert.equal(localeMatches("en-GB", "en-gb"), true);
-  assert.equal(localeMatches("en-GB", "en-US"), false);
-  assert.equal(isLocaleInstalled(["en-GB", "es-ES"], "en-US"), false);
-  assert.equal(isLocaleInstalled(["en-GB", "es-ES"], "en-GB"), true);
-  assert.equal(isLocaleSupported(["ca-ES"], "ca-ES"), true);
-  assert.equal(isLocaleSupported(["ca-ES"], "eu-ES"), false);
+  assert.equal(normalizeLocale('en_US'), 'en-us');
+  assert.equal(localeMatches('en-GB', 'en-gb'), true);
+  assert.equal(localeMatches('en-GB', 'en-US'), false);
+  assert.equal(isLocaleInstalled(['en-GB', 'es-ES'], 'en-US'), false);
+  assert.equal(isLocaleInstalled(['en-GB', 'es-ES'], 'en-GB'), true);
+  assert.equal(isLocaleSupported(['ca-ES'], 'ca-ES'), true);
+  assert.equal(isLocaleSupported(['ca-ES'], 'eu-ES'), false);
 }
 
 function testTranscriptFilter(): void {
-  assert.equal(acceptTranscript(""), null);
-  assert.equal(acceptTranscript("   "), null);
-  assert.equal(acceptTranscript("..."), null);
-  assert.equal(acceptTranscript("123"), null);
-  assert.equal(acceptTranscript("♪ ♫"), null);
-  assert.equal(acceptTranscript("[risas]"), null);
-  assert.equal(acceptTranscript("[música]"), null);
-  assert.equal(acceptTranscript("[tos]"), null);
-  assert.equal(acceptTranscript("[risas] [aplausos]"), null);
-  assert.equal(acceptTranscript("Hola [risas]"), "Hola");
-  assert.equal(acceptTranscript("[música] Hola mundo"), "Hola mundo");
-  assert.equal(acceptTranscript("Hola [risas] adiós"), "Hola adiós");
-  assert.equal(stripBracketAnnotations("a [x] b"), "a b");
+  assert.equal(acceptTranscript(''), null);
+  assert.equal(acceptTranscript('   '), null);
+  assert.equal(acceptTranscript('...'), null);
+  assert.equal(acceptTranscript('123'), null);
+  assert.equal(acceptTranscript('♪ ♫'), null);
+  assert.equal(acceptTranscript('[risas]'), null);
+  assert.equal(acceptTranscript('[música]'), null);
+  assert.equal(acceptTranscript('[tos]'), null);
+  assert.equal(acceptTranscript('[risas] [aplausos]'), null);
+  assert.equal(acceptTranscript('Hola [risas]'), 'Hola');
+  assert.equal(acceptTranscript('[música] Hola mundo'), 'Hola mundo');
+  assert.equal(acceptTranscript('Hola [risas] adiós'), 'Hola adiós');
+  assert.equal(stripBracketAnnotations('a [x] b'), 'a b');
 
   // Unicode letters from supported product languages must pass.
-  assert.equal(acceptTranscript("Καλημέρα"), "Καλημέρα");
-  assert.equal(acceptTranscript("สวัสดี"), "สวัสดี");
-  assert.equal(acceptTranscript("Përshëndetje"), "Përshëndetje");
-  assert.equal(acceptTranscript("你好"), "你好");
+  assert.equal(acceptTranscript('Καλημέρα'), 'Καλημέρα');
+  assert.equal(acceptTranscript('สวัสดี'), 'สวัสดี');
+  assert.equal(acceptTranscript('Përshëndetje'), 'Përshëndetje');
+  assert.equal(acceptTranscript('你好'), '你好');
 }
 
 const FRAME_SAMPLES = ENERGY_FRAME_SAMPLES;
@@ -152,7 +115,7 @@ async function testSegmenterRejectsBriefNoise(): Promise<void> {
   seg.push(tone(1, 0.2));
   seg.push(silence(30));
   await settle();
-  assert.equal(chunks.length, 0, "brief spike must not form a chunk");
+  assert.equal(chunks.length, 0, 'brief spike must not form a chunk');
 }
 
 async function testSegmenterAcceptsSustainedSpeech(): Promise<void> {
@@ -161,7 +124,7 @@ async function testSegmenterAcceptsSustainedSpeech(): Promise<void> {
   seg.push(tone(MIN_ACTIVE_FRAMES + 2, 0.15));
   seg.push(silence(Math.ceil(SILENCE_MS / FRAME_MS) + 2));
   await settle();
-  assert.equal(chunks.length, 1, "sustained speech must form a chunk");
+  assert.equal(chunks.length, 1, 'sustained speech must form a chunk');
   assert.ok(chunks[0].length >= msToSamples(MIN_SPEECH_MS));
 }
 
@@ -170,12 +133,9 @@ async function testSegmenterCapsMaxChunk(): Promise<void> {
   const seg = energySegmenter(chunks);
   seg.push(tone(Math.ceil(MAX_CHUNK_MS / FRAME_MS) + 4, 0.15));
   await settle();
-  assert.ok(chunks.length >= 1, "max length must cut");
+  assert.ok(chunks.length >= 1, 'max length must cut');
   for (const c of chunks) {
-    assert.ok(
-      c.length <= msToSamples(MAX_CHUNK_MS),
-      `chunk exceeded max: ${c.length}`,
-    );
+    assert.ok(c.length <= msToSamples(MAX_CHUNK_MS), `chunk exceeded max: ${c.length}`);
   }
 }
 
@@ -184,11 +144,11 @@ async function testSegmenterFlushRequiresActiveSpeech(): Promise<void> {
   const seg = energySegmenter(chunks);
   seg.push(tone(1, 0.2));
   await seg.flush();
-  assert.equal(chunks.length, 0, "flush of brief noise must discard");
+  assert.equal(chunks.length, 0, 'flush of brief noise must discard');
 
   seg.push(tone(MIN_ACTIVE_FRAMES + 1, 0.15));
   await seg.flush();
-  assert.equal(chunks.length, 1, "flush of real speech must emit");
+  assert.equal(chunks.length, 1, 'flush of real speech must emit');
 }
 
 /**
@@ -197,7 +157,7 @@ async function testSegmenterFlushRequiresActiveSpeech(): Promise<void> {
  * the scores. This is the path a real Silero detector takes: async scoring.
  */
 class ScriptedDetector implements SpeechDetector {
-  readonly id = "silero" as const;
+  readonly id = 'silero' as const;
   readonly frameSamples = 512;
   readonly startThreshold = 0.5;
   readonly continueThreshold = 0.35;
@@ -239,14 +199,11 @@ async function testSegmenterHysteresisAndReset(): Promise<void> {
   seg.push(new Float32Array(scores.length * 512));
   await settle();
 
-  assert.equal(chunks.length, 1, "one utterance expected");
+  assert.equal(chunks.length, 1, 'one utterance expected');
   // 0.4 sits between the two thresholds, so it counted as speech and did not
   // restart the silence timer; the chunk therefore spans it.
-  assert.ok(
-    chunks[0].length >= msToSamples(MIN_SPEECH_MS) + 512,
-    "mid-utterance dip must not split the chunk",
-  );
-  assert.ok(detector.resets >= 1, "recurrent state must reset per utterance");
+  assert.ok(chunks[0].length >= msToSamples(MIN_SPEECH_MS) + 512, 'mid-utterance dip must not split the chunk');
+  assert.ok(detector.resets >= 1, 'recurrent state must reset per utterance');
 }
 
 function testLoopDetection(): void {
@@ -259,10 +216,7 @@ function testLoopDetection(): void {
   // Truncating by period * loopRepeats leaves exactly the pre-loop text.
   const generated = [9, 1, 2, 1, 2, 1, 2];
   const period = detectLoopPeriod(generated, WHISPER_GUARDS)!;
-  assert.deepEqual(
-    generated.slice(0, generated.length - period * WHISPER_GUARDS.loopRepeats),
-    [9],
-  );
+  assert.deepEqual(generated.slice(0, generated.length - period * WHISPER_GUARDS.loopRepeats), [9]);
 }
 
 function logitsOf(values: number[]): OrtTensor {
@@ -283,13 +237,8 @@ function testDecodeGuards(): void {
   // no-repeat n-gram is a hard ban: after [1,2,3] -> 0, the prefix [1,2,3]
   // recurring must not pick 0 again even though it has the top logit.
   const guards = { ...WHISPER_GUARDS, repetitionPenalty: 1 };
-  const banned = selectNextToken(
-    logitsOf([10, 1, 2, 3]),
-    4,
-    [1, 2, 3, 0, 1, 2, 3],
-    guards,
-  );
-  assert.notEqual(banned, 0, "n-gram continuation must be banned");
+  const banned = selectNextToken(logitsOf([10, 1, 2, 3]), 4, [1, 2, 3, 0, 1, 2, 3], guards);
+  assert.notEqual(banned, 0, 'n-gram continuation must be banned');
 
   // Every token banned is survivable: fall back to raw argmax.
   const all = selectNextToken(logitsOf([5, 1]), 2, [0, 1, 0, 1, 0, 1], {
@@ -311,11 +260,11 @@ function testSessionGuard(): void {
     if (chunkSession !== sessionId) return;
     emit.push(text);
   };
-  publish(1, "old");
+  publish(1, 'old');
   sessionId = 2;
-  publish(1, "stale");
-  publish(2, "fresh");
-  assert.deepEqual(emit, ["old", "fresh"]);
+  publish(1, 'stale');
+  publish(2, 'fresh');
+  assert.deepEqual(emit, ['old', 'fresh']);
 }
 
 async function testLatestFirstPreserve(): Promise<void> {
@@ -338,28 +287,28 @@ async function testLatestFirstPreserve(): Promise<void> {
     },
   });
 
-  scheduler.enqueue({ id: "A", key: "A1" });
+  scheduler.enqueue({ id: 'A', key: 'A1' });
   await new Promise((r) => setTimeout(r, 40));
-  scheduler.enqueue({ id: "B", key: "B1" });
+  scheduler.enqueue({ id: 'B', key: 'B1' });
   await new Promise((r) => setTimeout(r, 400));
 
-  assert.ok(order.includes("start:A"));
-  assert.ok(order.includes("cancel:A"));
-  assert.ok(order.includes("start:B"));
-  assert.ok(order.includes("done:B"));
-  assert.ok(order.includes("done:A"));
+  assert.ok(order.includes('start:A'));
+  assert.ok(order.includes('cancel:A'));
+  assert.ok(order.includes('start:B'));
+  assert.ok(order.includes('done:B'));
+  assert.ok(order.includes('done:A'));
 
-  const doneB = order.indexOf("done:B");
-  const doneA = order.lastIndexOf("done:A");
-  assert.ok(doneB < doneA, "B must finish before preserved A");
-  assert.equal(order.filter((x) => x === "done:A").length, 1);
-  assert.equal(order.filter((x) => x === "done:B").length, 1);
+  const doneB = order.indexOf('done:B');
+  const doneA = order.lastIndexOf('done:A');
+  assert.ok(doneB < doneA, 'B must finish before preserved A');
+  assert.equal(order.filter((x) => x === 'done:A').length, 1);
+  assert.equal(order.filter((x) => x === 'done:B').length, 1);
 }
 
 function testTranslationJobKey(): void {
-  const a = translationJobKey("m1", "hola", "es-ES", "en-US");
-  const b = translationJobKey("m1", "hola", "es-ES", "ca-ES");
-  const c = translationJobKey("m2", "hola", "es-ES", "en-US");
+  const a = translationJobKey('m1', 'hola', 'es-ES', 'en-US');
+  const b = translationJobKey('m1', 'hola', 'es-ES', 'ca-ES');
+  const c = translationJobKey('m2', 'hola', 'es-ES', 'en-US');
   assert.notEqual(a, b);
   assert.notEqual(a, c);
 }
@@ -368,16 +317,16 @@ function testMessageIsolation(): void {
   type Msg = { id: string; translated: string };
 
   const messages: Msg[] = [
-    { id: "a", translated: "Hello Dallas" },
-    { id: "b", translated: "" },
+    { id: 'a', translated: 'Hello Dallas' },
+    { id: 'b', translated: '' },
   ];
 
   const apply = (messageId: string, text: string) =>
     messages.map((m) => (m.id === messageId ? { ...m, translated: text } : m));
 
-  const next = apply("b", "Hello, how are you?");
-  assert.equal(next.find((m) => m.id === "a")?.translated, "Hello Dallas");
-  assert.equal(next.find((m) => m.id === "b")?.translated, "Hello, how are you?");
+  const next = apply('b', 'Hello, how are you?');
+  assert.equal(next.find((m) => m.id === 'a')?.translated, 'Hello Dallas');
+  assert.equal(next.find((m) => m.id === 'b')?.translated, 'Hello, how are you?');
 }
 
 function testFinalTranslationFreeze(): void {
@@ -385,31 +334,18 @@ function testFinalTranslationFreeze(): void {
     id: string;
     isFinal: boolean;
     translated: string;
-    translationStatus: "queued" | "translating" | "done" | "error";
+    translationStatus: 'queued' | 'translating' | 'done' | 'error';
   };
 
-  const apply = (
-    m: Msg,
-    text: string,
-    status: Msg["translationStatus"],
-    options?: { force?: boolean },
-  ): Msg => {
+  const apply = (m: Msg, text: string, status: Msg['translationStatus'], options?: { force?: boolean }): Msg => {
     // Mirrors use-chat-messages.onTranslationUpdate
-    if (status === "queued" || status === "translating") {
-      if (
-        !options?.force &&
-        m.translationStatus === "done" &&
-        m.translated
-      ) {
+    if (status === 'queued' || status === 'translating') {
+      if (!options?.force && m.translationStatus === 'done' && m.translated) {
         return m;
       }
       return { ...m, translationStatus: status };
     }
-    if (
-      !options?.force &&
-      m.translationStatus === "done" &&
-      m.translated
-    ) {
+    if (!options?.force && m.translationStatus === 'done' && m.translated) {
       return m;
     }
     return { ...m, translated: text, translationStatus: status };
@@ -417,75 +353,75 @@ function testFinalTranslationFreeze(): void {
 
   const frozen = apply(
     {
-      id: "1",
+      id: '1',
       isFinal: true,
-      translated: "Hello",
-      translationStatus: "done",
+      translated: 'Hello',
+      translationStatus: 'done',
     },
-    "Bonjour",
-    "done",
+    'Bonjour',
+    'done',
   );
-  assert.equal(frozen.translated, "Hello");
+  assert.equal(frozen.translated, 'Hello');
 
   const emptyWipe = apply(
     {
-      id: "1",
+      id: '1',
       isFinal: true,
-      translated: "Hello",
-      translationStatus: "done",
+      translated: 'Hello',
+      translationStatus: 'done',
     },
-    "",
-    "queued",
+    '',
+    'queued',
   );
-  assert.equal(emptyWipe.translated, "Hello");
-  assert.equal(emptyWipe.translationStatus, "done");
+  assert.equal(emptyWipe.translated, 'Hello');
+  assert.equal(emptyWipe.translationStatus, 'done');
 
   const preemptStatusOnly = apply(
     {
-      id: "1",
+      id: '1',
       isFinal: true,
-      translated: "",
-      translationStatus: "translating",
+      translated: '',
+      translationStatus: 'translating',
     },
-    "",
-    "queued",
+    '',
+    'queued',
   );
-  assert.equal(preemptStatusOnly.translated, "");
-  assert.equal(preemptStatusOnly.translationStatus, "queued");
+  assert.equal(preemptStatusOnly.translated, '');
+  assert.equal(preemptStatusOnly.translationStatus, 'queued');
 
   const forced = apply(
     {
-      id: "1",
+      id: '1',
       isFinal: true,
-      translated: "Hello",
-      translationStatus: "done",
+      translated: 'Hello',
+      translationStatus: 'done',
     },
-    "Bonjour",
-    "done",
+    'Bonjour',
+    'done',
     { force: true },
   );
-  assert.equal(forced.translated, "Bonjour");
+  assert.equal(forced.translated, 'Bonjour');
 }
 
 function testFailPendingAndRemove(): void {
   type Msg = {
     id: string;
     original: string;
-    transcriptionStatus: "pending" | "done" | "error";
+    transcriptionStatus: 'pending' | 'done' | 'error';
     transcriptionError?: string;
   };
 
   let messages: Msg[] = [
-    { id: "a", original: "hola", transcriptionStatus: "done" },
-    { id: "b", original: "", transcriptionStatus: "pending" },
+    { id: 'a', original: 'hola', transcriptionStatus: 'done' },
+    { id: 'b', original: '', transcriptionStatus: 'pending' },
   ];
 
   const failPending = (messageId: string, message: string) => {
     messages = messages.map((m) => {
-      if (m.id !== messageId || m.transcriptionStatus !== "pending") return m;
+      if (m.id !== messageId || m.transcriptionStatus !== 'pending') return m;
       return {
         ...m,
-        transcriptionStatus: "error" as const,
+        transcriptionStatus: 'error' as const,
         transcriptionError: message,
       };
     });
@@ -495,58 +431,58 @@ function testFailPendingAndRemove(): void {
     messages = messages.filter((m) => m.id !== messageId);
   };
 
-  failPending("b", "No se entendió");
-  assert.equal(messages.find((m) => m.id === "b")?.transcriptionStatus, "error");
-  assert.equal(messages.find((m) => m.id === "b")?.transcriptionError, "No se entendió");
-  assert.equal(messages.find((m) => m.id === "a")?.transcriptionStatus, "done");
+  failPending('b', 'No se entendió');
+  assert.equal(messages.find((m) => m.id === 'b')?.transcriptionStatus, 'error');
+  assert.equal(messages.find((m) => m.id === 'b')?.transcriptionError, 'No se entendió');
+  assert.equal(messages.find((m) => m.id === 'a')?.transcriptionStatus, 'done');
 
   // Only pending can fail — done is untouched.
-  failPending("a", "x");
-  assert.equal(messages.find((m) => m.id === "a")?.transcriptionStatus, "done");
+  failPending('a', 'x');
+  assert.equal(messages.find((m) => m.id === 'a')?.transcriptionStatus, 'done');
 
-  remove("b");
+  remove('b');
   assert.equal(messages.length, 1);
-  assert.equal(messages[0].id, "a");
+  assert.equal(messages[0].id, 'a');
 }
 
 function testLatestDoneMessageId(): void {
-  type Msg = { id: string; transcriptionStatus: "pending" | "done" | "error" };
+  type Msg = { id: string; transcriptionStatus: 'pending' | 'done' | 'error' };
   const messages: Msg[] = [
-    { id: "a", transcriptionStatus: "done" },
-    { id: "b", transcriptionStatus: "done" },
-    { id: "c", transcriptionStatus: "pending" },
-    { id: "d", transcriptionStatus: "error" },
+    { id: 'a', transcriptionStatus: 'done' },
+    { id: 'b', transcriptionStatus: 'done' },
+    { id: 'c', transcriptionStatus: 'pending' },
+    { id: 'd', transcriptionStatus: 'error' },
   ];
   let latest: string | null = null;
   for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i].transcriptionStatus === "done") {
+    if (messages[i].transcriptionStatus === 'done') {
       latest = messages[i].id;
       break;
     }
   }
-  assert.equal(latest, "b");
+  assert.equal(latest, 'b');
 }
 
 function testOutputLanguageDoesNotAutoRetranslate(): void {
   // New jobs capture the language at enqueue time; changing output later
   // must not mutate an already-queued key.
-  const keyAtSpeak = translationJobKey("m1", "hola", "es-ES", "en-US");
-  const keyAfterUiChange = translationJobKey("m1", "hola", "es-ES", "ca-ES");
+  const keyAtSpeak = translationJobKey('m1', 'hola', 'es-ES', 'en-US');
+  const keyAfterUiChange = translationJobKey('m1', 'hola', 'es-ES', 'ca-ES');
   assert.notEqual(keyAtSpeak, keyAfterUiChange);
-  assert.equal(keyAtSpeak, translationJobKey("m1", "hola", "es-ES", "en-US"));
+  assert.equal(keyAtSpeak, translationJobKey('m1', 'hola', 'es-ES', 'en-US'));
 }
 
 function testProductLanguagesIncludeSqTh(): void {
-  assert.ok(findTraductorLanguageById("sq"));
-  assert.ok(findTraductorLanguageById("th"));
-  assert.equal(findTraductorLanguageByLocale("sq-AL")?.id, "sq");
-  assert.equal(findTraductorLanguageByLocale("th-TH")?.id, "th");
-  assert.equal(speechLocaleToWhisperLang("sq-AL"), "sq");
-  assert.equal(speechLocaleToWhisperLang("th-TH"), "th");
-  assert.equal(whisperLangToSpeechLocale("sq"), "sq-AL");
-  assert.equal(whisperLangToSpeechLocale("th"), "th-TH");
-  assert.ok(UNIVERSAL_CANDIDATE_LANGS.includes("sq"));
-  assert.ok(UNIVERSAL_CANDIDATE_LANGS.includes("th"));
+  assert.ok(findTraductorLanguageById('sq'));
+  assert.ok(findTraductorLanguageById('th'));
+  assert.equal(findTraductorLanguageByLocale('sq-AL')?.id, 'sq');
+  assert.equal(findTraductorLanguageByLocale('th-TH')?.id, 'th');
+  assert.equal(speechLocaleToWhisperLang('sq-AL'), 'sq');
+  assert.equal(speechLocaleToWhisperLang('th-TH'), 'th');
+  assert.equal(whisperLangToSpeechLocale('sq'), 'sq-AL');
+  assert.equal(whisperLangToSpeechLocale('th'), 'th-TH');
+  assert.ok(UNIVERSAL_CANDIDATE_LANGS.includes('sq'));
+  assert.ok(UNIVERSAL_CANDIDATE_LANGS.includes('th'));
   assert.equal(TRADUCTOR_LANGUAGES.length >= 9, true);
 }
 
@@ -554,9 +490,9 @@ function testWhisperNllbProductCatalog(): void {
   const official = new Set(WHISPER_OFFICIAL_LANGS);
   const excluded = new Set(WHISPER_EXCLUDED_FROM_PRODUCT);
   assert.equal(WHISPER_OFFICIAL_LANGS.length, 100);
-  assert.deepEqual([...excluded].sort(), ["br", "haw", "la"]);
+  assert.deepEqual([...excluded].sort(), ['br', 'haw', 'la']);
 
-  const flagsDir = join(__dirname, "../assets/flags");
+  const flagsDir = join(__dirname, '../assets/flags');
 
   for (const lang of TRADUCTOR_LANGUAGES) {
     assert.ok(official.has(lang.id), `not in Whisper: ${lang.id}`);
@@ -564,16 +500,10 @@ function testWhisperNllbProductCatalog(): void {
     assert.equal(speechLocaleToWhisperLang(lang.speechLocale), lang.id);
     assert.equal(whisperLangToSpeechLocale(lang.id), lang.speechLocale);
     assert.match(lang.floresCode, /^[a-z]{3}_[A-Za-z]+$/);
-    assert.ok(
-      existsSync(join(flagsDir, `${lang.id}.png`)),
-      `missing flag ${lang.id}.png`,
-    );
+    assert.ok(existsSync(join(flagsDir, `${lang.id}.png`)), `missing flag ${lang.id}.png`);
   }
 
-  assert.equal(
-    TRADUCTOR_LANGUAGES.length,
-    WHISPER_OFFICIAL_LANGS.length - WHISPER_EXCLUDED_FROM_PRODUCT.length,
-  );
+  assert.equal(TRADUCTOR_LANGUAGES.length, WHISPER_OFFICIAL_LANGS.length - WHISPER_EXCLUDED_FROM_PRODUCT.length);
 
   // Universal detect stays curated (not full product set).
   assert.equal(UNIVERSAL_CANDIDATE_LANGS.length, 9);
@@ -581,77 +511,74 @@ function testWhisperNllbProductCatalog(): void {
     assert.ok(findTraductorLanguageById(code), `universal candidate ${code}`);
   }
 
-  assert.equal(speechLocaleToWhisperLang("jw-ID"), "jw");
-  assert.equal(findTraductorLanguageById("jw")?.floresCode, "jav_Latn");
-  assert.equal(findTraductorLanguageById("yue")?.floresCode, "yue_Hant");
-  assert.ok(findTraductorLanguageById("ca"));
-  assert.ok(findTraductorLanguageById("eu"));
+  assert.equal(speechLocaleToWhisperLang('jw-ID'), 'jw');
+  assert.equal(findTraductorLanguageById('jw')?.floresCode, 'jav_Latn');
+  assert.equal(findTraductorLanguageById('yue')?.floresCode, 'yue_Hant');
+  assert.ok(findTraductorLanguageById('ca'));
+  assert.ok(findTraductorLanguageById('eu'));
 }
 
 function testResolveDeviceTraductorLanguage(): void {
-  assert.equal(resolveDeviceTraductorLanguage("es-ES").id, "es");
-  assert.equal(resolveDeviceTraductorLanguage("ca-ES").id, "ca");
-  assert.equal(resolveDeviceTraductorLanguage("th-TH").id, "th");
-  assert.equal(resolveDeviceTraductorLanguage("sq-AL").id, "sq");
-  assert.equal(resolveDeviceTraductorLanguage("ja-JP").id, "ja");
-  assert.equal(
-    resolveDeviceTraductorLanguage("xx-XX").id,
-    FALLBACK_OUTPUT_LANGUAGE.id,
-  );
+  assert.equal(resolveDeviceTraductorLanguage('es-ES').id, 'es');
+  assert.equal(resolveDeviceTraductorLanguage('ca-ES').id, 'ca');
+  assert.equal(resolveDeviceTraductorLanguage('th-TH').id, 'th');
+  assert.equal(resolveDeviceTraductorLanguage('sq-AL').id, 'sq');
+  assert.equal(resolveDeviceTraductorLanguage('ja-JP').id, 'ja');
+  assert.equal(resolveDeviceTraductorLanguage('xx-XX').id, FALLBACK_OUTPUT_LANGUAGE.id);
 }
 
 function testRecommendedLanguages(): void {
   assert.deepEqual(
-    getRecommendedLanguages("ca-ES").map((l) => l.id),
-    ["ca", "es", "en"],
+    getRecommendedLanguages('ca-ES').map((l) => l.id),
+    ['ca', 'es', 'en'],
   );
   assert.deepEqual(
-    getRecommendedLanguages("es-ES").map((l) => l.id),
-    ["es", "ca", "en"],
+    getRecommendedLanguages('es-ES').map((l) => l.id),
+    ['es', 'ca', 'en'],
   );
   assert.deepEqual(
-    getRecommendedLanguages("en-US").map((l) => l.id),
-    ["en", "es", "ca"],
+    getRecommendedLanguages('en-US').map((l) => l.id),
+    ['en', 'es', 'ca'],
   );
   assert.deepEqual(
-    getRecommendedLanguages("fr-FR").map((l) => l.id),
-    ["fr", "es", "ca", "en"],
+    getRecommendedLanguages('fr-FR').map((l) => l.id),
+    ['fr', 'es', 'ca', 'en'],
   );
   assert.deepEqual(
-    getRecommendedLanguages("xx-XX").map((l) => l.id),
-    ["es", "ca", "en"],
+    getRecommendedLanguages('xx-XX').map((l) => l.id),
+    ['es', 'ca', 'en'],
   );
 }
 
 function testLanguageDisplayNames(): void {
-  assert.equal(resolveUiLocale("es-ES"), "es");
-  assert.equal(resolveUiLocale("ca-ES"), "ca");
-  assert.equal(resolveUiLocale("en-US"), "en");
-  assert.equal(resolveUiLocale("fr-FR"), "en");
+  assert.equal(resolveUiLocale('es-ES'), 'es');
+  assert.equal(resolveUiLocale('ca-ES'), 'ca');
+  assert.equal(resolveUiLocale('en-US'), 'en');
+  assert.equal(resolveUiLocale('fr-FR'), 'en');
 
-  const es = findTraductorLanguageById("es")!;
-  const ca = findTraductorLanguageById("ca")!;
-  const en = findTraductorLanguageById("en")!;
-  assert.equal(getTraductorLanguageDisplayName(es, "es"), "Español");
-  assert.equal(getTraductorLanguageDisplayName(es, "ca"), "Castellà");
-  assert.equal(getTraductorLanguageDisplayName(es, "en"), "Spanish");
-  assert.equal(getTraductorLanguageDisplayName(ca, "es"), "Catalán");
-  assert.equal(getTraductorLanguageDisplayName(ca, "ca"), "Català");
-  assert.equal(getTraductorLanguageDisplayName(en, "es"), "Inglés");
-  assert.equal(getTraductorLanguageDisplayName(en, "en"), "English");
+  const es = findTraductorLanguageById('es')!;
+  const ca = findTraductorLanguageById('ca')!;
+  const en = findTraductorLanguageById('en')!;
+  assert.equal(getTraductorLanguageDisplayName(es, 'es'), 'Español');
+  assert.equal(getTraductorLanguageDisplayName(es, 'ca'), 'Castellà');
+  assert.equal(getTraductorLanguageDisplayName(es, 'en'), 'Spanish');
+  assert.equal(getTraductorLanguageDisplayName(ca, 'es'), 'Catalán');
+  assert.equal(getTraductorLanguageDisplayName(ca, 'ca'), 'Català');
+  assert.equal(getTraductorLanguageDisplayName(en, 'es'), 'Inglés');
+  assert.equal(getTraductorLanguageDisplayName(en, 'en'), 'English');
 }
 
 function testInputSelectionShape(): void {
   const universal: InputLanguageSelection = UNIVERSAL_INPUT;
-  assert.equal(universal.kind, "universal");
-  const es = findTraductorLanguageById("es");
+  assert.equal(universal.kind, 'universal');
+  const es = findTraductorLanguageById('es');
   assert.ok(es);
   const fixed: InputLanguageSelection = {
-    kind: "fixed",
+    kind: 'fixed',
     language: es!,
   };
-  assert.equal(fixed.kind, "fixed");
-  assert.equal(fixed.language.id, "es");
+  assert.equal(fixed.kind, 'fixed');
+  assert.equal(fixed.language.id, 'es');
 }
 
 function testSoftmaxLangAmong(): void {
@@ -681,18 +608,15 @@ function testNoSpeechProbFromLogits(): void {
 }
 
 function testGetMissingInputLocales(): void {
-  const missing = getMissingInputLocales(["en-US", "es-ES"], (locale) =>
-    locale === "en-US" ? { status: "installed" } : { status: "not_installed" },
+  const missing = getMissingInputLocales(['en-US', 'es-ES'], (locale) =>
+    locale === 'en-US' ? { status: 'installed' } : { status: 'not_installed' },
   );
-  assert.deepEqual(missing, ["es-ES"]);
+  assert.deepEqual(missing, ['es-ES']);
 }
 
 function testFormatSttError(): void {
-  const err = sttError("STT_OFFLINE_MODELS_MISSING", "Faltan modelos: es-ES");
-  assert.equal(
-    formatSttError(err),
-    "[STT_OFFLINE_MODELS_MISSING] Faltan modelos: es-ES",
-  );
+  const err = sttError('STT_OFFLINE_MODELS_MISSING', 'Faltan modelos: es-ES');
+  assert.equal(formatSttError(err), '[STT_OFFLINE_MODELS_MISSING] Faltan modelos: es-ES');
 }
 
 function testMelSelfCheck(): void {
@@ -718,9 +642,9 @@ function testMelSelfCheck(): void {
 }
 
 function testLatestMessageIdDerivation(): void {
-  const messages = [{ id: "a" }, { id: "b" }, { id: "c" }];
+  const messages = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
   const latest = messages.at(-1)?.id ?? null;
-  assert.equal(latest, "c");
+  assert.equal(latest, 'c');
   assert.equal(([] as { id: string }[]).at(-1)?.id ?? null, null);
 }
 
@@ -760,7 +684,7 @@ async function main(): Promise<void> {
   testBlockedLanguageIds();
   testLanguageTwoDefault();
 
-  console.log("check:traductor-logic ok");
+  console.log('check:traductor-logic ok');
 }
 
 function testResolveSpeechDisableMode(): void {
@@ -770,7 +694,7 @@ function testResolveSpeechDisableMode(): void {
       isFocused: true,
       baseHydrated: true,
     }),
-    "pause",
+    'pause',
   );
   assert.equal(
     resolveSpeechDisableMode({
@@ -778,7 +702,7 @@ function testResolveSpeechDisableMode(): void {
       isFocused: true,
       baseHydrated: true,
     }),
-    "abort",
+    'abort',
   );
   assert.equal(
     resolveSpeechDisableMode({
@@ -786,7 +710,7 @@ function testResolveSpeechDisableMode(): void {
       isFocused: false,
       baseHydrated: true,
     }),
-    "abort",
+    'abort',
   );
   assert.equal(
     resolveSpeechDisableMode({
@@ -794,42 +718,35 @@ function testResolveSpeechDisableMode(): void {
       isFocused: true,
       baseHydrated: false,
     }),
-    "abort",
+    'abort',
   );
 }
 
 function testPhraseLookup(): void {
-  assert.ok(phrasePairCount() > 50, "phrase seed table is too thin");
-  assert.equal(normalizePhrase("¡Hola!"), "hola");
-  assert.equal(normalizePhrase("  Thank   you. "), "thank you");
-  assert.equal(lookupPhrase("hello", "en-US", "es-ES"), "hola");
-  assert.equal(lookupPhrase("¡Hola!", "es-ES", "en-US"), "hello");
-  assert.equal(lookupPhrase("gràcies", "ca-ES", "es-ES"), "gracias");
+  assert.ok(phrasePairCount() > 50, 'phrase seed table is too thin');
+  assert.equal(normalizePhrase('¡Hola!'), 'hola');
+  assert.equal(normalizePhrase('  Thank   you. '), 'thank you');
+  assert.equal(lookupPhrase('hello', 'en-US', 'es-ES'), 'hola');
+  assert.equal(lookupPhrase('¡Hola!', 'es-ES', 'en-US'), 'hello');
+  assert.equal(lookupPhrase('gràcies', 'ca-ES', 'es-ES'), 'gracias');
   // Long sentences must fall through to the neural model.
-  assert.equal(
-    lookupPhrase(
-      "hello my friend how are you doing today",
-      "en-US",
-      "es-ES",
-    ),
-    null,
-  );
+  assert.equal(lookupPhrase('hello my friend how are you doing today', 'en-US', 'es-ES'), null);
   // Unknown phrases fall through.
-  assert.equal(lookupPhrase("xylophone", "en-US", "es-ES"), null);
+  assert.equal(lookupPhrase('xylophone', 'en-US', 'es-ES'), null);
   // Same language: no override.
-  assert.equal(lookupPhrase("hello", "en-US", "en-GB"), null);
+  assert.equal(lookupPhrase('hello', 'en-US', 'en-GB'), null);
 }
 
 function testResolveTranslationTarget(): void {
-  const es = findTraductorLanguageById("es");
-  const ca = findTraductorLanguageById("ca");
-  const en = findTraductorLanguageById("en");
+  const es = findTraductorLanguageById('es');
+  const ca = findTraductorLanguageById('ca');
+  const en = findTraductorLanguageById('en');
   assert.ok(es && ca && en);
 
   assert.equal(
     resolveTranslationTarget({
-      mode: "one_way",
-      detectedLocale: "ca-ES",
+      mode: 'one_way',
+      detectedLocale: 'ca-ES',
       languageOne: es,
       languageTwo: ca,
     }),
@@ -838,8 +755,8 @@ function testResolveTranslationTarget(): void {
 
   assert.equal(
     resolveTranslationTarget({
-      mode: "conversation",
-      detectedLocale: "es-ES",
+      mode: 'conversation',
+      detectedLocale: 'es-ES',
       languageOne: es,
       languageTwo: ca,
     }),
@@ -847,8 +764,8 @@ function testResolveTranslationTarget(): void {
   );
   assert.equal(
     resolveTranslationTarget({
-      mode: "conversation",
-      detectedLocale: "ca-ES",
+      mode: 'conversation',
+      detectedLocale: 'ca-ES',
       languageOne: es,
       languageTwo: ca,
     }),
@@ -857,8 +774,8 @@ function testResolveTranslationTarget(): void {
   // Other languages fall back to Idioma 1.
   assert.equal(
     resolveTranslationTarget({
-      mode: "conversation",
-      detectedLocale: "en-US",
+      mode: 'conversation',
+      detectedLocale: 'en-US',
       languageOne: es,
       languageTwo: ca,
     }),
@@ -867,8 +784,8 @@ function testResolveTranslationTarget(): void {
 }
 
 function testBlockedLanguageIds(): void {
-  const es = findTraductorLanguageById("es");
-  const ca = findTraductorLanguageById("ca");
+  const es = findTraductorLanguageById('es');
+  const ca = findTraductorLanguageById('ca');
   assert.ok(es && ca);
 
   const occupiedUniversal = occupiedLanguageIds({
@@ -877,50 +794,41 @@ function testBlockedLanguageIds(): void {
     languageTwoId: ca.id,
   });
   assert.equal(occupiedUniversal.input, undefined);
-  assert.deepEqual(
-    [...blockedLanguageIdsForSlot("output", occupiedUniversal)].sort(),
-    ["ca"],
-  );
-  assert.deepEqual(
-    [...blockedLanguageIdsForSlot("lang2", occupiedUniversal)].sort(),
-    ["es"],
-  );
-  assert.deepEqual(
-    [...blockedLanguageIdsForSlot("input", occupiedUniversal)].sort(),
-    ["ca", "es"],
-  );
+  assert.deepEqual([...blockedLanguageIdsForSlot('output', occupiedUniversal)].sort(), ['ca']);
+  assert.deepEqual([...blockedLanguageIdsForSlot('lang2', occupiedUniversal)].sort(), ['es']);
+  assert.deepEqual([...blockedLanguageIdsForSlot('input', occupiedUniversal)].sort(), ['ca', 'es']);
 
   const occupiedFixed = occupiedLanguageIds({
-    inputLanguage: { kind: "fixed", language: enOrThrow() },
+    inputLanguage: { kind: 'fixed', language: enOrThrow() },
     languageOneId: es.id,
     languageTwoId: ca.id,
   });
-  assert.equal(occupiedFixed.input, "en");
-  assert.ok(blockedLanguageIdsForSlot("output", occupiedFixed).has("en"));
-  assert.ok(blockedLanguageIdsForSlot("output", occupiedFixed).has("ca"));
-  assert.ok(!blockedLanguageIdsForSlot("output", occupiedFixed).has("es"));
+  assert.equal(occupiedFixed.input, 'en');
+  assert.ok(blockedLanguageIdsForSlot('output', occupiedFixed).has('en'));
+  assert.ok(blockedLanguageIdsForSlot('output', occupiedFixed).has('ca'));
+  assert.ok(!blockedLanguageIdsForSlot('output', occupiedFixed).has('es'));
 }
 
 function enOrThrow() {
-  const en = findTraductorLanguageById("en");
+  const en = findTraductorLanguageById('en');
   assert.ok(en);
   return en;
 }
 
 function testLanguageTwoDefault(): void {
-  const es = findTraductorLanguageById("es");
-  const ca = findTraductorLanguageById("ca");
+  const es = findTraductorLanguageById('es');
+  const ca = findTraductorLanguageById('ca');
   assert.ok(es && ca);
 
-  assert.equal(resolveDefaultLanguageTwo("es").id, "ca");
-  assert.equal(resolveDefaultLanguageTwo("ca").id, "es");
-  assert.equal(resolveLanguageTwo("en", "es").id, "en");
-  assert.equal(resolveLanguageTwo("es", "es").id, "ca");
-  assert.equal(resolveLanguageTwo(null, "ca").id, "es");
+  assert.equal(resolveDefaultLanguageTwo('es').id, 'ca');
+  assert.equal(resolveDefaultLanguageTwo('ca').id, 'es');
+  assert.equal(resolveLanguageTwo('en', 'es').id, 'en');
+  assert.equal(resolveLanguageTwo('es', 'es').id, 'ca');
+  assert.equal(resolveLanguageTwo(null, 'ca').id, 'es');
 }
 
 main().catch((err) => {
-  console.error("check:traductor-logic failed");
+  console.error('check:traductor-logic failed');
   console.error(err instanceof Error ? err.message : err);
   process.exit(1);
 });

@@ -1,43 +1,31 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import * as Haptics from "expo-haptics";
+import { useCallback, useEffect, useRef, useState } from 'react';
+import * as Haptics from 'expo-haptics';
 import {
   requestRecordingPermissionsAsync,
   setAudioModeAsync,
   useAudioStream,
   type AudioStreamBuffer,
-} from "expo-audio";
+} from 'expo-audio';
 
-import { useModelCatalog } from "@/contexts/model-catalog-context";
-import { acceptTranscript } from "@/lib/transcript-filter";
-import {
-  createSpeechDetector,
-  SAMPLE_RATE as WHISPER_SAMPLE_RATE,
-  SpeechSegmenter,
-} from "@/lib/vad";
-import { loadAsrEngine, type AsrEngine } from "@/lib/engines";
-import { speechLocaleToWhisperLang } from "@/constants/whisper-languages";
-import {
-  EngineError,
-  isDisposedEngineFailure,
-  isEngineError,
-} from "@/lib/engine-errors";
-import { isWhisperError } from "@/lib/whisper-errors";
-import type { SpeechDisableMode } from "@/lib/speech-disable-mode";
+import { useModelCatalog } from '@/contexts/model-catalog-context';
+import { acceptTranscript } from '@/lib/transcript-filter';
+import { createSpeechDetector, SAMPLE_RATE as WHISPER_SAMPLE_RATE, SpeechSegmenter } from '@/lib/vad';
+import { loadAsrEngine, type AsrEngine } from '@/lib/engines';
+import { speechLocaleToWhisperLang } from '@/constants/whisper-languages';
+import { EngineError, isDisposedEngineFailure, isEngineError } from '@/lib/engine-errors';
+import { isWhisperError } from '@/lib/whisper-errors';
+import type { SpeechDisableMode } from '@/lib/speech-disable-mode';
 
 export type SpeechError = {
   code: string;
   message: string;
 } | null;
 
-export type SpeechInputMode =
-  | { mode: "auto" }
-  | { mode: "fixed"; locale: string };
+export type SpeechInputMode = { mode: 'auto' } | { mode: 'fixed'; locale: string };
 
 /** Why a started chunk did not produce an accepted transcript. */
 export type TranscriptionOutcome =
-  | { type: "cancel" }
-  | { type: "empty" }
-  | { type: "error"; code: string; message: string };
+  { type: 'cancel' } | { type: 'empty' } | { type: 'error'; code: string; message: string };
 
 export type SpeechTranscriptorOptions = {
   /** Ignored: Whisper is always on-device. Kept for API compatibility. */
@@ -49,11 +37,7 @@ export type SpeechTranscriptorOptions = {
    * `cancel` = session/stop; `empty` = noSpeech/filter; `error` = engine throw.
    */
   onTranscriptionEnd?: (outcome: TranscriptionOutcome) => void;
-  onInterimTranscript?: (
-    text: string,
-    isFinal: boolean,
-    detectedLocale?: string,
-  ) => void;
+  onInterimTranscript?: (text: string, isFinal: boolean, detectedLocale?: string) => void;
   enabled?: boolean;
   /**
    * When `enabled` becomes false: `abort` kills the ASR session;
@@ -71,9 +55,7 @@ export type SpeechTranscriptorOptions = {
 const STICKY_TTL_MS = 45_000;
 /** Ponytail: hard ceiling on queued PCM (~24s). Upgrade: age/priority drop policy. */
 const MAX_BACKLOG_MS = 24_000;
-const MAX_BACKLOG_SAMPLES = Math.floor(
-  (WHISPER_SAMPLE_RATE * MAX_BACKLOG_MS) / 1000,
-);
+const MAX_BACKLOG_SAMPLES = Math.floor((WHISPER_SAMPLE_RATE * MAX_BACKLOG_MS) / 1000);
 
 type QueuedChunk = {
   pcm: Float32Array;
@@ -101,10 +83,7 @@ function bufferToFloat32(buffer: AudioStreamBuffer): Float32Array {
 function resampleTo16k(input: Float32Array, inputRate: number): Float32Array {
   if (inputRate === WHISPER_SAMPLE_RATE) return input;
   if (inputRate <= 0 || input.length === 0) return input;
-  const outLen = Math.max(
-    1,
-    Math.floor((input.length * WHISPER_SAMPLE_RATE) / inputRate),
-  );
+  const outLen = Math.max(1, Math.floor((input.length * WHISPER_SAMPLE_RATE) / inputRate));
   const out = new Float32Array(outLen);
   const ratio = inputRate / WHISPER_SAMPLE_RATE;
   for (let i = 0; i < outLen; i++) {
@@ -118,7 +97,7 @@ function resampleTo16k(input: Float32Array, inputRate: number): Float32Array {
 }
 
 function inputModeKey(input: SpeechInputMode): string {
-  return input.mode === "auto" ? "auto" : `fixed:${input.locale}`;
+  return input.mode === 'auto' ? 'auto' : `fixed:${input.locale}`;
 }
 
 function backlogSamples(queue: QueuedChunk[]): number {
@@ -127,16 +106,13 @@ function backlogSamples(queue: QueuedChunk[]): number {
   return total;
 }
 
-export function useSpeechTranscriptor(
-  input: SpeechInputMode,
-  options: SpeechTranscriptorOptions = {},
-) {
+export function useSpeechTranscriptor(input: SpeechInputMode, options: SpeechTranscriptorOptions = {}) {
   const {
     onTranscriptionStart,
     onTranscriptionEnd,
     onInterimTranscript,
     enabled = true,
-    disableMode = "abort",
+    disableMode = 'abort',
     clearStickyAfterAccept = false,
   } = options;
 
@@ -147,7 +123,7 @@ export function useSpeechTranscriptor(
 
   const [hasPermissions, setHasPermissions] = useState(false);
   const [checkingPermissions, setCheckingPermissions] = useState(true);
-  const [transcript, setTranscript] = useState("");
+  const [transcript, setTranscript] = useState('');
   const [isListening, setIsListening] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [backlogDropped, setBacklogDropped] = useState(false);
@@ -231,72 +207,55 @@ export function useSpeechTranscriptor(
         setIsTranscribing(true);
         onStartRef.current?.();
         let acceptedThisChunk = false;
-        let endOutcome: TranscriptionOutcome = { type: "empty" };
+        let endOutcome: TranscriptionOutcome = { type: 'empty' };
 
         try {
           const current = inputRef.current;
-          if (
-            engine.languageDetection === "none" &&
-            current.mode === "auto"
-          ) {
+          if (engine.languageDetection === 'none' && current.mode === 'auto') {
             // Transducers (Parakeet) never name the language. Running them in
             // Universal mode would produce text the translator cannot target.
             throw new EngineError({
-              code: "ENGINE_NO_LANGUAGE_DETECTION",
-              stage: "asr.language",
+              code: 'ENGINE_NO_LANGUAGE_DETECTION',
+              stage: 'asr.language',
               message:
-                "Este modelo no detecta el idioma. Fija el idioma de entrada o elige un modelo Whisper / SenseVoice.",
+                'Este modelo no detecta el idioma. Fija el idioma de entrada o elige un modelo Whisper / SenseVoice.',
               recoverable: false,
               context: { modelId: engine.modelId },
             });
           }
 
           const sticky =
-            current.mode === "auto" &&
-            stickyLangRef.current &&
-            Date.now() - stickyLangRef.current.at < STICKY_TTL_MS
+            current.mode === 'auto' && stickyLangRef.current && Date.now() - stickyLangRef.current.at < STICKY_TTL_MS
               ? stickyLangRef.current.language
               : null;
 
           const result = await engine.transcribe(chunk.pcm, {
-            language:
-              current.mode === "auto"
-                ? "auto"
-                : speechLocaleToWhisperLang(current.locale),
+            language: current.mode === 'auto' ? 'auto' : speechLocaleToWhisperLang(current.locale),
             stickyLanguage: sticky,
             // Mute (enabled=false) must not abort in-flight decode; only
             // session bump / unmount cancel via cancelActive + sessionId.
-            shouldCancel: () =>
-              cancelActiveRef.current ||
-              chunk.sessionId !== sessionIdRef.current,
+            shouldCancel: () => cancelActiveRef.current || chunk.sessionId !== sessionIdRef.current,
           });
 
-          if (
-            !isMountedRef.current ||
-            chunk.sessionId !== sessionIdRef.current
-          ) {
-            endOutcome = { type: "cancel" };
+          if (!isMountedRef.current || chunk.sessionId !== sessionIdRef.current) {
+            endOutcome = { type: 'cancel' };
             continue;
           }
 
           if (result.noSpeech || !result.text.trim()) {
-            endOutcome = { type: "empty" };
+            endOutcome = { type: 'empty' };
             continue;
           }
 
           const accepted = acceptTranscript(result.text);
           if (!accepted) {
-            endOutcome = { type: "empty" };
+            endOutcome = { type: 'empty' };
             continue;
           }
 
           if (clearStickyAfterAcceptRef.current) {
             stickyLangRef.current = null;
-          } else if (
-            current.mode === "auto" &&
-            !result.usedSticky &&
-            !result.noSpeech
-          ) {
+          } else if (current.mode === 'auto' && !result.usedSticky && !result.noSpeech) {
             stickyLangRef.current = {
               language: result.language,
               at: Date.now(),
@@ -304,7 +263,7 @@ export function useSpeechTranscriptor(
           }
 
           if (__DEV__) {
-            console.info("[stt] detect", {
+            console.info('[stt] detect', {
               language: result.language,
               prob: Number(result.languageProb.toFixed(3)),
               sticky: result.usedSticky,
@@ -317,14 +276,11 @@ export function useSpeechTranscriptor(
           acceptedThisChunk = true;
           setTranscript(accepted);
           onInterimRef.current?.(accepted, true, result.speechLocale || undefined);
-          setTranscript("");
+          setTranscript('');
           setError(null);
         } catch (err) {
-          if (
-            !isMountedRef.current ||
-            chunk.sessionId !== sessionIdRef.current
-          ) {
-            endOutcome = { type: "cancel" };
+          if (!isMountedRef.current || chunk.sessionId !== sessionIdRef.current) {
+            endOutcome = { type: 'cancel' };
             continue;
           }
 
@@ -335,21 +291,15 @@ export function useSpeechTranscriptor(
             engineRef.current = null;
             setEngineReady(false);
             try {
-              const next = await loadAsrEngine(
-                true,
-                selectedAsrRef.current ?? undefined,
-              );
-              if (
-                !isMountedRef.current ||
-                chunk.sessionId !== sessionIdRef.current
-              ) {
-                endOutcome = { type: "cancel" };
+              const next = await loadAsrEngine(true, selectedAsrRef.current ?? undefined);
+              if (!isMountedRef.current || chunk.sessionId !== sessionIdRef.current) {
+                endOutcome = { type: 'cancel' };
                 continue;
               }
               engineRef.current = next;
               setEngineReady(true);
               queueRef.current.unshift(chunk);
-              endOutcome = { type: "cancel" };
+              endOutcome = { type: 'cancel' };
               continue;
             } catch (loadErr) {
               failure = loadErr;
@@ -362,15 +312,14 @@ export function useSpeechTranscriptor(
               message: failure.toDisplayString(),
             });
             endOutcome = {
-              type: "error",
+              type: 'error',
               code: failure.code,
               message: failure.toDisplayString(),
             };
           } else {
-            const message =
-              failure instanceof Error ? failure.message : String(failure);
-            setError({ code: "asr_failed", message });
-            endOutcome = { type: "error", code: "asr_failed", message };
+            const message = failure instanceof Error ? failure.message : String(failure);
+            setError({ code: 'asr_failed', message });
+            endOutcome = { type: 'error', code: 'asr_failed', message };
           }
         } finally {
           if (isMountedRef.current) {
@@ -401,10 +350,7 @@ export function useSpeechTranscriptor(
     seqRef.current += 1;
     queueRef.current.push({ pcm, sessionId, seq: seqRef.current });
 
-    while (
-      backlogSamples(queueRef.current) > MAX_BACKLOG_SAMPLES &&
-      queueRef.current.length > 1
-    ) {
+    while (backlogSamples(queueRef.current) > MAX_BACKLOG_SAMPLES && queueRef.current.length > 1) {
       queueRef.current.shift();
       setBacklogDropped(true);
     }
@@ -429,7 +375,7 @@ export function useSpeechTranscriptor(
         onSpeechChunk: enqueueChunk,
       });
       segmenterRef.current = segmenter;
-      if (__DEV__) console.info("[vad] detector", detector.id);
+      if (__DEV__) console.info('[vad] detector', detector.id);
     })();
 
     return () => {
@@ -449,7 +395,7 @@ export function useSpeechTranscriptor(
   const { stream, isStreaming } = useAudioStream({
     sampleRate: WHISPER_SAMPLE_RATE,
     channels: 1,
-    encoding: "float32",
+    encoding: 'float32',
     onBuffer,
   });
 
@@ -494,7 +440,7 @@ export function useSpeechTranscriptor(
     } catch (err) {
       setIsListening(false);
       const message = err instanceof Error ? err.message : String(err);
-      setError({ code: "start_failed", message });
+      setError({ code: 'start_failed', message });
     }
   }, [stream]);
 
@@ -535,8 +481,8 @@ export function useSpeechTranscriptor(
         permissionsGrantedRef.current = false;
         setCheckingPermissions(false);
         setError({
-          code: "permission_denied",
-          message: "Se necesita permiso de micrófono",
+          code: 'permission_denied',
+          message: 'Se necesita permiso de micrófono',
         });
         return;
       }
@@ -549,10 +495,7 @@ export function useSpeechTranscriptor(
       setHasPermissions(true);
       permissionsGrantedRef.current = true;
 
-      const engine = await loadAsrEngine(
-        false,
-        selectedAsrRef.current ?? undefined,
-      );
+      const engine = await loadAsrEngine(false, selectedAsrRef.current ?? undefined);
       if (!isMountedRef.current || loadGenRef.current !== loadGen) return;
       engineRef.current = engine;
       setEngineReady(true);
@@ -574,7 +517,7 @@ export function useSpeechTranscriptor(
         });
       } else {
         const message = err instanceof Error ? err.message : String(err);
-        setError({ code: "asr_load_failed", message });
+        setError({ code: 'asr_load_failed', message });
       }
     }
   }, [startListeningInternal]);
@@ -605,7 +548,7 @@ export function useSpeechTranscriptor(
       // Defer: bumpSession/pause setState; sync call inside the effect would
       // cascade into the same commit under React Compiler.
       queueMicrotask(() => {
-        if (disableModeRef.current === "pause") {
+        if (disableModeRef.current === 'pause') {
           void pauseListening();
         } else {
           drainingRef.current = false;
@@ -628,15 +571,7 @@ export function useSpeechTranscriptor(
     // flags any setState reached from an effect; here it is the bootstrap path.
     // eslint-disable-next-line react-hooks/set-state-in-effect -- engine bootstrap on enable
     void requestPermissionsAndLoad();
-  }, [
-    enabled,
-    disableMode,
-    catalogReady,
-    requestPermissionsAndLoad,
-    stopListening,
-    pauseListening,
-    bumpSession,
-  ]);
+  }, [enabled, disableMode, catalogReady, requestPermissionsAndLoad, stopListening, pauseListening, bumpSession]);
 
   // Catalog reset the ASR slot on model change — drop the stale ref and reload.
   // First catalog-ready pass is owned by the enable effect above.
@@ -661,13 +596,7 @@ export function useSpeechTranscriptor(
     queueMicrotask(() => {
       void requestPermissionsAndLoad();
     });
-  }, [
-    catalogReady,
-    enabled,
-    selectedAsr,
-    bumpSession,
-    requestPermissionsAndLoad,
-  ]);
+  }, [catalogReady, enabled, selectedAsr, bumpSession, requestPermissionsAndLoad]);
 
   useEffect(() => {
     if (!permissionsGrantedRef.current || !enabled || !engineReady) return;

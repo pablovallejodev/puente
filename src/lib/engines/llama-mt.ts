@@ -16,13 +16,13 @@
  * crash, so it is required lazily.
  */
 
-import { findTraductorLanguageByLocale } from "@/constants/traductor-languages";
-import type { LlamaMtRuntime, MtModelSpec } from "@/constants/model-catalog";
-import { EngineError, moduleUnavailable, wrapEngineError } from "@/lib/engine-errors";
-import { getModelFilePath, toNativePath } from "@/lib/model-paths";
-import type { MtEngine, MtRequest } from "@/lib/engines/types";
+import { findTraductorLanguageByLocale } from '@/constants/traductor-languages';
+import type { LlamaMtRuntime, MtModelSpec } from '@/constants/model-catalog';
+import { EngineError, moduleUnavailable, wrapEngineError } from '@/lib/engine-errors';
+import { getModelFilePath, toNativePath } from '@/lib/model-paths';
+import type { MtEngine, MtRequest } from '@/lib/engines/types';
 
-const PACKAGE = "llama.rn";
+const PACKAGE = 'llama.rn';
 
 // ---------------------------------------------------------------------------
 // Native module surface
@@ -32,7 +32,7 @@ type CompletionResult = { text: string; content: string };
 
 type CompletionRequest = {
   prompt?: string;
-  messages?: { role: "user"; content: string }[];
+  messages?: { role: 'user'; content: string }[];
   jinja?: boolean;
   n_predict?: number;
   temperature?: number;
@@ -65,9 +65,9 @@ type LlamaModule = {
 function loadModule(): LlamaModule {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    return require("llama.rn") as LlamaModule;
+    return require('llama.rn') as LlamaModule;
   } catch (err) {
-    throw moduleUnavailable("llama.cpp", PACKAGE, err);
+    throw moduleUnavailable('llama.cpp', PACKAGE, err);
   }
 }
 
@@ -91,7 +91,7 @@ const SAMPLING = {
   seed: 0,
 } as const;
 
-type PromptParts = Pick<CompletionRequest, "prompt" | "messages" | "jinja" | "stop">;
+type PromptParts = Pick<CompletionRequest, 'prompt' | 'messages' | 'jinja' | 'stop'>;
 
 function buildPrompt(
   runtime: LlamaMtRuntime,
@@ -100,10 +100,10 @@ function buildPrompt(
   tgt: { id: string; label: string },
   jinjaSupported: boolean,
 ): PromptParts {
-  if (runtime.promptStyle === "madlad-tag") {
+  if (runtime.promptStyle === 'madlad-tag') {
     // MADLAD's training format: a target-language tag prepended to the source.
     // Its tags are ISO 639-1, which is what the app uses for language ids.
-    return { prompt: `<2${tgt.id}> ${text}`, stop: ["\n"] };
+    return { prompt: `<2${tgt.id}> ${text}`, stop: ['\n'] };
   }
 
   // SalamandraTA. The instruct model's documented prompt, sent through the
@@ -111,14 +111,14 @@ function buildPrompt(
   const instruction = `Translate the following text from ${src.label} into ${tgt.label}.\n${src.label}: ${text}\n${tgt.label}:`;
   if (jinjaSupported) {
     return {
-      messages: [{ role: "user", content: instruction }],
+      messages: [{ role: 'user', content: instruction }],
       jinja: true,
-      stop: ["\n"],
+      stop: ['\n'],
     };
   }
   // Without a template, fall back to the base model's bracket format, which
   // salamandraTA also understands because the instruct model continues it.
-  return { prompt: `[${src.label}] ${text} \n[${tgt.label}]`, stop: ["\n"] };
+  return { prompt: `[${src.label}] ${text} \n[${tgt.label}]`, stop: ['\n'] };
 }
 
 /**
@@ -130,8 +130,8 @@ function buildPrompt(
  */
 function cleanOutput(raw: string, targetLabel: string): string {
   let text = raw.trim();
-  const prefix = new RegExp(`^${targetLabel}\\s*:\\s*`, "i");
-  text = text.replace(prefix, "").trim();
+  const prefix = new RegExp(`^${targetLabel}\\s*:\\s*`, 'i');
+  text = text.replace(prefix, '').trim();
   if (text.length >= 2 && /^["“'](.*)["”']$/s.test(text)) {
     text = text.slice(1, -1).trim();
   }
@@ -141,7 +141,7 @@ function cleanOutput(raw: string, targetLabel: string): string {
 // ---------------------------------------------------------------------------
 
 export class LlamaMtEngine implements MtEngine {
-  readonly engineId = "llama" as const;
+  readonly engineId = 'llama' as const;
 
   private context: LlamaContextLike | null;
   private readonly jinjaSupported: boolean;
@@ -152,9 +152,7 @@ export class LlamaMtEngine implements MtEngine {
     context: LlamaContextLike,
   ) {
     this.context = context;
-    this.jinjaSupported =
-      runtime.promptStyle === "salamandra-instruct" &&
-      safeIsJinjaSupported(context);
+    this.jinjaSupported = runtime.promptStyle === 'salamandra-instruct' && safeIsJinjaSupported(context);
   }
 
   get modelId(): string {
@@ -181,7 +179,7 @@ export class LlamaMtEngine implements MtEngine {
         use_mlock: false,
       });
     } catch (err) {
-      throw wrapEngineError(err, "engine.init", "ENGINE_INIT_FAILED", false, {
+      throw wrapEngineError(err, 'engine.init', 'ENGINE_INIT_FAILED', false, {
         modelId: spec.id,
         contextSize: runtime.contextSize,
       });
@@ -195,24 +193,19 @@ export class LlamaMtEngine implements MtEngine {
     return language != null && this.spec.languageIds.includes(language.id);
   }
 
-  async translate(
-    text: string,
-    srcLocale: string,
-    tgtLocale: string,
-    request?: MtRequest,
-  ): Promise<string | null> {
+  async translate(text: string, srcLocale: string, tgtLocale: string, request?: MtRequest): Promise<string | null> {
     const context = this.context;
     if (!context) {
       throw new EngineError({
-        code: "ENGINE_DISPOSED",
-        stage: "mt.run",
+        code: 'ENGINE_DISPOSED',
+        stage: 'mt.run',
         message: `El motor ${this.spec.id} ya fue liberado`,
         recoverable: true,
       });
     }
 
-    const src = this.resolveLanguage(srcLocale, "input");
-    const tgt = this.resolveLanguage(tgtLocale, "output");
+    const src = this.resolveLanguage(srcLocale, 'input');
+    const tgt = this.resolveLanguage(tgtLocale, 'output');
     if (request?.shouldCancel?.()) return null;
 
     let result: CompletionResult;
@@ -226,7 +219,7 @@ export class LlamaMtEngine implements MtEngine {
       // A cancellation raced with the completion; the caller is discarding the
       // result anyway, so report nothing rather than an error.
       if (request?.shouldCancel?.()) return null;
-      throw wrapEngineError(err, "mt.run", "ENGINE_RUN_FAILED", true, {
+      throw wrapEngineError(err, 'mt.run', 'ENGINE_RUN_FAILED', true, {
         modelId: this.spec.id,
         srcLocale,
         tgtLocale,
@@ -238,8 +231,8 @@ export class LlamaMtEngine implements MtEngine {
     const cleaned = cleanOutput(result.content || result.text, tgt.label);
     if (!cleaned) {
       throw new EngineError({
-        code: "ENGINE_OUTPUT_EMPTY",
-        stage: "mt.run",
+        code: 'ENGINE_OUTPUT_EMPTY',
+        stage: 'mt.run',
         message: `${this.spec.label} no devolvió traducción`,
         recoverable: true,
         context: { modelId: this.spec.id, srcLocale, tgtLocale },
@@ -248,15 +241,12 @@ export class LlamaMtEngine implements MtEngine {
     return cleaned;
   }
 
-  private resolveLanguage(
-    locale: string,
-    role: "input" | "output",
-  ): { id: string; label: string } {
+  private resolveLanguage(locale: string, role: 'input' | 'output'): { id: string; label: string } {
     const language = findTraductorLanguageByLocale(locale);
     if (!language || !this.spec.languageIds.includes(language.id)) {
       throw new EngineError({
-        code: "ENGINE_LANGUAGE_UNSUPPORTED",
-        stage: "mt.language",
+        code: 'ENGINE_LANGUAGE_UNSUPPORTED',
+        stage: 'mt.language',
         message: `${this.spec.label} no admite este idioma (${role}): ${locale}`,
         recoverable: false,
         context: { modelId: this.spec.id, locale, role },

@@ -1,7 +1,7 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef, useState } from 'react';
 
-export type TranslationStatus = "queued" | "translating" | "done" | "error";
-export type TranscriptionStatus = "pending" | "done" | "error";
+export type TranslationStatus = 'queued' | 'translating' | 'done' | 'error';
+export type TranscriptionStatus = 'pending' | 'done' | 'error';
 
 export type ChatMessage = {
   id: string;
@@ -36,11 +36,11 @@ export function useChatMessages() {
         ...messagesRef.current,
         {
           id: messageId,
-          original: "",
-          translated: "",
+          original: '',
+          translated: '',
           isFinal: false,
-          translationStatus: "queued",
-          transcriptionStatus: "pending",
+          translationStatus: 'queued',
+          transcriptionStatus: 'pending',
           sourceLanguageId,
         },
       ]);
@@ -51,11 +51,7 @@ export function useChatMessages() {
 
   /** Fill a pending bubble with the accepted transcript. */
   const completePendingTranscript = useCallback(
-    (
-      messageId: string,
-      text: string,
-      sourceLanguageId?: string,
-    ): boolean => {
+    (messageId: string, text: string, sourceLanguageId?: string): boolean => {
       const trimmed = text.trim();
       if (!messageId || !trimmed) return false;
 
@@ -68,7 +64,7 @@ export function useChatMessages() {
             ...m,
             original: trimmed,
             isFinal: true,
-            transcriptionStatus: "done" as const,
+            transcriptionStatus: 'done' as const,
             transcriptionError: undefined,
             ...(sourceLanguageId ? { sourceLanguageId } : {}),
           };
@@ -83,12 +79,7 @@ export function useChatMessages() {
   const discardPendingTranscript = useCallback(
     (messageId: string) => {
       if (!messageId) return;
-      syncMessages(
-        messagesRef.current.filter(
-          (m) =>
-            m.id !== messageId || m.transcriptionStatus !== "pending",
-        ),
-      );
+      syncMessages(messagesRef.current.filter((m) => m.id !== messageId || m.transcriptionStatus !== 'pending'));
     },
     [syncMessages],
   );
@@ -97,15 +88,15 @@ export function useChatMessages() {
   const failPendingTranscript = useCallback(
     (messageId: string, message: string) => {
       if (!messageId) return;
-      const copy = message.trim() || "No se entendió";
+      const copy = message.trim() || 'No se entendió';
       syncMessages(
         messagesRef.current.map((m) => {
-          if (m.id !== messageId || m.transcriptionStatus !== "pending") {
+          if (m.id !== messageId || m.transcriptionStatus !== 'pending') {
             return m;
           }
           return {
             ...m,
-            transcriptionStatus: "error" as const,
+            transcriptionStatus: 'error' as const,
             transcriptionError: copy,
           };
         }),
@@ -127,7 +118,7 @@ export function useChatMessages() {
   const appendFinalTranscript = useCallback(
     (text: string, sourceLanguageId: string): string => {
       const trimmed = text.trim();
-      if (!trimmed) return "";
+      if (!trimmed) return '';
 
       const messageId = createId();
       syncMessages([
@@ -135,10 +126,10 @@ export function useChatMessages() {
         {
           id: messageId,
           original: trimmed,
-          translated: "",
+          translated: '',
           isFinal: true,
-          translationStatus: "queued",
-          transcriptionStatus: "done",
+          translationStatus: 'queued',
+          transcriptionStatus: 'done',
           sourceLanguageId,
         },
       ]);
@@ -148,12 +139,7 @@ export function useChatMessages() {
   );
 
   const onTranslationUpdate = useCallback(
-    (
-      messageId: string,
-      text: string,
-      status: TranslationStatus,
-      options?: { force?: boolean },
-    ) => {
+    (messageId: string, text: string, status: TranslationStatus, options?: { force?: boolean }) => {
       if (!messageId) return;
 
       syncMessages(
@@ -162,23 +148,15 @@ export function useChatMessages() {
 
           // Queue / in-flight: status only — never wipe translated text.
           // A completed translation must not regress when a newer job preempts.
-          if (status === "queued" || status === "translating") {
-            if (
-              !options?.force &&
-              m.translationStatus === "done" &&
-              m.translated
-            ) {
+          if (status === 'queued' || status === 'translating') {
+            if (!options?.force && m.translationStatus === 'done' && m.translated) {
               return m;
             }
             return { ...m, translationStatus: status };
           }
 
           // Freeze a finished translation against empty clears and replacements.
-          if (
-            !options?.force &&
-            m.translationStatus === "done" &&
-            m.translated
-          ) {
+          if (!options?.force && m.translationStatus === 'done' && m.translated) {
             return m;
           }
 

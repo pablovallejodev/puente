@@ -1,25 +1,22 @@
-import { Pressable, StyleSheet, Text, View } from "react-native";
-import { useRouter } from "expo-router";
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useRouter } from 'expo-router';
 
-import type { TraductorLanguage } from "@/constants/traductor-languages";
-import { getDeviceLocaleTag } from "@/constants/languages";
-import { LanguageFlag } from "@/components/shared/language-flag";
-import type { LanguagePickerSlot } from "@/lib/blocked-language-ids";
-import {
-  getTraductorLanguageDisplayName,
-  resolveUiLocale,
-} from "@/lib/language-display-name";
-import { theme } from "@/constants/theme";
+import type { TraductorLanguage } from '@/constants/traductor-languages';
+import { getDeviceLocaleTag } from '@/constants/languages';
+import { LanguageFlag } from '@/components/shared/language-flag';
+import type { LanguagePickerSlot } from '@/lib/blocked-language-ids';
+import { getTraductorLanguageDisplayName, resolveUiLocale } from '@/lib/language-display-name';
+import { theme } from '@/constants/theme';
 
 type LanguageSlotButtonProps =
   | {
-      slot: "input";
-      kind: "universal" | "fixed";
+      slot: 'input';
+      kind: 'universal' | 'fixed';
       language?: TraductorLanguage;
       slotLabel?: string;
     }
   | {
-      slot: "output" | "lang2";
+      slot: 'output' | 'lang2';
       language: TraductorLanguage;
       slotLabel: string;
     };
@@ -30,35 +27,22 @@ export function LanguageSlotButton(props: LanguageSlotButtonProps) {
 
   const goToLanguages = () => {
     router.push({
-      pathname: "/languages",
+      pathname: '/languages',
       params: { slot: pickerSlot },
     });
   };
 
-  const isUniversal = props.slot === "input" && props.kind === "universal";
-  const language =
-    props.slot === "input"
-      ? props.kind === "fixed"
-        ? props.language
-        : undefined
-      : props.language;
+  const isUniversal = props.slot === 'input' && props.kind === 'universal';
+  const language = props.slot === 'input' ? (props.kind === 'fixed' ? props.language : undefined) : props.language;
 
   const label = isUniversal
-    ? "Universal"
+    ? 'Universal'
     : language
-      ? getTraductorLanguageDisplayName(
-          language,
-          resolveUiLocale(getDeviceLocaleTag()),
-        )
-      : "—";
+      ? getTraductorLanguageDisplayName(language, resolveUiLocale(getDeviceLocaleTag()))
+      : '—';
 
   const slotLabel =
-    props.slotLabel ??
-    (props.slot === "input"
-      ? "Origen"
-      : props.slot === "output"
-        ? "Traduce a"
-        : "Idioma 2");
+    props.slotLabel ?? (props.slot === 'input' ? 'Origen' : props.slot === 'output' ? 'Traduce a' : 'Idioma 2');
 
   return (
     <Pressable
@@ -86,8 +70,8 @@ export function LanguageSlotButton(props: LanguageSlotButtonProps) {
 const styles = StyleSheet.create({
   row: {
     flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     minHeight: 78,
     paddingVertical: theme.spacing.ml,
     paddingHorizontal: theme.spacing.ml,
@@ -102,12 +86,12 @@ const styles = StyleSheet.create({
   },
   flagWrap: {
     width: 30,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   globe: {
     fontSize: 20,
-    textAlign: "center",
+    textAlign: 'center',
   },
   labelColumn: {
     flex: 1,
@@ -117,7 +101,7 @@ const styles = StyleSheet.create({
     fontFamily: theme.font.body,
     fontSize: theme.type.micro,
     color: theme.colors.textMuted,
-    textTransform: "uppercase",
+    textTransform: 'uppercase',
     letterSpacing: 1,
   },
   label: {

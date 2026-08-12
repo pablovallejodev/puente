@@ -38,56 +38,54 @@ npx expo run:android
 4. Hablar ES/CA/IT/FR (u otro de la lista) en Universal → transcript en ese idioma → NLLB al idioma base.
 5. Si la transcripción falla: tocar Idioma input → elegir idioma fijo (override). Volver a Universal restaura auto-detect.
 
-Catálogo de producto = **Whisper ∩ NLLB** (~97 idiomas) en origen fijo y destino. Universal solo detecta entre un subconjunto curado (en/es/ca/eu/it/de/fr/sq/th). Whisper-only sin NLLB (`la`, `br`, `haw`) no aparecen en la UI.
-6. Icono ⚙ → Modelos. Modo avión tras descarga OK.
-7. Errores: `[CODE@stage] …` (tablas abajo).
+Catálogo de producto = **Whisper ∩ NLLB** (~97 idiomas) en origen fijo y destino. Universal solo detecta entre un subconjunto curado (en/es/ca/eu/it/de/fr/sq/th). Whisper-only sin NLLB (`la`, `br`, `haw`) no aparecen en la UI. 6. Icono ⚙ → Modelos. Modo avión tras descarga OK. 7. Errores: `[CODE@stage] …` (tablas abajo).
 
 ## Códigos de error — modelos (descarga / selección)
 
 Formato: `[CODE@stage] mensaje (context)`
 
-| Código | Stage típico | Significado |
-|--------|--------------|-------------|
-| `MODEL_UNKNOWN_ID` | `catalog.resolve` | id no está en el catálogo |
-| `MODEL_NOT_INSTALLED` | `install.check` / `engine.load` | falta `.complete` o dir |
-| `MODEL_INCOMPLETE` | `install.check` / `download.verify` | falta un fichero |
-| `MODEL_SIZE_MISMATCH` | `download.verify` | tamaño ≠ esperado HF |
-| `MODEL_ALREADY_DOWNLOADING` | `download.start` | descarga duplicada |
-| `MODEL_DOWNLOAD_OFFLINE` | `network.check` | sin red |
-| `MODEL_DOWNLOAD_HTTP` | `download.file` | HTTP ≠ 2xx |
-| `MODEL_DOWNLOAD_FAILED` | `download.file` | fallo FS/red |
-| `MODEL_DOWNLOAD_CANCELLED` | `download.file` | cancelada |
-| `MODEL_DISK_FULL` | `storage.space` | sin espacio |
-| `MODEL_FINALIZE_FAILED` | `download.finalize` | move / `.complete` |
-| `MODEL_SELECT_NOT_INSTALLED` | `select.apply` | Select sin instalar |
-| `MODEL_SELECT_FAILED` | `select.apply` | fallo al seleccionar |
-| `MODEL_PREFS_READ_FAILED` | `prefs.read` | SecureStore |
-| `MODEL_PREFS_WRITE_FAILED` | `prefs.write` | SecureStore |
-| `MODEL_ENGINE_PATH_MISSING` | `engine.load` | path ORT ausente |
-| `MODEL_GATE_INCOMPLETE` | `gate.ready` | onboarding incompleto |
+| Código                       | Stage típico                        | Significado               |
+| ---------------------------- | ----------------------------------- | ------------------------- |
+| `MODEL_UNKNOWN_ID`           | `catalog.resolve`                   | id no está en el catálogo |
+| `MODEL_NOT_INSTALLED`        | `install.check` / `engine.load`     | falta `.complete` o dir   |
+| `MODEL_INCOMPLETE`           | `install.check` / `download.verify` | falta un fichero          |
+| `MODEL_SIZE_MISMATCH`        | `download.verify`                   | tamaño ≠ esperado HF      |
+| `MODEL_ALREADY_DOWNLOADING`  | `download.start`                    | descarga duplicada        |
+| `MODEL_DOWNLOAD_OFFLINE`     | `network.check`                     | sin red                   |
+| `MODEL_DOWNLOAD_HTTP`        | `download.file`                     | HTTP ≠ 2xx                |
+| `MODEL_DOWNLOAD_FAILED`      | `download.file`                     | fallo FS/red              |
+| `MODEL_DOWNLOAD_CANCELLED`   | `download.file`                     | cancelada                 |
+| `MODEL_DISK_FULL`            | `storage.space`                     | sin espacio               |
+| `MODEL_FINALIZE_FAILED`      | `download.finalize`                 | move / `.complete`        |
+| `MODEL_SELECT_NOT_INSTALLED` | `select.apply`                      | Select sin instalar       |
+| `MODEL_SELECT_FAILED`        | `select.apply`                      | fallo al seleccionar      |
+| `MODEL_PREFS_READ_FAILED`    | `prefs.read`                        | SecureStore               |
+| `MODEL_PREFS_WRITE_FAILED`   | `prefs.write`                       | SecureStore               |
+| `MODEL_ENGINE_PATH_MISSING`  | `engine.load`                       | path ORT ausente          |
+| `MODEL_GATE_INCOMPLETE`      | `gate.ready`                        | onboarding incompleto     |
 
 ## Códigos de error — inferencia (existentes)
 
-| Código | Etapa | Significado |
-|--------|-------|-------------|
-| `ORT_NOT_REGISTERED` | `session.encoder` | ONNX no autolinked → prebuild + rebuild |
-| `DECODE_FAILED` | `decode.run` | Fallo decoder |
-| `DECODE_EMPTY` | `decode.output` | Whisper no generó tokens |
-| `OUT_OF_MEMORY` | `decode.run` / load | RAM insuficiente (p. ej. NLLB) |
-| `ENGINE_LOAD_FAILED` | `asset.prepare` | Sin modelo seleccionado / ModelError anidado |
-| `LANGUAGE_UNSUPPORTED` | `decode.run` / `tokenizer.load` | Idioma sin token Whisper o FLORES |
+| Código                 | Etapa                           | Significado                                  |
+| ---------------------- | ------------------------------- | -------------------------------------------- |
+| `ORT_NOT_REGISTERED`   | `session.encoder`               | ONNX no autolinked → prebuild + rebuild      |
+| `DECODE_FAILED`        | `decode.run`                    | Fallo decoder                                |
+| `DECODE_EMPTY`         | `decode.output`                 | Whisper no generó tokens                     |
+| `OUT_OF_MEMORY`        | `decode.run` / load             | RAM insuficiente (p. ej. NLLB)               |
+| `ENGINE_LOAD_FAILED`   | `asset.prepare`                 | Sin modelo seleccionado / ModelError anidado |
+| `LANGUAGE_UNSUPPORTED` | `decode.run` / `tokenizer.load` | Idioma sin token Whisper o FLORES            |
 
 ## Códigos de error — detección Universal (Whisper)
 
 Formato: `[CODE@stage] mensaje (context)`
 
-| Código | Stage | Significado |
-|--------|-------|-------------|
-| `LANG_DETECT_FAILED` | `lang.detect` | Excepción en el pass SOT → logits |
-| `LANG_DETECT_EMPTY` | `lang.detect` | Sin logits / sin candidatos `lang_to_id` |
-| `LANG_DETECT_LOW_CONFIDENCE` | `lang.resolve` | Softmax &lt; 0.45 y sin sticky usable |
-| `LANG_DETECT_AUDIO_TOO_SHORT` | `lang.resolve` | Chunk &lt; ~800 ms y sin sticky |
-| `LANG_DETECT_UNSUPPORTED` | `lang.resolve` | Idioma detectado sin mapeo BCP-47 de producto |
+| Código                        | Stage          | Significado                                   |
+| ----------------------------- | -------------- | --------------------------------------------- |
+| `LANG_DETECT_FAILED`          | `lang.detect`  | Excepción en el pass SOT → logits             |
+| `LANG_DETECT_EMPTY`           | `lang.detect`  | Sin logits / sin candidatos `lang_to_id`      |
+| `LANG_DETECT_LOW_CONFIDENCE`  | `lang.resolve` | Softmax &lt; 0.45 y sin sticky usable         |
+| `LANG_DETECT_AUDIO_TOO_SHORT` | `lang.resolve` | Chunk &lt; ~800 ms y sin sticky               |
+| `LANG_DETECT_UNSUPPORTED`     | `lang.resolve` | Idioma detectado sin mapeo BCP-47 de producto |
 
 Si ves uno de estos, pégalo tal cual (incluye `@stage` y el paréntesis de contexto).
 

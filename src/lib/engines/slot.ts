@@ -64,8 +64,7 @@ export class EngineSlot<T extends { dispose(): void }> {
     // loading — invalidates both, and the attempt budget belongs to the model,
     // not to the slot.
     const switching =
-      (this.cachedId != null && this.cachedId !== modelId) ||
-      (this.loadingId != null && this.loadingId !== modelId);
+      (this.cachedId != null && this.cachedId !== modelId) || (this.loadingId != null && this.loadingId !== modelId);
 
     if (forceRetry || switching) {
       this.reset();
@@ -88,11 +87,7 @@ export class EngineSlot<T extends { dispose(): void }> {
         // A reset raced with this load: the caller no longer wants it.
         if (this.loadingId !== modelId) {
           engine.dispose();
-          throw this.options.errors.loadFailed(
-            new Error("Carga cancelada por un cambio de modelo"),
-            modelId,
-            attempt,
-          );
+          throw this.options.errors.loadFailed(new Error('Carga cancelada por un cambio de modelo'), modelId, attempt);
         }
         this.cached = engine;
         this.cachedId = modelId;

@@ -17,8 +17,8 @@
  * for SalamandraTA) and raises LANGUAGE_UNSUPPORTED when it cannot.
  */
 
-import type { EngineId, LanguageDetection } from "@/constants/model-catalog";
-import type { WhisperTranscribeResult } from "@/lib/whisper-inference";
+import type { EngineId, LanguageDetection } from '@/constants/model-catalog';
+import type { WhisperTranscribeResult } from '@/lib/whisper-inference';
 
 /**
  * Reused verbatim from the Whisper pipeline rather than redefined: every field
@@ -28,7 +28,7 @@ export type AsrResult = WhisperTranscribeResult;
 
 export type AsrRequest = {
   /** App language id to force, or "auto" to let the engine decide. */
-  language: "auto" | string;
+  language: 'auto' | string;
   /**
    * Language detected in the previous chunk of this conversation.
    *
@@ -66,11 +66,6 @@ export interface MtEngine {
   /** False when this model has no code for that locale; the UI can warn early. */
   supportsLocale(locale: string): boolean;
   /** Resolves null when cancelled mid-decode. */
-  translate(
-    text: string,
-    srcLocale: string,
-    tgtLocale: string,
-    request?: MtRequest,
-  ): Promise<string | null>;
+  translate(text: string, srcLocale: string, tgtLocale: string, request?: MtRequest): Promise<string | null>;
   dispose(): void;
 }

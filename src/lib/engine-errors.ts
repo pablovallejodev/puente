@@ -17,38 +17,38 @@ import {
   looksLikeReleasedSession,
   type DiagnosticContext,
   type DiagnosticInfo,
-} from "@/lib/errors/diagnostic";
+} from '@/lib/errors/diagnostic';
 
 export type EngineStage =
-  | "engine.resolve"
-  | "engine.module"
-  | "engine.init"
-  | "engine.dispose"
-  | "asr.run"
-  | "asr.language"
-  | "mt.run"
-  | "mt.language"
-  | "vad.load"
-  | "vad.run";
+  | 'engine.resolve'
+  | 'engine.module'
+  | 'engine.init'
+  | 'engine.dispose'
+  | 'asr.run'
+  | 'asr.language'
+  | 'mt.run'
+  | 'mt.language'
+  | 'vad.load'
+  | 'vad.run';
 
 /**
  * Declared as an array so the code list exists at runtime: `check:errors`
  * walks it to prove every code is documented in the error catalog.
  */
 export const ENGINE_ERROR_CODES = [
-  "ENGINE_MODULE_UNAVAILABLE",
-  "ENGINE_TASK_MISMATCH",
-  "ENGINE_UNSUPPORTED_MODEL",
-  "ENGINE_INIT_FAILED",
-  "ENGINE_RUN_FAILED",
-  "ENGINE_LANGUAGE_UNSUPPORTED",
-  "ENGINE_OUTPUT_EMPTY",
-  "ENGINE_NO_LANGUAGE_DETECTION",
-  "ENGINE_DISPOSED",
-  "ENGINE_OUT_OF_MEMORY",
-  "VAD_MODEL_MISSING",
-  "VAD_INIT_FAILED",
-  "VAD_RUN_FAILED",
+  'ENGINE_MODULE_UNAVAILABLE',
+  'ENGINE_TASK_MISMATCH',
+  'ENGINE_UNSUPPORTED_MODEL',
+  'ENGINE_INIT_FAILED',
+  'ENGINE_RUN_FAILED',
+  'ENGINE_LANGUAGE_UNSUPPORTED',
+  'ENGINE_OUTPUT_EMPTY',
+  'ENGINE_NO_LANGUAGE_DETECTION',
+  'ENGINE_DISPOSED',
+  'ENGINE_OUT_OF_MEMORY',
+  'VAD_MODEL_MISSING',
+  'VAD_INIT_FAILED',
+  'VAD_RUN_FAILED',
 ] as const;
 
 export type EngineErrorCode = (typeof ENGINE_ERROR_CODES)[number];
@@ -57,8 +57,8 @@ export type EngineErrorInfo = DiagnosticInfo<EngineErrorCode, EngineStage>;
 
 export class EngineError extends DiagnosticError<EngineErrorCode, EngineStage> {
   constructor(info: EngineErrorInfo) {
-    super("engine", info);
-    this.name = "EngineError";
+    super('engine', info);
+    this.name = 'EngineError';
   }
 }
 
@@ -68,11 +68,8 @@ export function isEngineError(err: unknown): err is EngineError {
 
 /** True when the failure means the native session was already released. */
 export function isDisposedEngineFailure(err: unknown): boolean {
-  if (isEngineError(err) && err.code === "ENGINE_DISPOSED") return true;
-  if (
-    err instanceof DiagnosticError &&
-    err.context?.disposed === true
-  ) {
+  if (isEngineError(err) && err.code === 'ENGINE_DISPOSED') return true;
+  if (err instanceof DiagnosticError && err.context?.disposed === true) {
     return true;
   }
   return looksLikeReleasedSession(causeMessage(err));
@@ -95,8 +92,8 @@ export function wrapEngineError(
 
   if (looksLikeMissingNativeModule(message)) {
     return new EngineError({
-      code: "ENGINE_MODULE_UNAVAILABLE",
-      stage: "engine.module",
+      code: 'ENGINE_MODULE_UNAVAILABLE',
+      stage: 'engine.module',
       message,
       recoverable: false,
       context,
@@ -104,7 +101,7 @@ export function wrapEngineError(
   }
   if (looksLikeOutOfMemory(message)) {
     return new EngineError({
-      code: "ENGINE_OUT_OF_MEMORY",
+      code: 'ENGINE_OUT_OF_MEMORY',
       stage,
       message,
       recoverable: false,
@@ -113,7 +110,7 @@ export function wrapEngineError(
   }
   if (looksLikeReleasedSession(message)) {
     return new EngineError({
-      code: "ENGINE_DISPOSED",
+      code: 'ENGINE_DISPOSED',
       stage,
       message,
       recoverable: true,
@@ -125,14 +122,10 @@ export function wrapEngineError(
 }
 
 /** The native side of an optional engine is missing; only a rebuild fixes it. */
-export function moduleUnavailable(
-  engine: string,
-  packageName: string,
-  err: unknown,
-): EngineError {
+export function moduleUnavailable(engine: string, packageName: string, err: unknown): EngineError {
   return new EngineError({
-    code: "ENGINE_MODULE_UNAVAILABLE",
-    stage: "engine.module",
+    code: 'ENGINE_MODULE_UNAVAILABLE',
+    stage: 'engine.module',
     message: `El motor ${engine} no está disponible en esta build (${packageName}). Ejecuta pnpm install && npx expo prebuild --clean y reconstruye la app.`,
     recoverable: false,
     context: { engine, packageName, cause: causeMessage(err) },

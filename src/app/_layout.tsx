@@ -1,8 +1,8 @@
 import { Stack } from 'expo-router';
-import { Mulish_500Medium, Mulish_800ExtraBold, Mulish_900Black } from "@expo-google-fonts/mulish";
+import { Mulish_500Medium, Mulish_800ExtraBold, Mulish_900Black } from '@expo-google-fonts/mulish';
 import { useEffect } from 'react';
 import * as SplashScreen from 'expo-splash-screen';
-import { useFonts } from "expo-font";
+import { useFonts } from 'expo-font';
 
 import { ModelCatalogProvider } from '@/contexts/model-catalog-context';
 import { TraductorSessionProvider } from '@/contexts/traductor-session-context';
@@ -31,12 +31,14 @@ export default function RootLayout() {
   return (
     <ModelCatalogProvider>
       <TraductorSessionProvider>
-        <Stack screenOptions={{
-          headerShown: false,
-          gestureEnabled: false,
-          animation: "fade",
-          animationDuration: 300
-        }}>
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            gestureEnabled: false,
+            animation: 'fade',
+            animationDuration: 300,
+          }}
+        >
           <Stack.Screen name="index" options={pageOptions} />
           <Stack.Screen name="traductor" options={pageOptions} />
           <Stack.Screen name="languages" options={pageOptions} />
@@ -46,8 +48,6 @@ export default function RootLayout() {
     </ModelCatalogProvider>
   );
 }
-
-
 
 /*
 

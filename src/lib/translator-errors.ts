@@ -15,50 +15,44 @@ import {
   looksLikeReleasedSession,
   type DiagnosticContext,
   type DiagnosticInfo,
-} from "@/lib/errors/diagnostic";
+} from '@/lib/errors/diagnostic';
 
 export type TranslatorStage =
-  | "asset.prepare"
-  | "tokenizer.load"
-  | "session.encoder"
-  | "session.decoder"
-  | "encode.run"
-  | "decode.run"
-  | "decode.output";
+  | 'asset.prepare'
+  | 'tokenizer.load'
+  | 'session.encoder'
+  | 'session.decoder'
+  | 'encode.run'
+  | 'decode.run'
+  | 'decode.output';
 
 /** Runtime list so `check:errors` can prove every code is documented. */
 export const TRANSLATOR_ERROR_CODES = [
-  "ASSET_UNAVAILABLE",
-  "ASSET_COPY_FAILED",
-  "ASSET_INCOMPLETE",
-  "TOKENIZER_LOAD_FAILED",
-  "SESSION_ENCODER_FAILED",
-  "SESSION_DECODER_FAILED",
-  "ORT_NOT_REGISTERED",
-  "LANGUAGE_UNSUPPORTED",
-  "INPUT_TOO_LONG",
-  "ENCODE_FAILED",
-  "DECODE_FAILED",
-  "DECODE_EMPTY",
-  "ENGINE_LOAD_FAILED",
-  "TRANSLATE_FAILED",
-  "OUT_OF_MEMORY",
+  'ASSET_UNAVAILABLE',
+  'ASSET_COPY_FAILED',
+  'ASSET_INCOMPLETE',
+  'TOKENIZER_LOAD_FAILED',
+  'SESSION_ENCODER_FAILED',
+  'SESSION_DECODER_FAILED',
+  'ORT_NOT_REGISTERED',
+  'LANGUAGE_UNSUPPORTED',
+  'INPUT_TOO_LONG',
+  'ENCODE_FAILED',
+  'DECODE_FAILED',
+  'DECODE_EMPTY',
+  'ENGINE_LOAD_FAILED',
+  'TRANSLATE_FAILED',
+  'OUT_OF_MEMORY',
 ] as const;
 
 export type TranslatorErrorCode = (typeof TRANSLATOR_ERROR_CODES)[number];
 
-export type TranslatorErrorInfo = DiagnosticInfo<
-  TranslatorErrorCode,
-  TranslatorStage
->;
+export type TranslatorErrorInfo = DiagnosticInfo<TranslatorErrorCode, TranslatorStage>;
 
-export class TranslatorError extends DiagnosticError<
-  TranslatorErrorCode,
-  TranslatorStage
-> {
+export class TranslatorError extends DiagnosticError<TranslatorErrorCode, TranslatorStage> {
   constructor(info: TranslatorErrorInfo) {
-    super("translator", info);
-    this.name = "TranslatorError";
+    super('translator', info);
+    this.name = 'TranslatorError';
   }
 }
 
@@ -79,7 +73,7 @@ export function wrapUnknownError(
   const oom = looksLikeOutOfMemory(cause);
   if (!oom && looksLikeReleasedSession(cause)) {
     return new TranslatorError({
-      code: "ENCODE_FAILED",
+      code: 'ENCODE_FAILED',
       stage,
       message: cause,
       recoverable: true,
@@ -87,7 +81,7 @@ export function wrapUnknownError(
     });
   }
   return new TranslatorError({
-    code: oom ? "OUT_OF_MEMORY" : code,
+    code: oom ? 'OUT_OF_MEMORY' : code,
     stage,
     message: cause,
     recoverable: oom ? false : recoverable,

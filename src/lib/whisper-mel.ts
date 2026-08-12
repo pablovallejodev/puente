@@ -22,7 +22,7 @@ export const DEFAULT_PREPROCESSOR: WhisperPreprocessorConfig = {
 };
 
 let cachedMelFilters: Float32Array | null = null;
-let cachedMelKey = "";
+let cachedMelKey = '';
 
 function hzToMel(hz: number): number {
   return 2595 * Math.log10(1 + hz / 700);
@@ -33,11 +33,7 @@ function melToHz(mel: number): number {
 }
 
 /** Slaney-style mel filterbank used by Whisper / librosa. */
-function buildMelFilters(
-  nMels: number,
-  nFft: number,
-  sampleRate: number,
-): Float32Array {
+function buildMelFilters(nMels: number, nFft: number, sampleRate: number): Float32Array {
   const key = `${nMels}:${nFft}:${sampleRate}`;
   if (cachedMelFilters && cachedMelKey === key) return cachedMelFilters;
 
@@ -218,8 +214,7 @@ export function extractWhisperMel(
   const padded = new Float32Array(nSamples + 2 * pad);
   for (let i = 0; i < pad; i++) {
     padded[pad - 1 - i] = waveform[Math.min(i + 1, nSamples - 1)] ?? 0;
-    padded[pad + nSamples + i] =
-      waveform[Math.max(nSamples - 2 - i, 0)] ?? 0;
+    padded[pad + nSamples + i] = waveform[Math.max(nSamples - 2 - i, 0)] ?? 0;
   }
   padded.set(waveform, pad);
 
@@ -231,10 +226,7 @@ export function extractWhisperMel(
 
   // Only compute STFT over real audio (+ small pad); remaining frames stay 0.
   const activeSamples = Math.min(pcm.length, nSamples) + nFft;
-  const activeFrames = Math.min(
-    maxFrames,
-    Math.max(1, Math.ceil(activeSamples / hopLength)),
-  );
+  const activeFrames = Math.min(maxFrames, Math.max(1, Math.ceil(activeSamples / hopLength)));
 
   for (let t = 0; t < activeFrames; t++) {
     const start = t * hopLength;

@@ -1,36 +1,27 @@
-import { memo, useEffect, useRef } from "react";
-import { Animated, StyleSheet, Text, View } from "react-native";
+import { memo, useEffect, useRef } from 'react';
+import { Animated, StyleSheet, Text, View } from 'react-native';
 
-import { VoiceLoader } from "@/components/traductor/voice-loader";
-import { LanguageFlag } from "@/components/shared/language-flag";
-import { findTraductorLanguageById } from "@/constants/traductor-languages";
-import type { ChatMessage } from "@/hooks/use-chat-messages";
-import { theme } from "@/constants/theme";
+import { VoiceLoader } from '@/components/traductor/voice-loader';
+import { LanguageFlag } from '@/components/shared/language-flag';
+import { findTraductorLanguageById } from '@/constants/traductor-languages';
+import type { ChatMessage } from '@/hooks/use-chat-messages';
+import { theme } from '@/constants/theme';
 
 type ChatMessageItemProps = {
   message: ChatMessage;
   isLatest: boolean;
 };
 
-function ChatMessageItemComponent({
-  message,
-  isLatest,
-}: ChatMessageItemProps) {
+function ChatMessageItemComponent({ message, isLatest }: ChatMessageItemProps) {
   // eslint-disable-next-line react-hooks/refs
   const bodyOpacity = useRef(new Animated.Value(1)).current;
   // eslint-disable-next-line react-hooks/refs
-  const translationOpacity = useRef(
-    new Animated.Value(message.translated ? 1 : 0),
-  ).current;
-  const wasPendingRef = useRef(message.transcriptionStatus === "pending");
+  const translationOpacity = useRef(new Animated.Value(message.translated ? 1 : 0)).current;
+  const wasPendingRef = useRef(message.transcriptionStatus === 'pending');
   const hadTranslatedRef = useRef(Boolean(message.translated));
 
   useEffect(() => {
-    if (
-      wasPendingRef.current &&
-      message.transcriptionStatus === "done" &&
-      message.original
-    ) {
+    if (wasPendingRef.current && message.transcriptionStatus === 'done' && message.original) {
       wasPendingRef.current = false;
       bodyOpacity.setValue(0);
       Animated.timing(bodyOpacity, {
@@ -53,27 +44,20 @@ function ChatMessageItemComponent({
     }
   }, [message.translated, translationOpacity]);
 
-  if (message.transcriptionStatus === "pending") {
+  if (message.transcriptionStatus === 'pending') {
     return (
-      <View
-        style={[styles.container, styles.pendingBody]}
-        accessibilityLiveRegion="polite"
-      >
+      <View style={[styles.container, styles.pendingBody]} accessibilityLiveRegion="polite">
         <VoiceLoader accessibilityLabel="Transcribiendo" />
       </View>
     );
   }
 
-  if (message.transcriptionStatus === "error") {
+  if (message.transcriptionStatus === 'error') {
     return (
-      <View
-        style={[styles.container, styles.errorBody]}
-        accessibilityLiveRegion="polite"
-        accessibilityRole="text"
-      >
+      <View style={[styles.container, styles.errorBody]} accessibilityLiveRegion="polite" accessibilityRole="text">
         <Text style={styles.transcriptionError}>
           <Text style={styles.transcriptionErrorIcon}>⚠ </Text>
-          {message.transcriptionError ?? "No se entendió"}
+          {message.transcriptionError ?? 'No se entendió'}
         </Text>
       </View>
     );
@@ -84,25 +68,13 @@ function ChatMessageItemComponent({
   }
 
   const sourceLang = findTraductorLanguageById(message.sourceLanguageId);
-  const pending =
-    message.translationStatus === "queued" ||
-    message.translationStatus === "translating";
+  const pending = message.translationStatus === 'queued' || message.translationStatus === 'translating';
 
   return (
-    <Animated.View
-      style={[
-        styles.container,
-        isLatest && styles.latestContainer,
-        { opacity: bodyOpacity },
-      ]}
-    >
+    <Animated.View style={[styles.container, isLatest && styles.latestContainer, { opacity: bodyOpacity }]}>
       <View style={styles.originalRow}>
-        {sourceLang ? (
-          <LanguageFlag language={sourceLang} size={16} style={styles.flag} />
-        ) : null}
-        <Text style={[styles.original, isLatest && styles.latestOriginal]}>
-          {message.original || "…"}
-        </Text>
+        {sourceLang ? <LanguageFlag language={sourceLang} size={16} style={styles.flag} /> : null}
+        <Text style={[styles.original, isLatest && styles.latestOriginal]}>{message.original || '…'}</Text>
       </View>
       <Text style={styles.translationLabel}>TRADUCCIÓN</Text>
       {pending && !message.translated ? (
@@ -117,9 +89,9 @@ function ChatMessageItemComponent({
             { opacity: message.translated ? translationOpacity : 1 },
           ]}
         >
-          {message.translationStatus === "error" && !message.translated
-            ? "No se pudo traducir"
-            : message.translated || "—"}
+          {message.translationStatus === 'error' && !message.translated
+            ? 'No se pudo traducir'
+            : message.translated || '—'}
         </Animated.Text>
       )}
     </Animated.View>
@@ -150,12 +122,12 @@ const styles = StyleSheet.create({
   },
   pendingBody: {
     minHeight: 88,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   errorBody: {
     minHeight: 56,
-    justifyContent: "center",
+    justifyContent: 'center',
   },
   transcriptionError: {
     fontFamily: theme.font.body,
@@ -166,8 +138,8 @@ const styles = StyleSheet.create({
     color: theme.colors.error,
   },
   originalRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
+    flexDirection: 'row',
+    alignItems: 'flex-start',
     gap: 6,
     marginBottom: theme.spacing.xs,
   },
@@ -204,7 +176,7 @@ const styles = StyleSheet.create({
   },
   translationLoader: {
     minHeight: 54,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

@@ -7,21 +7,21 @@ const HAS_LETTER = /\p{L}/u;
 
 /** Remove bracket annotations and collapse whitespace. */
 export function stripBracketAnnotations(text: string): string {
-  let out = "";
+  let out = '';
   for (let i = 0; i < text.length; i++) {
-    if (text[i] === "[") {
-      const end = text.indexOf("]", i + 1);
+    if (text[i] === '[') {
+      const end = text.indexOf(']', i + 1);
       if (end === -1) {
         out += text[i];
       } else {
-        out += " ";
+        out += ' ';
         i = end;
       }
       continue;
     }
     out += text[i];
   }
-  return out.replace(/\s+/g, " ").trim();
+  return out.replace(/\s+/g, ' ').trim();
 }
 
 /**

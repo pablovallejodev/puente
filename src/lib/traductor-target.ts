@@ -2,19 +2,19 @@ import {
   findTraductorLanguageById,
   findTraductorLanguageByLocale,
   type TraductorLanguage,
-} from "@/constants/traductor-languages";
-import type { TraductorMode } from "@/lib/traductor-mode";
+} from '@/constants/traductor-languages';
+import type { TraductorMode } from '@/lib/traductor-mode';
 
 function languageIdFromLocale(locale: string): string {
   const byLocale = findTraductorLanguageByLocale(locale);
   if (byLocale) return byLocale.id;
-  const prefix = locale.split("-")[0]?.toLowerCase();
+  const prefix = locale.split('-')[0]?.toLowerCase();
   if (prefix) {
     const byId = findTraductorLanguageById(prefix);
     if (byId) return byId.id;
     return prefix;
   }
-  return "und";
+  return 'und';
 }
 
 /**
@@ -27,7 +27,7 @@ export function resolveTranslationTarget(params: {
   languageOne: TraductorLanguage;
   languageTwo: TraductorLanguage;
 }): string {
-  if (params.mode === "one_way") return params.languageOne.speechLocale;
+  if (params.mode === 'one_way') return params.languageOne.speechLocale;
 
   const detectedId = languageIdFromLocale(params.detectedLocale);
   if (detectedId === params.languageOne.id) {

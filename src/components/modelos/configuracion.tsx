@@ -8,15 +8,12 @@ import {
   Text,
   UIManager,
   View,
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { router, type Href } from "expo-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { router, type Href } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import {
-  ChatHeadComponent,
-  StandardHeadComponent,
-} from "@/components/basics/headers";
+import { ChatHeadComponent, StandardHeadComponent } from '@/components/basics/headers';
 import {
   exceedsPairBudget,
   formatBytes,
@@ -29,25 +26,19 @@ import {
   resolveActiveMode,
   SILERO_VAD_MODEL_ID,
   type PresetMode,
-} from "@/constants/model-catalog";
-import { STANDARD_HORIZONTAL_PADDING } from "@/constants/ui";
-import {
-  useModelCatalog,
-  type ModelUiState,
-} from "@/contexts/model-catalog-context";
-import { StatusBarDarkComponent } from "@/utils/statusbar";
-import { theme } from "@/constants/theme";
+} from '@/constants/model-catalog';
+import { STANDARD_HORIZONTAL_PADDING } from '@/constants/ui';
+import { useModelCatalog, type ModelUiState } from '@/contexts/model-catalog-context';
+import { StatusBarDarkComponent } from '@/utils/statusbar';
+import { theme } from '@/constants/theme';
 
-if (
-  Platform.OS === "android" &&
-  UIManager.setLayoutAnimationEnabledExperimental
-) {
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
 function installProgress(state: ModelUiState): number {
-  if (state.status === "installed" || state.status === "selected") return 1;
-  if (state.status === "downloading" || state.status === "paused") {
+  if (state.status === 'installed' || state.status === 'selected') return 1;
+  if (state.status === 'downloading' || state.status === 'paused') {
     return state.progress;
   }
   return 0;
@@ -81,28 +72,16 @@ export default function ConfiguracionComponent() {
   const activeMode = resolveActiveMode(selected.asr, selected.mt);
 
   const pairPeak =
-    selectedAsr && selectedMt
-      ? pairPeakRamBytes(selectedAsr.peakRamBytes, selectedMt.peakRamBytes)
-      : null;
+    selectedAsr && selectedMt ? pairPeakRamBytes(selectedAsr.peakRamBytes, selectedMt.peakRamBytes) : null;
   const pairBudget = pairBudgetBytes(totalMemoryBytes);
   const showRamPressure =
     selectedAsr != null &&
     selectedMt != null &&
-    exceedsPairBudget(
-      selectedAsr.peakRamBytes,
-      selectedMt.peakRamBytes,
-      totalMemoryBytes,
-    );
+    exceedsPairBudget(selectedAsr.peakRamBytes, selectedMt.peakRamBytes, totalMemoryBytes);
 
-  const ramPhoneLabel =
-    totalMemoryBytes != null
-      ? `${(totalMemoryBytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
-      : "—";
-  const ramModeLabel = pairPeak != null ? `~${formatBytes(pairPeak)}` : "—";
-  const budgetRatio =
-    pairPeak != null && pairBudget != null && pairBudget > 0
-      ? Math.min(pairPeak / pairBudget, 1)
-      : 0;
+  const ramPhoneLabel = totalMemoryBytes != null ? `${(totalMemoryBytes / (1024 * 1024 * 1024)).toFixed(1)} GB` : '—';
+  const ramModeLabel = pairPeak != null ? `~${formatBytes(pairPeak)}` : '—';
+  const budgetRatio = pairPeak != null && pairBudget != null && pairBudget > 0 ? Math.min(pairPeak / pairBudget, 1) : 0;
 
   const customRamLabel = useMemo(() => {
     if (!selected.asr || !selected.mt) return null;
@@ -112,7 +91,7 @@ export default function ConfiguracionComponent() {
   useEffect(() => {
     if (booting || sileroKickoff.current) return;
     const status = getModelState(SILERO_VAD_MODEL_ID).status;
-    if (status !== "not_installed") return;
+    if (status !== 'not_installed') return;
     sileroKickoff.current = true;
     void download(SILERO_VAD_MODEL_ID).catch(() => {
       clearError();
@@ -124,8 +103,8 @@ export default function ConfiguracionComponent() {
       const asrState = getModelState(mode.asrId);
       const mtState = getModelState(mode.mtId);
       const pairReady =
-        (asrState.status === "installed" || asrState.status === "selected") &&
-        (mtState.status === "installed" || mtState.status === "selected");
+        (asrState.status === 'installed' || asrState.status === 'selected') &&
+        (mtState.status === 'installed' || mtState.status === 'selected');
       if (activeMode === mode.id && pairReady) return;
       if (busyModeId === mode.id) return;
       animateLayout();
@@ -148,10 +127,10 @@ export default function ConfiguracionComponent() {
       const asrState = getModelState(mode.asrId);
       const mtState = getModelState(mode.mtId);
       try {
-        if (asrState.status === "downloading") {
+        if (asrState.status === 'downloading') {
           await pauseDownload(mode.asrId);
         }
-        if (mtState.status === "downloading") {
+        if (mtState.status === 'downloading') {
           await pauseDownload(mode.mtId);
         }
       } catch {
@@ -163,19 +142,19 @@ export default function ConfiguracionComponent() {
     [busyModeId, getModelState, pauseDownload],
   );
 
-  const showCustomSlots = activeMode === "personalizado" || customExpanded;
+  const showCustomSlots = activeMode === 'personalizado' || customExpanded;
 
   const onToggleCustom = useCallback(() => {
     // Active custom pair already shows the slots; tap is a no-op collapse/open
     // only when exploring before a non-preset pair is chosen.
-    if (activeMode === "personalizado") return;
+    if (activeMode === 'personalizado') return;
     animateLayout();
     setCustomExpanded((v) => !v);
   }, [activeMode]);
 
   const goTraductor = useCallback(() => {
     if (!isReady) return;
-    router.replace("/traductor" as Href);
+    router.replace('/traductor' as Href);
   }, [isReady]);
 
   if (booting) {
@@ -196,17 +175,10 @@ export default function ConfiguracionComponent() {
       {isSetupFlow ? (
         <ChatHeadComponent titleText="Configuración inicial" />
       ) : (
-        <StandardHeadComponent
-          titleText="Configuración"
-          loading={false}
-          onBack={() => router.back()}
-        />
+        <StandardHeadComponent titleText="Configuración" loading={false} onBack={() => router.back()} />
       )}
 
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
-      >
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         <View style={styles.ramHero}>
           <Text style={styles.heroEyebrow}>TU DISPOSITIVO</Text>
           <View style={styles.ramRow}>
@@ -235,14 +207,9 @@ export default function ConfiguracionComponent() {
         </View>
 
         {showRamPressure ? (
-          <View
-            style={styles.ramWarnBox}
-            accessibilityRole="alert"
-            accessibilityLiveRegion="polite"
-          >
+          <View style={styles.ramWarnBox} accessibilityRole="alert" accessibilityLiveRegion="polite">
             <Text style={styles.ramWarnText}>
-              Tu teléfono no tiene suficiente RAM para estos modelos. Corre el
-              riesgo de que se pete.
+              Tu teléfono no tiene suficiente RAM para estos modelos. Corre el riesgo de que se pete.
             </Text>
           </View>
         ) : null}
@@ -259,23 +226,13 @@ export default function ConfiguracionComponent() {
             const busy = busyModeId === mode.id;
             const asrState = getModelState(mode.asrId);
             const mtState = getModelState(mode.mtId);
-            const modeDownloading =
-              asrState.status === "downloading" ||
-              mtState.status === "downloading";
-            const modePaused =
-              !modeDownloading &&
-              (asrState.status === "paused" || mtState.status === "paused");
-            const pct = Math.round(
-              ((installProgress(asrState) + installProgress(mtState)) / 2) *
-                100,
-            );
+            const modeDownloading = asrState.status === 'downloading' || mtState.status === 'downloading';
+            const modePaused = !modeDownloading && (asrState.status === 'paused' || mtState.status === 'paused');
+            const pct = Math.round(((installProgress(asrState) + installProgress(mtState)) / 2) * 100);
             return (
               <Pressable
                 key={mode.id}
-                style={[
-                  styles.modeButton,
-                  selectedMode && styles.modeButtonSelected,
-                ]}
+                style={[styles.modeButton, selectedMode && styles.modeButtonSelected]}
                 onPress={() => {
                   if (modeDownloading) return;
                   void onPreset(mode);
@@ -283,90 +240,46 @@ export default function ConfiguracionComponent() {
                 accessibilityRole="button"
                 accessibilityState={{
                   selected: selectedMode,
-                  busy: modeDownloading || busy,
+                  busy: modeDownloading && busy,
                 }}
               >
                 <View style={styles.modeTextCol}>
-                  <Text
-                    style={[
-                      styles.modeLabel,
-                      selectedMode && styles.modeLabelSelected,
-                    ]}
-                  >
+                  <Text style={[styles.modeLabel, selectedMode && styles.modeLabelSelected]}>
                     {selectedMode ? `✓ ${mode.label}` : mode.label}
                   </Text>
                   {mode.subtitle ? (
-                    <Text
-                      style={[
-                        styles.modeSubtitle,
-                        selectedMode && styles.modeSubtitleSelected,
-                      ]}
-                    >
+                    <Text style={[styles.modeSubtitle, selectedMode && styles.modeSubtitleSelected]}>
                       {mode.subtitle}
                     </Text>
                   ) : null}
-                  {modeDownloading || busy ? (
+                  {busy ? (
                     <>
-                      <Text
-                        style={[
-                          styles.modeBusy,
-                          selectedMode && styles.modeBusySelected,
-                        ]}
-                      >
-                        {pct < 100
-                          ? `Descargando… ${pct}%`
-                          : "Seleccionando…"}
+                      <Text style={[styles.modeBusy, selectedMode && styles.modeBusySelected]}>
+                        {pct < 100 ? `Descargando… ${pct}%` : 'Seleccionando…'}
                       </Text>
                       {pct < 100 ? (
-                        <Text
-                          style={[
-                            styles.modeHint,
-                            selectedMode && styles.modeHintSelected,
-                          ]}
-                        >
+                        <Text style={[styles.modeHint, selectedMode && styles.modeHintSelected]}>
                           Puedes salir de la app; la descarga continúa.
                         </Text>
                       ) : null}
                     </>
                   ) : null}
                   {modePaused ? (
-                    <Text
-                      style={[
-                        styles.modeBusy,
-                        selectedMode && styles.modeBusySelected,
-                      ]}
-                    >
-                      Pausada
-                    </Text>
+                    <Text style={[styles.modeBusy, selectedMode && styles.modeBusySelected]}>Pausada</Text>
                   ) : null}
                 </View>
-                {modeDownloading ? (
+                {modeDownloading && busy ? (
                   <Pressable
-                    style={[
-                      styles.pauseChip,
-                      selectedMode && styles.pauseChipSelected,
-                    ]}
+                    style={[styles.pauseChip, selectedMode && styles.pauseChipSelected]}
                     onPress={() => void onPauseMode(mode)}
                     hitSlop={8}
                     accessibilityRole="button"
                     accessibilityLabel={`Pausar descarga de ${mode.label}`}
                   >
-                    <Text
-                      style={[
-                        styles.pauseChipText,
-                        selectedMode && styles.pauseChipTextSelected,
-                      ]}
-                    >
-                      Pausar
-                    </Text>
+                    <Text style={[styles.pauseChipText, selectedMode && styles.pauseChipTextSelected]}>Pausar</Text>
                   </Pressable>
                 ) : (
-                  <Text
-                    style={[
-                      styles.modeRam,
-                      selectedMode && styles.modeRamSelected,
-                    ]}
-                  >
+                  <Text style={[styles.modeRam, selectedMode && styles.modeRamSelected]}>
                     ~{formatBytes(presetModePeakBytes(mode))} RAM
                   </Text>
                 )}
@@ -376,34 +289,19 @@ export default function ConfiguracionComponent() {
 
           <View>
             <Pressable
-              style={[
-                styles.modeButton,
-                activeMode === "personalizado" && styles.modeButtonSelected,
-              ]}
+              style={[styles.modeButton, activeMode === 'personalizado' && styles.modeButtonSelected]}
               onPress={onToggleCustom}
               accessibilityRole="button"
               accessibilityState={{
-                selected: activeMode === "personalizado",
+                selected: activeMode === 'personalizado',
                 expanded: showCustomSlots,
               }}
             >
-              <Text
-                style={[
-                  styles.modeLabel,
-                  activeMode === "personalizado" && styles.modeLabelSelected,
-                ]}
-              >
-                {activeMode === "personalizado"
-                  ? "✓ Personalizado"
-                  : "Personalizado"}
+              <Text style={[styles.modeLabel, activeMode === 'personalizado' && styles.modeLabelSelected]}>
+                {activeMode === 'personalizado' ? '✓ Personalizado' : 'Personalizado'}
               </Text>
-              <Text
-                style={[
-                  styles.modeRam,
-                  activeMode === "personalizado" && styles.modeRamSelected,
-                ]}
-              >
-                {customRamLabel ?? "—"}
+              <Text style={[styles.modeRam, activeMode === 'personalizado' && styles.modeRamSelected]}>
+                {customRamLabel ?? '—'}
               </Text>
             </Pressable>
 
@@ -412,14 +310,12 @@ export default function ConfiguracionComponent() {
                 <CustomSlot
                   title="Transcriptor"
                   label={selectedAsr?.shortLabel ?? selectedAsr?.label}
-                  onPress={() =>
-                    router.push("/modelos/transcriptores" as Href)
-                  }
+                  onPress={() => router.push('/modelos/transcriptores' as Href)}
                 />
                 <CustomSlot
                   title="Traductor"
                   label={selectedMt?.shortLabel ?? selectedMt?.label}
-                  onPress={() => router.push("/modelos/traductores" as Href)}
+                  onPress={() => router.push('/modelos/traductores' as Href)}
                 />
               </View>
             ) : null}
@@ -429,8 +325,7 @@ export default function ConfiguracionComponent() {
         {isSetupFlow ? (
           !isReady ? (
             <Text style={styles.gateFooter}>
-              Necesitas un modelo de transcripción y uno de traducción,
-              descargados y seleccionados, para continuar.
+              Necesitas un modelo de transcripción y uno de traducción, descargados y seleccionados, para continuar.
             </Text>
           ) : (
             <Pressable style={styles.continueButton} onPress={goTraductor}>
@@ -443,27 +338,17 @@ export default function ConfiguracionComponent() {
   );
 }
 
-function CustomSlot({
-  title,
-  label,
-  onPress,
-}: {
-  title: string;
-  label?: string;
-  onPress: () => void;
-}) {
+function CustomSlot({ title, label, onPress }: { title: string; label?: string; onPress: () => void }) {
   const filled = label != null;
   return (
     <Pressable
       style={[styles.slot, filled ? styles.slotFilled : styles.slotEmpty]}
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={`${title}: ${label ?? "Seleccionar"}`}
+      accessibilityLabel={`${title}: ${label ?? 'Seleccionar'}`}
     >
       <Text style={styles.slotTitle}>{title}</Text>
-      <Text style={[styles.slotValue, !filled && styles.slotValueEmpty]}>
-        {label ?? "Seleccionar"}
-      </Text>
+      <Text style={[styles.slotValue, !filled && styles.slotValueEmpty]}>{label ?? 'Seleccionar'}</Text>
     </Pressable>
   );
 }
@@ -475,8 +360,8 @@ const styles = StyleSheet.create({
   },
   boot: {
     flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
+    justifyContent: 'center',
+    alignItems: 'center',
     gap: 12,
   },
   bootText: {
@@ -507,7 +392,7 @@ const styles = StyleSheet.create({
     color: theme.colors.textMuted,
   },
   ramRow: {
-    flexDirection: "row",
+    flexDirection: 'row',
     gap: theme.spacing.md,
     marginTop: theme.spacing.md,
   },
@@ -530,10 +415,10 @@ const styles = StyleSheet.create({
     height: 6,
     borderRadius: theme.radius.pill,
     backgroundColor: theme.colors.background,
-    overflow: "hidden",
+    overflow: 'hidden',
   },
   barFill: {
-    height: "100%",
+    height: '100%',
     borderRadius: theme.radius.pill,
     backgroundColor: theme.colors.action,
   },
@@ -581,9 +466,9 @@ const styles = StyleSheet.create({
   },
   modeButton: {
     minHeight: 72,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     gap: theme.spacing.md,
     paddingVertical: theme.spacing.md,
     paddingHorizontal: theme.spacing.lg,
@@ -661,7 +546,7 @@ const styles = StyleSheet.create({
   },
   pauseChipSelected: {
     borderColor: theme.colors.onAction,
-    backgroundColor: "transparent",
+    backgroundColor: 'transparent',
   },
   pauseChipText: {
     fontFamily: theme.font.heading,
@@ -672,7 +557,7 @@ const styles = StyleSheet.create({
     color: theme.colors.onAction,
   },
   customRow: {
-    flexDirection: "row",
+    flexDirection: 'row',
     gap: theme.spacing.sm,
     marginTop: theme.spacing.sm,
   },
@@ -683,7 +568,7 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     paddingVertical: theme.spacing.ml,
     paddingHorizontal: theme.spacing.md,
-    justifyContent: "center",
+    justifyContent: 'center',
   },
   slotEmpty: {
     borderColor: theme.colors.hairline,
@@ -712,7 +597,7 @@ const styles = StyleSheet.create({
     fontFamily: theme.font.body,
     fontSize: theme.type.caption,
     color: theme.colors.textMuted,
-    textAlign: "center",
+    textAlign: 'center',
     marginTop: theme.spacing.lg,
     padding: theme.spacing.md,
     lineHeight: 18,
@@ -722,8 +607,8 @@ const styles = StyleSheet.create({
     marginTop: theme.spacing.sm,
     borderRadius: theme.radius.lg,
     paddingVertical: theme.spacing.ml,
-    alignItems: "center",
-    justifyContent: "center",
+    alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: theme.colors.action,
   },
   continueButtonText: {

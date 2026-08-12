@@ -1,15 +1,6 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
-import { getDeviceLocaleTag } from "@/constants/languages";
+import { getDeviceLocaleTag } from '@/constants/languages';
 import {
   DEFAULT_INPUT_LANGUAGE,
   FALLBACK_OUTPUT_LANGUAGE,
@@ -19,12 +10,9 @@ import {
   UNIVERSAL_INPUT,
   type InputLanguageSelection,
   type TraductorLanguage,
-} from "@/constants/traductor-languages";
-import {
-  useOfflineSttDownload,
-  type SttDownloadState,
-} from "@/hooks/use-offline-stt-download";
-import { resolveLanguageTwo } from "@/lib/language-two-default";
+} from '@/constants/traductor-languages';
+import { useOfflineSttDownload, type SttDownloadState } from '@/hooks/use-offline-stt-download';
+import { resolveLanguageTwo } from '@/lib/language-two-default';
 import {
   readSelectedBaseLanguageId,
   readSelectedLanguageTwoId,
@@ -32,11 +20,8 @@ import {
   setSelectedBaseLanguageId,
   setSelectedLanguageTwoId,
   writeTraductorMode,
-} from "@/lib/model-preferences";
-import {
-  DEFAULT_TRADUCTOR_MODE,
-  type TraductorMode,
-} from "@/lib/traductor-mode";
+} from '@/lib/model-preferences';
+import { DEFAULT_TRADUCTOR_MODE, type TraductorMode } from '@/lib/traductor-mode';
 
 type TraductorSessionContextValue = {
   mode: TraductorMode;
@@ -58,26 +43,17 @@ type TraductorSessionContextValue = {
   isLocaleDownloadable: (locale: string) => boolean;
 };
 
-const TraductorSessionContext =
-  createContext<TraductorSessionContextValue | null>(null);
+const TraductorSessionContext = createContext<TraductorSessionContextValue | null>(null);
 
 function defaultLanguageTwo(languageOneId: string): TraductorLanguage {
   return resolveLanguageTwo(null, languageOneId);
 }
 
-export function TraductorSessionProvider({
-  children,
-}: {
-  children: ReactNode;
-}) {
+export function TraductorSessionProvider({ children }: { children: ReactNode }) {
   const [mode, setModeState] = useState<TraductorMode>(DEFAULT_TRADUCTOR_MODE);
   const [modeMenuInitiallyOpen, setModeMenuInitiallyOpen] = useState(false);
-  const [inputLanguage, setInputLanguage] = useState<InputLanguageSelection>(
-    DEFAULT_INPUT_LANGUAGE,
-  );
-  const [outputLanguage, setOutputLanguageState] = useState<TraductorLanguage>(
-    FALLBACK_OUTPUT_LANGUAGE,
-  );
+  const [inputLanguage, setInputLanguage] = useState<InputLanguageSelection>(DEFAULT_INPUT_LANGUAGE);
+  const [outputLanguage, setOutputLanguageState] = useState<TraductorLanguage>(FALLBACK_OUTPUT_LANGUAGE);
   const [languageTwo, setLanguageTwoState] = useState<TraductorLanguage>(() =>
     defaultLanguageTwo(FALLBACK_OUTPUT_LANGUAGE.id),
   );
@@ -115,25 +91,18 @@ export function TraductorSessionProvider({
 
         let nextOutput = outputLanguage;
         if (!userTouchedOutputRef.current) {
-          const fromPref = savedBaseId
-            ? findTraductorLanguageById(savedBaseId)
-            : null;
-          nextOutput =
-            fromPref ?? resolveDeviceTraductorLanguage(getDeviceLocaleTag());
+          const fromPref = savedBaseId ? findTraductorLanguageById(savedBaseId) : null;
+          nextOutput = fromPref ?? resolveDeviceTraductorLanguage(getDeviceLocaleTag());
           setOutputLanguageState(nextOutput);
         }
 
         if (!userTouchedLanguageTwoRef.current) {
-          setLanguageTwoState(
-            resolveLanguageTwo(savedLangTwoId, nextOutput.id),
-          );
+          setLanguageTwoState(resolveLanguageTwo(savedLangTwoId, nextOutput.id));
         }
       } catch {
         if (cancelled) return;
         if (!userTouchedOutputRef.current) {
-          const deviceLang = resolveDeviceTraductorLanguage(
-            getDeviceLocaleTag(),
-          );
+          const deviceLang = resolveDeviceTraductorLanguage(getDeviceLocaleTag());
           setOutputLanguageState(deviceLang);
           if (!userTouchedLanguageTwoRef.current) {
             setLanguageTwoState(resolveLanguageTwo(null, deviceLang.id));
@@ -163,24 +132,17 @@ export function TraductorSessionProvider({
 
   const selectFixedInputLanguage = useCallback(
     (lang: TraductorLanguage) => {
-      if (
-        lang.id === outputLanguage.id ||
-        lang.id === languageTwo.id
-      ) {
+      if (lang.id === outputLanguage.id || lang.id === languageTwo.id) {
         return;
       }
-      setInputLanguage({ kind: "fixed", language: lang });
+      setInputLanguage({ kind: 'fixed', language: lang });
     },
     [languageTwo.id, outputLanguage.id],
   );
 
   const setOutputLanguage = useCallback(
     (lang: TraductorLanguage) => {
-      if (
-        lang.id === languageTwo.id ||
-        (inputLanguage.kind === "fixed" &&
-          inputLanguage.language.id === lang.id)
-      ) {
+      if (lang.id === languageTwo.id || (inputLanguage.kind === 'fixed' && inputLanguage.language.id === lang.id)) {
         return;
       }
       userTouchedOutputRef.current = true;
@@ -194,11 +156,7 @@ export function TraductorSessionProvider({
 
   const setLanguageTwo = useCallback(
     (lang: TraductorLanguage) => {
-      if (
-        lang.id === outputLanguage.id ||
-        (inputLanguage.kind === "fixed" &&
-          inputLanguage.language.id === lang.id)
-      ) {
+      if (lang.id === outputLanguage.id || (inputLanguage.kind === 'fixed' && inputLanguage.language.id === lang.id)) {
         return;
       }
       userTouchedLanguageTwoRef.current = true;
@@ -251,19 +209,13 @@ export function TraductorSessionProvider({
     ],
   );
 
-  return (
-    <TraductorSessionContext.Provider value={value}>
-      {children}
-    </TraductorSessionContext.Provider>
-  );
+  return <TraductorSessionContext.Provider value={value}>{children}</TraductorSessionContext.Provider>;
 }
 
 export function useTraductorSession(): TraductorSessionContextValue {
   const ctx = useContext(TraductorSessionContext);
   if (!ctx) {
-    throw new Error(
-      "useTraductorSession must be used within TraductorSessionProvider",
-    );
+    throw new Error('useTraductorSession must be used within TraductorSessionProvider');
   }
   return ctx;
 }

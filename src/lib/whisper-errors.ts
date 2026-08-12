@@ -15,56 +15,53 @@ import {
   looksLikeReleasedSession,
   type DiagnosticContext,
   type DiagnosticInfo,
-} from "@/lib/errors/diagnostic";
+} from '@/lib/errors/diagnostic';
 
 export type WhisperStage =
-  | "asset.prepare"
-  | "tokenizer.load"
-  | "session.encoder"
-  | "session.decoder"
-  | "mel.extract"
-  | "encode.run"
-  | "decode.run"
-  | "decode.output"
-  | "audio.capture"
-  | "lang.detect"
-  | "lang.resolve";
+  | 'asset.prepare'
+  | 'tokenizer.load'
+  | 'session.encoder'
+  | 'session.decoder'
+  | 'mel.extract'
+  | 'encode.run'
+  | 'decode.run'
+  | 'decode.output'
+  | 'audio.capture'
+  | 'lang.detect'
+  | 'lang.resolve';
 
 /** Runtime list so `check:errors` can prove every code is documented. */
 export const WHISPER_ERROR_CODES = [
-  "ASSET_UNAVAILABLE",
-  "ASSET_COPY_FAILED",
-  "ASSET_INCOMPLETE",
-  "TOKENIZER_LOAD_FAILED",
-  "SESSION_ENCODER_FAILED",
-  "SESSION_DECODER_FAILED",
-  "ORT_NOT_REGISTERED",
-  "LANGUAGE_UNSUPPORTED",
-  "MEL_FAILED",
-  "ENCODE_FAILED",
-  "DECODE_FAILED",
-  "DECODE_EMPTY",
-  "ENGINE_LOAD_FAILED",
-  "AUDIO_FAILED",
-  "OUT_OF_MEMORY",
-  "LANG_DETECT_FAILED",
-  "LANG_DETECT_EMPTY",
-  "LANG_DETECT_LOW_CONFIDENCE",
-  "LANG_DETECT_AUDIO_TOO_SHORT",
-  "LANG_DETECT_UNSUPPORTED",
+  'ASSET_UNAVAILABLE',
+  'ASSET_COPY_FAILED',
+  'ASSET_INCOMPLETE',
+  'TOKENIZER_LOAD_FAILED',
+  'SESSION_ENCODER_FAILED',
+  'SESSION_DECODER_FAILED',
+  'ORT_NOT_REGISTERED',
+  'LANGUAGE_UNSUPPORTED',
+  'MEL_FAILED',
+  'ENCODE_FAILED',
+  'DECODE_FAILED',
+  'DECODE_EMPTY',
+  'ENGINE_LOAD_FAILED',
+  'AUDIO_FAILED',
+  'OUT_OF_MEMORY',
+  'LANG_DETECT_FAILED',
+  'LANG_DETECT_EMPTY',
+  'LANG_DETECT_LOW_CONFIDENCE',
+  'LANG_DETECT_AUDIO_TOO_SHORT',
+  'LANG_DETECT_UNSUPPORTED',
 ] as const;
 
 export type WhisperErrorCode = (typeof WHISPER_ERROR_CODES)[number];
 
 export type WhisperErrorInfo = DiagnosticInfo<WhisperErrorCode, WhisperStage>;
 
-export class WhisperError extends DiagnosticError<
-  WhisperErrorCode,
-  WhisperStage
-> {
+export class WhisperError extends DiagnosticError<WhisperErrorCode, WhisperStage> {
   constructor(info: WhisperErrorInfo) {
-    super("whisper", info);
-    this.name = "WhisperError";
+    super('whisper', info);
+    this.name = 'WhisperError';
   }
 }
 
@@ -85,7 +82,7 @@ export function wrapWhisperError(
   const oom = looksLikeOutOfMemory(cause);
   if (!oom && looksLikeReleasedSession(cause)) {
     return new WhisperError({
-      code: "ENCODE_FAILED",
+      code: 'ENCODE_FAILED',
       stage,
       message: cause,
       recoverable: true,
@@ -93,7 +90,7 @@ export function wrapWhisperError(
     });
   }
   return new WhisperError({
-    code: oom ? "OUT_OF_MEMORY" : code,
+    code: oom ? 'OUT_OF_MEMORY' : code,
     stage,
     message: cause,
     recoverable: oom ? false : recoverable,

@@ -6,13 +6,8 @@
  * `logDiagnostic()` prints it in development only.
  */
 
-import {
-  DiagnosticError,
-  causeMessage,
-  isDiagnosticError,
-  type DiagnosticSnapshot,
-} from "@/lib/errors/diagnostic";
-import { describeCode } from "@/lib/errors/error-catalog";
+import { DiagnosticError, causeMessage, isDiagnosticError, type DiagnosticSnapshot } from '@/lib/errors/diagnostic';
+import { describeCode } from '@/lib/errors/error-catalog';
 
 export {
   DiagnosticError,
@@ -22,27 +17,17 @@ export {
   looksLikeMissingNativeModule,
   looksLikeOutOfMemory,
   looksLikeReleasedSession,
-} from "@/lib/errors/diagnostic";
-export type {
-  DiagnosticContext,
-  DiagnosticDomain,
-  DiagnosticInfo,
-  DiagnosticSnapshot,
-} from "@/lib/errors/diagnostic";
-export {
-  describeCode,
-  documentedCodes,
-  hasDoc,
-  type ErrorDoc,
-} from "@/lib/errors/error-catalog";
+} from '@/lib/errors/diagnostic';
+export type { DiagnosticContext, DiagnosticDomain, DiagnosticInfo, DiagnosticSnapshot } from '@/lib/errors/diagnostic';
+export { describeCode, documentedCodes, hasDoc, type ErrorDoc } from '@/lib/errors/error-catalog';
 
 /** Machine-readable snapshot of any thrown value. */
 export function toSnapshot(err: unknown): DiagnosticSnapshot {
   if (isDiagnosticError(err)) return err.toSnapshot();
   return {
-    domain: "engine",
-    code: "ENGINE_RUN_FAILED",
-    stage: "engine.resolve",
+    domain: 'engine',
+    code: 'ENGINE_RUN_FAILED',
+    stage: 'engine.resolve',
     message: causeMessage(err),
     recoverable: true,
   };
@@ -66,8 +51,8 @@ export function describeError(err: unknown): string {
   } else {
     lines.push(`  (sin entrada en error-catalog.ts para ${err.domain}:${err.code})`);
   }
-  lines.push(`  reintentable: ${err.recoverable ? "sí" : "no"}`);
-  return lines.join("\n");
+  lines.push(`  reintentable: ${err.recoverable ? 'sí' : 'no'}`);
+  return lines.join('\n');
 }
 
 /** Development-only structured log. No-op in release builds. */

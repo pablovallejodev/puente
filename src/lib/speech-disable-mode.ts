@@ -1,4 +1,4 @@
-export type SpeechDisableMode = "abort" | "pause";
+export type SpeechDisableMode = 'abort' | 'pause';
 
 /**
  * Mute on an active, hydrated screen → soft pause (drain ASR).
@@ -9,6 +9,6 @@ export function resolveSpeechDisableMode(opts: {
   isFocused: boolean;
   baseHydrated: boolean;
 }): SpeechDisableMode {
-  if (opts.micPaused && opts.isFocused && opts.baseHydrated) return "pause";
-  return "abort";
+  if (opts.micPaused && opts.isFocused && opts.baseHydrated) return 'pause';
+  return 'abort';
 }

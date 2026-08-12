@@ -5,17 +5,9 @@
  * only place that queries it, so callers never scan arrays themselves.
  */
 
-import {
-  APP_OVERHEAD_BYTES,
-  PAIR_BUDGET_FRACTION,
-} from "@/constants/model-catalog/guidance";
-import {
-  ASR_MODELS,
-  MT_MODELS,
-  SILERO_VAD_MODEL_ID,
-  VAD_MODELS,
-} from "@/constants/model-catalog/models";
-import type { PresetMode } from "@/constants/model-catalog/modes";
+import { APP_OVERHEAD_BYTES, PAIR_BUDGET_FRACTION } from '@/constants/model-catalog/guidance';
+import { ASR_MODELS, MT_MODELS, SILERO_VAD_MODEL_ID, VAD_MODELS } from '@/constants/model-catalog/models';
+import type { PresetMode } from '@/constants/model-catalog/modes';
 import {
   type AsrModelSpec,
   type EngineId,
@@ -23,7 +15,7 @@ import {
   type ModelTask,
   type MtModelSpec,
   type VadModelSpec,
-} from "@/constants/model-catalog/types";
+} from '@/constants/model-catalog/types';
 
 export {
   ALL_LANGUAGE_IDS,
@@ -34,7 +26,7 @@ export {
   MB,
   RAM_TIER,
   RAM_TIER_LABEL,
-} from "@/constants/model-catalog/types";
+} from '@/constants/model-catalog/types';
 export type {
   AsrModelSpec,
   AsrRuntime,
@@ -56,31 +48,18 @@ export type {
   SherpaModelType,
   VadModelSpec,
   VadRuntime,
-} from "@/constants/model-catalog/types";
-export {
-  APP_OVERHEAD_BYTES,
-  GUIDANCE,
-  PAIR_BUDGET_FRACTION,
-} from "@/constants/model-catalog/guidance";
-export {
-  ASR_MODELS,
-  MT_MODELS,
-  SILERO_VAD_MODEL_ID,
-  VAD_MODELS,
-} from "@/constants/model-catalog/models";
+} from '@/constants/model-catalog/types';
+export { APP_OVERHEAD_BYTES, GUIDANCE, PAIR_BUDGET_FRACTION } from '@/constants/model-catalog/guidance';
+export { ASR_MODELS, MT_MODELS, SILERO_VAD_MODEL_ID, VAD_MODELS } from '@/constants/model-catalog/models';
 export {
   PRESET_MODES,
   resolveActiveMode,
   type ModelModeId,
   type PresetMode,
   type PresetModeId,
-} from "@/constants/model-catalog/modes";
+} from '@/constants/model-catalog/modes';
 
-export const ALL_MODELS: ModelSpec[] = [
-  ...ASR_MODELS,
-  ...MT_MODELS,
-  ...VAD_MODELS,
-];
+export const ALL_MODELS: ModelSpec[] = [...ASR_MODELS, ...MT_MODELS, ...VAD_MODELS];
 
 const BY_ID = new Map<string, ModelSpec>(ALL_MODELS.map((m) => [m.id, m]));
 
@@ -97,17 +76,17 @@ export function requireModelSpec(id: string): ModelSpec {
 /** Narrowed lookups so callers get the right runtime union without casting. */
 export function getAsrModelSpec(id: string): AsrModelSpec | undefined {
   const spec = BY_ID.get(id);
-  return spec?.task === "asr" ? spec : undefined;
+  return spec?.task === 'asr' ? spec : undefined;
 }
 
 export function getMtModelSpec(id: string): MtModelSpec | undefined {
   const spec = BY_ID.get(id);
-  return spec?.task === "mt" ? spec : undefined;
+  return spec?.task === 'mt' ? spec : undefined;
 }
 
 export function getVadModelSpec(id: string): VadModelSpec | undefined {
   const spec = BY_ID.get(id);
-  return spec?.task === "vad" ? spec : undefined;
+  return spec?.task === 'vad' ? spec : undefined;
 }
 
 export function modelsForTask(task: ModelTask): ModelSpec[] {
@@ -126,8 +105,8 @@ export function supportsLanguage(spec: ModelSpec, languageId: string): boolean {
 // Pair RAM budget
 // ---------------------------------------------------------------------------
 
-const DEFAULT_MT_ID = "nllb-600m-q8";
-const LIGHTEST_ASR_ID = "whisper-tiny-q";
+const DEFAULT_MT_ID = 'nllb-600m-q8';
+const LIGHTEST_ASR_ID = 'whisper-tiny-q';
 
 /** Peak for ASR + MT + VAD — what the engines claim inside the process. */
 export function pairPeakRamBytes(
@@ -140,10 +119,7 @@ export function pairPeakRamBytes(
 
 /** Peak RAM for a concrete ASR+MT pair (includes VAD). */
 export function modePairPeakBytes(asrId: string, mtId: string): number {
-  return pairPeakRamBytes(
-    requireModelSpec(asrId).peakRamBytes,
-    requireModelSpec(mtId).peakRamBytes,
-  );
+  return pairPeakRamBytes(requireModelSpec(asrId).peakRamBytes, requireModelSpec(mtId).peakRamBytes);
 }
 
 export function presetModePeakBytes(mode: PresetMode): number {
@@ -151,9 +127,7 @@ export function presetModePeakBytes(mode: PresetMode): number {
 }
 
 /** Bytes of Device.totalMemory the pair is allowed to claim. */
-export function pairBudgetBytes(
-  totalMemoryBytes: number | null,
-): number | null {
+export function pairBudgetBytes(totalMemoryBytes: number | null): number | null {
   if (totalMemoryBytes == null || totalMemoryBytes <= 0) return null;
   return totalMemoryBytes * PAIR_BUDGET_FRACTION;
 }
@@ -175,8 +149,8 @@ export function pairFitsDevice(
  * cards, Tiny for MT cards (lightest honest pair for card warnings only).
  */
 export function defaultCompanionPeakBytes(spec: ModelSpec): number {
-  if (spec.task === "asr") return requireModelSpec(DEFAULT_MT_ID).peakRamBytes;
-  if (spec.task === "mt") return requireModelSpec(LIGHTEST_ASR_ID).peakRamBytes;
+  if (spec.task === 'asr') return requireModelSpec(DEFAULT_MT_ID).peakRamBytes;
+  if (spec.task === 'mt') return requireModelSpec(LIGHTEST_ASR_ID).peakRamBytes;
   return 0;
 }
 
@@ -192,22 +166,18 @@ export function isBelowRecommendedRam(
   companionPeakBytes: number = defaultCompanionPeakBytes(spec),
 ): boolean {
   if (totalMemoryBytes == null) return false;
-  if (spec.task === "vad") {
+  if (spec.task === 'vad') {
     return totalMemoryBytes < spec.minRecommendedRamBytes;
   }
   return !pairFitsDevice(
-    spec.task === "asr" ? spec.peakRamBytes : companionPeakBytes,
-    spec.task === "mt" ? spec.peakRamBytes : companionPeakBytes,
+    spec.task === 'asr' ? spec.peakRamBytes : companionPeakBytes,
+    spec.task === 'mt' ? spec.peakRamBytes : companionPeakBytes,
     totalMemoryBytes,
   );
 }
 
 /** True when the currently selected ASR+MT pair exceeds the device budget. */
-export function exceedsPairBudget(
-  asrPeakBytes: number,
-  mtPeakBytes: number,
-  totalMemoryBytes: number | null,
-): boolean {
+export function exceedsPairBudget(asrPeakBytes: number, mtPeakBytes: number, totalMemoryBytes: number | null): boolean {
   if (totalMemoryBytes == null) return false;
   return !pairFitsDevice(asrPeakBytes, mtPeakBytes, totalMemoryBytes);
 }

@@ -1,13 +1,11 @@
-import * as SecureStore from "expo-secure-store";
-import { ColorSchemeName } from "react-native";
+import * as SecureStore from 'expo-secure-store';
+import { ColorSchemeName } from 'react-native';
 
 const UpdateSystemColor = async (type: ColorSchemeName) => {
-  const systemColorSaved = (await SecureStore.getItemAsync(
-    "systemColor",
-  )) as ColorSchemeName;
+  const systemColorSaved = (await SecureStore.getItemAsync('systemColor')) as ColorSchemeName;
 
   if (systemColorSaved !== type) {
-    await SecureStore.setItemAsync("systemColor", type);
+    await SecureStore.setItemAsync('systemColor', type);
   }
 };
 

@@ -5,16 +5,12 @@ import {
   getExistingDownloadTasks,
   setConfig,
   type DownloadTask,
-} from "@kesha-antonov/react-native-background-downloader";
-import * as FileSystem from "expo-file-system/legacy";
-import * as Network from "expo-network";
-import { Platform } from "react-native";
+} from '@kesha-antonov/react-native-background-downloader';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Network from 'expo-network';
+import { Platform } from 'react-native';
 
-import {
-  ALL_MODELS,
-  getModelSpec,
-  type ModelSpec,
-} from "@/constants/model-catalog";
+import { ALL_MODELS, getModelSpec, type ModelSpec } from '@/constants/model-catalog';
 import {
   createDownloadJobState,
   makeDownloadTaskId,
@@ -22,11 +18,8 @@ import {
   parseDownloadTaskId,
   serializeDownloadJobState,
   type DownloadJobState,
-} from "@/lib/model-download-job";
-import {
-  assertModelInstalled,
-  isModelInstalled,
-} from "@/lib/model-install-state";
+} from '@/lib/model-download-job';
+import { assertModelInstalled, isModelInstalled } from '@/lib/model-install-state';
 import {
   getCompleteMarkerPath,
   getModelDir,
@@ -34,8 +27,8 @@ import {
   getModelPartialDir,
   getStorageDir,
   toNativePath,
-} from "@/lib/model-paths";
-import { isModelError, ModelError, wrapModelError } from "@/lib/model-errors";
+} from '@/lib/model-paths';
+import { isModelError, ModelError, wrapModelError } from '@/lib/model-errors';
 
 export type DownloadProgress = {
   modelId: string;
@@ -81,16 +74,16 @@ function ensureDownloaderConfigured(): void {
   downloaderConfigured = true;
   try {
     setConfig({
-      showNotificationsEnabled: Platform.OS === "android",
+      showNotificationsEnabled: Platform.OS === 'android',
       notificationsGrouping: {
         enabled: false,
-        mode: "individual",
+        mode: 'individual',
         texts: {
-          downloadTitle: "Puente",
-          downloadStarting: "Iniciando descarga…",
-          downloadProgress: "Descargando modelo… {progress}%",
-          downloadPaused: "Descarga pausada",
-          downloadFinished: "Descarga completada",
+          downloadTitle: 'Puente',
+          downloadStarting: 'Iniciando descarga…',
+          downloadProgress: 'Descargando modelo… {progress}%',
+          downloadPaused: 'Descarga pausada',
+          downloadFinished: 'Descarga completada',
         },
       },
     });
@@ -109,20 +102,19 @@ async function ensureDir(path: string): Promise<void> {
 async function assertOnline(modelId: string): Promise<void> {
   try {
     const state = await Network.getNetworkStateAsync();
-    const online =
-      state.isConnected === true && state.isInternetReachable !== false;
+    const online = state.isConnected === true && state.isInternetReachable !== false;
     if (!online) {
       throw new ModelError({
-        code: "MODEL_DOWNLOAD_OFFLINE",
-        stage: "network.check",
-        message: "Sin conexión a Internet. Conéctate para descargar modelos.",
+        code: 'MODEL_DOWNLOAD_OFFLINE',
+        stage: 'network.check',
+        message: 'Sin conexión a Internet. Conéctate para descargar modelos.',
         recoverable: true,
         context: { modelId },
       });
     }
   } catch (err) {
     if (err instanceof ModelError) throw err;
-    throw wrapModelError(err, "network.check", "MODEL_DOWNLOAD_OFFLINE", true, {
+    throw wrapModelError(err, 'network.check', 'MODEL_DOWNLOAD_OFFLINE', true, {
       modelId,
     });
   }
@@ -146,23 +138,18 @@ function nativeDest(uri: string): string {
   return path;
 }
 
-function progressFromJob(
-  spec: ModelSpec,
-  job: DownloadJobState,
-  currentFileBytes = 0,
-): DownloadProgress {
+function progressFromJob(spec: ModelSpec, job: DownloadJobState, currentFileBytes = 0): DownloadProgress {
   const completedBytes = spec.files
     .filter((f) => job.completedFiles.includes(f.relativePath))
     .reduce((sum, f) => sum + f.expectedBytes, 0);
   const bytesWritten = completedBytes + currentFileBytes;
   return {
     modelId: spec.id,
-    progress:
-      spec.diskBytes > 0 ? Math.min(1, bytesWritten / spec.diskBytes) : 0,
+    progress: spec.diskBytes > 0 ? Math.min(1, bytesWritten / spec.diskBytes) : 0,
     bytesWritten,
     bytesTotal: spec.diskBytes,
     currentFile: job.currentFile ?? undefined,
-    paused: job.status === "paused",
+    paused: job.status === 'paused',
   };
 }
 
@@ -181,10 +168,7 @@ async function readJob(spec: ModelSpec): Promise<DownloadJobState | null> {
 async function writeJob(spec: ModelSpec, job: DownloadJobState): Promise<void> {
   job.updatedAt = new Date().toISOString();
   job.bytesWritten = progressFromJob(spec, job).bytesWritten;
-  await FileSystem.writeAsStringAsync(
-    getModelDownloadJobPath(spec),
-    serializeDownloadJobState(job),
-  );
+  await FileSystem.writeAsStringAsync(getModelDownloadJobPath(spec), serializeDownloadJobState(job));
 }
 
 async function deleteJob(spec: ModelSpec): Promise<void> {
@@ -195,11 +179,7 @@ async function deleteJob(spec: ModelSpec): Promise<void> {
 
 async function fileOk(path: string, expectedBytes: number): Promise<boolean> {
   const info = await FileSystem.getInfoAsync(path);
-  return (
-    info.exists === true &&
-    info.size != null &&
-    sizeMatches(expectedBytes, info.size)
-  );
+  return info.exists === true && info.size != null && sizeMatches(expectedBytes, info.size);
 }
 
 function rejectSettle(session: Session, err: unknown): void {
@@ -215,9 +195,7 @@ function resolveSettle(session: Session, spec: ModelSpec): void {
 }
 
 function report(session: Session, currentFileBytes = 0): void {
-  session.onProgress?.(
-    progressFromJob(session.spec, session.job, currentFileBytes),
-  );
+  session.onProgress?.(progressFromJob(session.spec, session.job, currentFileBytes));
 }
 
 async function stopTask(session: Session): Promise<void> {
@@ -240,7 +218,7 @@ async function pauseOtherActives(exceptModelId: string): Promise<void> {
   const ids = [...sessions.keys()].filter((id) => id !== exceptModelId);
   for (const id of ids) {
     const s = sessions.get(id);
-    if (s && s.job.status === "active") {
+    if (s && s.job.status === 'active') {
       await pauseModelDownload(id);
     }
   }
@@ -289,8 +267,8 @@ function downloadFileNative(
               finish(() =>
                 reject(
                   new ModelError({
-                    code: "MODEL_SIZE_MISMATCH",
-                    stage: "download.verify",
+                    code: 'MODEL_SIZE_MISMATCH',
+                    stage: 'download.verify',
                     message: `Tamaño incorrecto tras descargar ${relativePath}`,
                     recoverable: true,
                     context: {
@@ -316,8 +294,8 @@ function downloadFileNative(
             finish(() =>
               reject(
                 new ModelError({
-                  code: "MODEL_DOWNLOAD_CANCELLED",
-                  stage: "download.file",
+                  code: 'MODEL_DOWNLOAD_CANCELLED',
+                  stage: 'download.file',
                   message: `Descarga cancelada: ${relativePath}`,
                   recoverable: true,
                   context: { modelId: session.modelId, file: relativePath },
@@ -330,9 +308,9 @@ function downloadFileNative(
             finish(() =>
               reject(
                 new ModelError({
-                  code: "MODEL_DOWNLOAD_PAUSED",
-                  stage: "download.file",
-                  message: "Descarga pausada",
+                  code: 'MODEL_DOWNLOAD_PAUSED',
+                  stage: 'download.file',
+                  message: 'Descarga pausada',
                   recoverable: true,
                   context: { modelId: session.modelId, file: relativePath },
                 }),
@@ -343,12 +321,9 @@ function downloadFileNative(
           finish(() =>
             reject(
               new ModelError({
-                code: "MODEL_DOWNLOAD_FAILED",
-                stage: "download.file",
-                message:
-                  typeof error === "string"
-                    ? error
-                    : `Error de descarga (${errorCode})`,
+                code: 'MODEL_DOWNLOAD_FAILED',
+                stage: 'download.file',
+                message: typeof error === 'string' ? error : `Error de descarga (${errorCode})`,
                 recoverable: true,
                 context: {
                   modelId: session.modelId,
@@ -362,22 +337,15 @@ function downloadFileNative(
     };
 
     const existing = session.task;
-    if (
-      existing &&
-      existing.id === taskId &&
-      (existing.state === "PAUSED" || existing.state === "DOWNLOADING")
-    ) {
+    if (existing && existing.id === taskId && (existing.state === 'PAUSED' || existing.state === 'DOWNLOADING')) {
       bindHandlers(existing);
       void existing.resume().catch((err) => {
         finish(() =>
           reject(
-            wrapModelError(
-              err,
-              "download.file",
-              "MODEL_DOWNLOAD_FAILED",
-              true,
-              { modelId: session.modelId, file: relativePath },
-            ),
+            wrapModelError(err, 'download.file', 'MODEL_DOWNLOAD_FAILED', true, {
+              modelId: session.modelId,
+              file: relativePath,
+            }),
           ),
         );
       });
@@ -406,8 +374,8 @@ async function finalizeInstall(session: Session): Promise<void> {
     const dest = `${partialDir}${file.relativePath}`;
     if (!(await fileOk(dest, file.expectedBytes))) {
       throw new ModelError({
-        code: "MODEL_INCOMPLETE",
-        stage: "download.verify",
+        code: 'MODEL_INCOMPLETE',
+        stage: 'download.verify',
         message: `Fichero incompleto antes de finalizar: ${file.relativePath}`,
         recoverable: true,
         context: { modelId: spec.id, missingFile: file.relativePath },
@@ -421,13 +389,7 @@ async function finalizeInstall(session: Session): Promise<void> {
     await FileSystem.writeAsStringAsync(marker, new Date().toISOString());
     await deleteJob(spec);
   } catch (err) {
-    throw wrapModelError(
-      err,
-      "download.finalize",
-      "MODEL_FINALIZE_FAILED",
-      true,
-      { modelId: spec.id },
-    );
+    throw wrapModelError(err, 'download.finalize', 'MODEL_FINALIZE_FAILED', true, { modelId: spec.id });
   }
 
   await assertModelInstalled(spec.id);
@@ -438,7 +400,7 @@ async function runDownloadLoop(session: Session): Promise<void> {
   session.running = true;
   session.pauseRequested = false;
   session.cancelRequested = false;
-  session.job.status = "active";
+  session.job.status = 'active';
 
   const { spec } = session;
   const partialDir = getModelPartialDir(spec);
@@ -452,18 +414,18 @@ async function runDownloadLoop(session: Session): Promise<void> {
     for (const file of spec.files) {
       if (session.cancelRequested) {
         throw new ModelError({
-          code: "MODEL_DOWNLOAD_CANCELLED",
-          stage: "download.file",
-          message: "Descarga cancelada",
+          code: 'MODEL_DOWNLOAD_CANCELLED',
+          stage: 'download.file',
+          message: 'Descarga cancelada',
           recoverable: true,
           context: { modelId: spec.id },
         });
       }
       if (session.pauseRequested) {
         throw new ModelError({
-          code: "MODEL_DOWNLOAD_PAUSED",
-          stage: "download.file",
-          message: "Descarga pausada",
+          code: 'MODEL_DOWNLOAD_PAUSED',
+          stage: 'download.file',
+          message: 'Descarga pausada',
           recoverable: true,
           context: { modelId: spec.id },
         });
@@ -471,10 +433,7 @@ async function runDownloadLoop(session: Session): Promise<void> {
 
       const destPath = `${partialDir}${file.relativePath}`;
 
-      if (
-        session.job.completedFiles.includes(file.relativePath) ||
-        (await fileOk(destPath, file.expectedBytes))
-      ) {
+      if (session.job.completedFiles.includes(file.relativePath) || (await fileOk(destPath, file.expectedBytes))) {
         if (!session.job.completedFiles.includes(file.relativePath)) {
           session.job.completedFiles.push(file.relativePath);
         }
@@ -495,31 +454,19 @@ async function runDownloadLoop(session: Session): Promise<void> {
       report(session);
 
       try {
-        await downloadFileNative(
-          session,
-          file.relativePath,
-          file.url,
-          destPath,
-          file.expectedBytes,
-        );
+        await downloadFileNative(session, file.relativePath, file.url, destPath, file.expectedBytes);
       } catch (err) {
-        if (
-          err instanceof ModelError &&
-          err.code === "MODEL_DOWNLOAD_PAUSED"
-        ) {
-          session.job.status = "paused";
+        if (err instanceof ModelError && err.code === 'MODEL_DOWNLOAD_PAUSED') {
+          session.job.status = 'paused';
           await writeJob(spec, session.job);
           report(session);
           throw err;
         }
-        if (
-          err instanceof ModelError &&
-          err.code === "MODEL_DOWNLOAD_CANCELLED"
-        ) {
+        if (err instanceof ModelError && err.code === 'MODEL_DOWNLOAD_CANCELLED') {
           throw err;
         }
         // Soft fail: keep partial + job for retry.
-        session.job.status = "paused";
+        session.job.status = 'paused';
         await writeJob(spec, session.job);
         report(session);
         throw err;
@@ -544,12 +491,12 @@ async function runDownloadLoop(session: Session): Promise<void> {
       await deleteJob(spec);
       sessions.delete(spec.id);
       const cancelled =
-        err instanceof ModelError && err.code === "MODEL_DOWNLOAD_CANCELLED"
+        err instanceof ModelError && err.code === 'MODEL_DOWNLOAD_CANCELLED'
           ? err
           : new ModelError({
-              code: "MODEL_DOWNLOAD_CANCELLED",
-              stage: "download.file",
-              message: "Descarga cancelada",
+              code: 'MODEL_DOWNLOAD_CANCELLED',
+              stage: 'download.file',
+              message: 'Descarga cancelada',
               recoverable: true,
               context: { modelId: spec.id },
             });
@@ -557,11 +504,8 @@ async function runDownloadLoop(session: Session): Promise<void> {
       return;
     }
 
-    if (
-      err instanceof ModelError &&
-      err.code === "MODEL_DOWNLOAD_PAUSED"
-    ) {
-      session.job.status = "paused";
+    if (err instanceof ModelError && err.code === 'MODEL_DOWNLOAD_PAUSED') {
+      session.job.status = 'paused';
       await writeJob(spec, session.job);
       report(session);
       rejectSettle(session, err);
@@ -569,14 +513,14 @@ async function runDownloadLoop(session: Session): Promise<void> {
     }
 
     // Keep partial for retry; surface as paused-with-error to the waiter.
-    session.job.status = "paused";
+    session.job.status = 'paused';
     await writeJob(spec, session.job);
     report(session);
     rejectSettle(
       session,
       err instanceof ModelError
         ? err
-        : wrapModelError(err, "download.file", "MODEL_DOWNLOAD_FAILED", true, {
+        : wrapModelError(err, 'download.file', 'MODEL_DOWNLOAD_FAILED', true, {
             modelId: spec.id,
           }),
     );
@@ -585,18 +529,13 @@ async function runDownloadLoop(session: Session): Promise<void> {
   }
 }
 
-function attachSettle(
-  session: Session,
-): Promise<ModelSpec> {
+function attachSettle(session: Session): Promise<ModelSpec> {
   return new Promise<ModelSpec>((resolve, reject) => {
     session.settle = { resolve, reject };
   });
 }
 
-async function getOrCreateSession(
-  modelId: string,
-  onProgress?: (p: DownloadProgress) => void,
-): Promise<Session> {
+async function getOrCreateSession(modelId: string, onProgress?: (p: DownloadProgress) => void): Promise<Session> {
   const existing = sessions.get(modelId);
   if (existing) {
     if (onProgress) existing.onProgress = onProgress;
@@ -606,8 +545,8 @@ async function getOrCreateSession(
   const spec = getModelSpec(modelId);
   if (!spec) {
     throw new ModelError({
-      code: "MODEL_UNKNOWN_ID",
-      stage: "catalog.resolve",
+      code: 'MODEL_UNKNOWN_ID',
+      stage: 'catalog.resolve',
       message: `Modelo desconocido: ${modelId}`,
       recoverable: false,
       context: { modelId },
@@ -615,9 +554,7 @@ async function getOrCreateSession(
   }
 
   const diskJob = await readJob(spec);
-  const job =
-    diskJob ??
-    createDownloadJobState(modelId, { selectOnComplete: true });
+  const job = diskJob ?? createDownloadJobState(modelId, { selectOnComplete: true });
 
   const session: Session = {
     modelId,
@@ -640,18 +577,15 @@ async function getOrCreateSession(
  * Uses the OS background downloader; survives app backgrounding.
  * Atomic finalize: `.partial/` → verify → final + `.complete`.
  */
-export async function downloadModel(
-  modelId: string,
-  onProgress?: (p: DownloadProgress) => void,
-): Promise<ModelSpec> {
+export async function downloadModel(modelId: string, onProgress?: (p: DownloadProgress) => void): Promise<ModelSpec> {
   ensureDownloaderConfigured();
 
   if (await isModelInstalled(modelId)) {
     const spec = getModelSpec(modelId);
     if (!spec) {
       throw new ModelError({
-        code: "MODEL_UNKNOWN_ID",
-        stage: "catalog.resolve",
+        code: 'MODEL_UNKNOWN_ID',
+        stage: 'catalog.resolve',
         message: `Modelo desconocido: ${modelId}`,
         recoverable: false,
         context: { modelId },
@@ -661,11 +595,11 @@ export async function downloadModel(
   }
 
   const existing = sessions.get(modelId);
-  if (existing?.running && existing.job.status === "active") {
+  if (existing?.running && existing.job.status === 'active') {
     if (onProgress) existing.onProgress = onProgress;
     throw new ModelError({
-      code: "MODEL_ALREADY_DOWNLOADING",
-      stage: "download.start",
+      code: 'MODEL_ALREADY_DOWNLOADING',
+      stage: 'download.start',
       message: `Ya hay una descarga en curso para ${modelId}`,
       recoverable: true,
       context: { modelId },
@@ -678,7 +612,7 @@ export async function downloadModel(
   const session = await getOrCreateSession(modelId, onProgress);
   session.pauseRequested = false;
   session.cancelRequested = false;
-  session.job.status = "active";
+  session.job.status = 'active';
 
   const wait = attachSettle(session);
   void runDownloadLoop(session);
@@ -698,17 +632,17 @@ export async function pauseModelDownload(modelId: string): Promise<void> {
     const spec = getModelSpec(modelId);
     if (!spec) return;
     const job = await readJob(spec);
-    if (job && job.status === "active") {
-      job.status = "paused";
+    if (job && job.status === 'active') {
+      job.status = 'paused';
       await writeJob(spec, job);
     }
     return;
   }
 
-  if (session.job.status === "paused" && !session.running) return;
+  if (session.job.status === 'paused' && !session.running) return;
 
   session.pauseRequested = true;
-  session.job.status = "paused";
+  session.job.status = 'paused';
   await writeJob(session.spec, session.job);
   report(session);
 
@@ -725,9 +659,9 @@ export async function pauseModelDownload(modelId: string): Promise<void> {
   // Keep session.task so resume can call task.resume() on the same native job.
   session.fileWaitReject?.(
     new ModelError({
-      code: "MODEL_DOWNLOAD_PAUSED",
-      stage: "download.file",
-      message: "Descarga pausada",
+      code: 'MODEL_DOWNLOAD_PAUSED',
+      stage: 'download.file',
+      message: 'Descarga pausada',
       recoverable: true,
       context: { modelId },
     }),
@@ -751,9 +685,9 @@ export async function cancelModelDownload(modelId: string): Promise<void> {
   await stopTask(session);
 
   const cancelled = new ModelError({
-    code: "MODEL_DOWNLOAD_CANCELLED",
-    stage: "download.file",
-    message: "Descarga cancelada",
+    code: 'MODEL_DOWNLOAD_CANCELLED',
+    stage: 'download.file',
+    message: 'Descarga cancelada',
     recoverable: true,
     context: { modelId },
   });
@@ -772,17 +706,15 @@ export async function cancelModelDownload(modelId: string): Promise<void> {
 
 export function isModelDownloading(modelId: string): boolean {
   const s = sessions.get(modelId);
-  return s != null && s.job.status === "active";
+  return s != null && s.job.status === 'active';
 }
 
 export function isModelDownloadPaused(modelId: string): boolean {
   const s = sessions.get(modelId);
-  return s != null && s.job.status === "paused";
+  return s != null && s.job.status === 'paused';
 }
 
-export function getInFlightDownloadProgress(
-  modelId: string,
-): DownloadProgress | null {
+export function getInFlightDownloadProgress(modelId: string): DownloadProgress | null {
   const s = sessions.get(modelId);
   if (!s) return null;
   return progressFromJob(s.spec, s.job);
@@ -799,9 +731,7 @@ export type ReattachHandlers = {
  * Reconnect to native background tasks and disk job states after app launch.
  * Does not auto-resume paused jobs. Continues active ones.
  */
-export async function reattachModelDownloads(
-  handlers: ReattachHandlers = {},
-): Promise<ReattachSnapshot[]> {
+export async function reattachModelDownloads(handlers: ReattachHandlers = {}): Promise<ReattachSnapshot[]> {
   ensureDownloaderConfigured();
   const snapshots: ReattachSnapshot[] = [];
   const onProgress = handlers.onProgress;
@@ -844,13 +774,10 @@ export async function reattachModelDownloads(
       const parsed = parseDownloadTaskId(nativeTask.id);
       if (parsed) session.job.currentFile = parsed.relativePath;
       // Native task still running while disk said paused → trust native.
-      if (nativeTask.state === "DOWNLOADING") {
-        session.job.status = "active";
-      } else if (
-        nativeTask.state === "PAUSED" &&
-        session.job.status === "active"
-      ) {
-        session.job.status = "paused";
+      if (nativeTask.state === 'DOWNLOADING') {
+        session.job.status = 'active';
+      } else if (nativeTask.state === 'PAUSED' && session.job.status === 'active') {
+        session.job.status = 'paused';
       }
       await writeJob(session.spec, session.job);
     }
@@ -859,12 +786,12 @@ export async function reattachModelDownloads(
     snapshots.push({
       modelId: model.id,
       progress: progress.progress,
-      paused: session.job.status === "paused",
+      paused: session.job.status === 'paused',
       selectOnComplete: session.job.selectOnComplete,
     });
     report(session);
 
-    if (session.job.status === "active" && !session.running) {
+    if (session.job.status === 'active' && !session.running) {
       const selectOnComplete = session.job.selectOnComplete;
       const wait = attachSettle(session);
       void runDownloadLoop(session);
@@ -874,7 +801,7 @@ export async function reattachModelDownloads(
         })
         .catch((err) => {
           const progress = getInFlightDownloadProgress(model.id)?.progress ?? 0;
-          if (isModelError(err) && err.code === "MODEL_DOWNLOAD_PAUSED") {
+          if (isModelError(err) && err.code === 'MODEL_DOWNLOAD_PAUSED') {
             handlers.onPaused?.(model.id, progress);
             return;
           }

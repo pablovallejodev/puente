@@ -12,16 +12,16 @@
  * in models.ts. Adding a new runtime kind means one new adapter in lib/engines.
  */
 
-import { TRADUCTOR_LANGUAGES } from "@/constants/traductor-languages";
+import { TRADUCTOR_LANGUAGES } from '@/constants/traductor-languages';
 
-export type ModelTask = "asr" | "mt" | "vad";
+export type ModelTask = 'asr' | 'mt' | 'vad';
 
-export type EngineId = "ort" | "sherpa" | "llama";
+export type EngineId = 'ort' | 'sherpa' | 'llama';
 
 export const ENGINE_LABEL: Record<EngineId, string> = {
-  ort: "ONNX Runtime",
-  sherpa: "sherpa-onnx",
-  llama: "llama.cpp",
+  ort: 'ONNX Runtime',
+  sherpa: 'sherpa-onnx',
+  llama: 'llama.cpp',
 };
 
 // ---------------------------------------------------------------------------
@@ -56,22 +56,22 @@ export type ModelLicense = {
 
 export const LICENSE = {
   apache2: {
-    id: "apache-2.0",
-    label: "Apache 2.0",
+    id: 'apache-2.0',
+    label: 'Apache 2.0',
     allowsCommercialUse: true,
-    url: "https://www.apache.org/licenses/LICENSE-2.0",
+    url: 'https://www.apache.org/licenses/LICENSE-2.0',
   },
   mit: {
-    id: "mit",
-    label: "MIT",
+    id: 'mit',
+    label: 'MIT',
     allowsCommercialUse: true,
-    url: "https://opensource.org/license/mit",
+    url: 'https://opensource.org/license/mit',
   },
   ccByNc4: {
-    id: "cc-by-nc-4.0",
-    label: "CC BY-NC 4.0",
+    id: 'cc-by-nc-4.0',
+    label: 'CC BY-NC 4.0',
     allowsCommercialUse: false,
-    url: "https://creativecommons.org/licenses/by-nc/4.0/",
+    url: 'https://creativecommons.org/licenses/by-nc/4.0/',
   },
 } as const satisfies Record<string, ModelLicense>;
 
@@ -120,10 +120,10 @@ export const RAM_TIER = {
 export type ModelRamTier = 1 | 2 | 3 | 4;
 
 export const RAM_TIER_LABEL: Record<ModelRamTier, string> = {
-  1: "RAM baja",
-  2: "RAM media-baja",
-  3: "RAM media",
-  4: "RAM alta",
+  1: 'RAM baja',
+  2: 'RAM media-baja',
+  3: 'RAM media',
+  4: 'RAM alta',
 };
 
 // ---------------------------------------------------------------------------
@@ -135,8 +135,8 @@ export const RAM_TIER_LABEL: Record<ModelRamTier, string> = {
  * File names are the ones the downloader writes, not the HF repo paths.
  */
 export type OrtWhisperRuntime = {
-  engine: "ort";
-  kind: "whisper";
+  engine: 'ort';
+  kind: 'whisper';
   encoderFile: string;
   decoderFile: string;
   configFile: string;
@@ -148,8 +148,8 @@ export type OrtWhisperRuntime = {
 
 /** Encoder/decoder NLLB exported by Optimum, decoded by our own loop. */
 export type OrtNllbRuntime = {
-  engine: "ort";
-  kind: "nllb";
+  engine: 'ort';
+  kind: 'nllb';
   encoderFile: string;
   decoderFile: string;
   configFile: string;
@@ -160,8 +160,8 @@ export type OrtNllbRuntime = {
 
 /** Silero VAD v5: one small graph with a recurrent state we carry ourselves. */
 export type OrtSileroVadRuntime = {
-  engine: "ort";
-  kind: "silero-vad";
+  engine: 'ort';
+  kind: 'silero-vad';
   modelFile: string;
   /** Frame size in samples the graph expects at 16 kHz. */
   frameSamples: number;
@@ -175,16 +175,11 @@ export type OrtSileroVadRuntime = {
  * `nemo_transducer` is Parakeet TDT. They share the same native file layout but
  * different detectors, so they stay distinct.
  */
-export type SherpaModelType =
-  | "transducer"
-  | "nemo_transducer"
-  | "whisper"
-  | "sense_voice"
-  | "moonshine";
+export type SherpaModelType = 'transducer' | 'nemo_transducer' | 'whisper' | 'sense_voice' | 'moonshine';
 
 export type SherpaAsrRuntime = {
-  engine: "sherpa";
-  kind: "offline-asr";
+  engine: 'sherpa';
+  kind: 'offline-asr';
   /**
    * Passed explicitly to createSTT instead of relying on auto-detection.
    *
@@ -206,11 +201,11 @@ export type SherpaAsrRuntime = {
  * model reports an encoder, so both work through the same completion API.
  */
 export type LlamaMtRuntime = {
-  engine: "llama";
-  kind: "gguf-mt";
+  engine: 'llama';
+  kind: 'gguf-mt';
   ggufFile: string;
   /** How the source text is turned into a prompt for this model family. */
-  promptStyle: "madlad-tag" | "salamandra-instruct";
+  promptStyle: 'madlad-tag' | 'salamandra-instruct';
   /** Context window; kept small because translation turns are short. */
   contextSize: number;
   /** Upper bound on generated tokens per turn. */
@@ -227,9 +222,7 @@ export type ModelRuntime = AsrRuntime | MtRuntime | VadRuntime;
 // ---------------------------------------------------------------------------
 
 /** App language ids (ISO 639-1, plus `yue`) — the shared Whisper ∩ NLLB list. */
-export const ALL_LANGUAGE_IDS: readonly string[] = TRADUCTOR_LANGUAGES.map(
-  (l) => l.id,
-);
+export const ALL_LANGUAGE_IDS: readonly string[] = TRADUCTOR_LANGUAGES.map((l) => l.id);
 
 /**
  * How an ASR model reports the language it just heard.
@@ -239,7 +232,7 @@ export const ALL_LANGUAGE_IDS: readonly string[] = TRADUCTOR_LANGUAGES.map(
  * translator. The catalog states it and the UI warns instead of the engine
  * failing halfway through a conversation.
  */
-export type LanguageDetection = "auto" | "fixed-single" | "none";
+export type LanguageDetection = 'auto' | 'fixed-single' | 'none';
 
 // ---------------------------------------------------------------------------
 // Model specs
@@ -292,18 +285,18 @@ type ModelSpecBase = {
 };
 
 export type AsrModelSpec = ModelSpecBase & {
-  task: "asr";
+  task: 'asr';
   runtime: AsrRuntime;
   languageDetection: LanguageDetection;
 };
 
 export type MtModelSpec = ModelSpecBase & {
-  task: "mt";
+  task: 'mt';
   runtime: MtRuntime;
 };
 
 export type VadModelSpec = ModelSpecBase & {
-  task: "vad";
+  task: 'vad';
   runtime: VadRuntime;
 };
 

@@ -16,11 +16,11 @@
  * buys.
  */
 
-import type { InferenceSession } from "onnxruntime-react-native";
+import type { InferenceSession } from 'onnxruntime-react-native';
 
-export type OrtSessionRole = "encoder" | "decoder" | "aux";
+export type OrtSessionRole = 'encoder' | 'decoder' | 'aux';
 
-export type OrtProviderName = "xnnpack" | "nnapi" | "coreml" | "cpu";
+export type OrtProviderName = 'xnnpack' | 'nnapi' | 'coreml' | 'cpu';
 
 /**
  * Capped at 4 because phone SoCs pair a few performance cores with several
@@ -35,21 +35,21 @@ export const THREADS_BY_ROLE: Record<OrtSessionRole, number> = {
 
 export function buildSessionOptions(
   role: OrtSessionRole,
-  provider: OrtProviderName = "cpu",
+  provider: OrtProviderName = 'cpu',
 ): InferenceSession.SessionOptions {
   return {
     executionProviders: [provider],
-    graphOptimizationLevel: "all",
+    graphOptimizationLevel: 'all',
     intraOpNumThreads: THREADS_BY_ROLE[role],
     // Parallel mode spawns a second pool for independent branches. These graphs
     // are essentially one chain, so it would only add memory and scheduling
     // overhead.
-    executionMode: "sequential",
+    executionMode: 'sequential',
     interOpNumThreads: 1,
     enableCpuMemArena: true,
     enableMemPattern: true,
     // 2 = warning while developing (shows when a provider rejects nodes),
     // 3 = error in release, to keep logcat readable.
-    logSeverityLevel: typeof __DEV__ !== "undefined" && __DEV__ ? 2 : 3,
+    logSeverityLevel: typeof __DEV__ !== 'undefined' && __DEV__ ? 2 : 3,
   };
 }

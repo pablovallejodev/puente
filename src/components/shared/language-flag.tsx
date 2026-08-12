@@ -1,9 +1,9 @@
-import { Image } from "expo-image";
-import { StyleSheet, type StyleProp, type ImageStyle } from "react-native";
+import { Image } from 'expo-image';
+import { StyleSheet, type StyleProp, type ImageStyle } from 'react-native';
 
-import type { TraductorLanguage } from "@/constants/traductor-languages";
-import { LANGUAGE_FLAGS } from "@/constants/language-flags";
-import { theme } from "@/constants/theme";
+import type { TraductorLanguage } from '@/constants/traductor-languages';
+import { LANGUAGE_FLAGS } from '@/constants/language-flags';
+import { theme } from '@/constants/theme';
 
 type LanguageFlagProps = {
   language: TraductorLanguage;
@@ -11,11 +11,7 @@ type LanguageFlagProps = {
   style?: StyleProp<ImageStyle>;
 };
 
-export function LanguageFlag({
-  language,
-  size = 22,
-  style,
-}: LanguageFlagProps) {
+export function LanguageFlag({ language, size = 22, style }: LanguageFlagProps) {
   const source = LANGUAGE_FLAGS[language.id];
   if (!source) return null;
 
@@ -32,7 +28,7 @@ export function LanguageFlag({
 const styles = StyleSheet.create({
   flag: {
     borderRadius: 3,
-    overflow: "hidden",
+    overflow: 'hidden',
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: theme.colors.hairline,
   },

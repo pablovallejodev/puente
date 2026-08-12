@@ -21,7 +21,7 @@ export default function IndexComponent() {
       <View style={styles.content}>
         <View style={styles.markFrame}>
           <Image
-            source={require("@/assets/icon.png")}
+            source={require('@/assets/icon.png')}
             style={styles.mark}
             resizeMode="contain"
             accessibilityIgnoresInvertColors
@@ -30,15 +30,8 @@ export default function IndexComponent() {
         </View>
         <Text style={styles.wordmark}>PUENTE</Text>
         <Text style={styles.slogan}>Lo que une civilizaciones</Text>
-        <ActivityIndicator
-          style={styles.loader}
-          size="small"
-          color={theme.colors.action}
-        />
-        <Text
-          style={styles.loadingText}
-          accessibilityLiveRegion="polite"
-        >
+        <ActivityIndicator style={styles.loader} size="small" color={theme.colors.action} />
+        <Text style={styles.loadingText} accessibilityLiveRegion="polite">
           Comprobando modelos locales
         </Text>
       </View>
@@ -54,19 +47,19 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
+    justifyContent: 'center',
+    alignItems: 'center',
     paddingHorizontal: theme.spacing.xl,
   },
   markFrame: {
     width: 120,
     height: 120,
     borderRadius: theme.radius.xl,
-    overflow: "hidden",
+    overflow: 'hidden',
   },
   mark: {
-    width: "100%",
-    height: "100%",
+    width: '100%',
+    height: '100%',
     borderRadius: theme.radius.lg,
   },
   wordmark: {
@@ -75,14 +68,14 @@ const styles = StyleSheet.create({
     fontSize: theme.type.display,
     letterSpacing: 7,
     color: theme.colors.text,
-    textAlign: "center",
+    textAlign: 'center',
   },
   slogan: {
     marginTop: theme.spacing.xs,
     fontFamily: theme.font.body,
     fontSize: theme.type.body,
     color: theme.colors.textMuted,
-    textAlign: "center",
+    textAlign: 'center',
   },
   loader: {
     marginTop: theme.spacing.xl,
@@ -98,8 +91,8 @@ const styles = StyleSheet.create({
     fontFamily: theme.font.heading,
     fontSize: theme.type.micro,
     letterSpacing: 1.6,
-    textTransform: "uppercase",
+    textTransform: 'uppercase',
     color: theme.colors.textMuted,
-    textAlign: "center",
+    textAlign: 'center',
   },
 });

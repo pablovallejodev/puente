@@ -23,18 +23,11 @@ export const PAIR_BUDGET_FRACTION = 0.65;
 export const APP_OVERHEAD_BYTES = 0;
 
 export const GUIDANCE = {
-  universalAsr:
-    "Necesita detección de idioma: Whisper o SenseVoice. No uses Parakeet en modo Universal.",
-  europeanAsr:
-    "Europa con idioma fijo: Parakeet suele acertar más y alucinar menos que Whisper.",
-  cjkAsr:
-    "Chino, japonés, coreano o cantonés: SenseVoice es más rápido y fiable que Whisper en esos idiomas.",
-  englishAsr:
-    "Solo inglés: Moonshine (media) o Zipformer (baja) responden antes que Whisper.",
-  defaultMt:
-    "NLLB cubre todos los idiomas de la app; es el traductor por defecto.",
-  europeanMt:
-    "Pares europeos (incl. catalán, euskera, gallego, occitano): SalamandraTA traduce mejor si hay RAM.",
-  pairBudget:
-    "La memoria que importa es la suma del transcriptor y del traductor, no cada modelo por separado.",
+  universalAsr: 'Necesita detección de idioma: Whisper o SenseVoice. No uses Parakeet en modo Universal.',
+  europeanAsr: 'Europa con idioma fijo: Parakeet suele acertar más y alucinar menos que Whisper.',
+  cjkAsr: 'Chino, japonés, coreano o cantonés: SenseVoice es más rápido y fiable que Whisper en esos idiomas.',
+  englishAsr: 'Solo inglés: Moonshine (media) o Zipformer (baja) responden antes que Whisper.',
+  defaultMt: 'NLLB cubre todos los idiomas de la app; es el traductor por defecto.',
+  europeanMt: 'Pares europeos (incl. catalán, euskera, gallego, occitano): SalamandraTA traduce mejor si hay RAM.',
+  pairBudget: 'La memoria que importa es la suma del transcriptor y del traductor, no cada modelo por separado.',
 } as const;

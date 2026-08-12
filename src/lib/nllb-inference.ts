@@ -1,9 +1,5 @@
-import {
-  detectLoopPeriod,
-  selectNextToken,
-  TRANSLATION_GUARDS,
-} from "@/lib/ort/decode-guards";
-import { TranslatorError, wrapUnknownError } from "@/lib/translator-errors";
+import { detectLoopPeriod, selectNextToken, TRANSLATION_GUARDS } from '@/lib/ort/decode-guards';
+import { TranslatorError, wrapUnknownError } from '@/lib/translator-errors';
 
 export type OrtTensor = {
   dims: readonly number[];
@@ -30,17 +26,12 @@ export type GenerationConfig = {
 };
 
 export type OrtSession = {
-  run(
-    feeds: Record<string, OrtTensor | unknown>,
-  ): Promise<Record<string, OrtTensor | unknown>>;
+  run(feeds: Record<string, OrtTensor | unknown>): Promise<Record<string, OrtTensor | unknown>>;
 };
 
 export type TokenizerLike = {
   token_to_id(token: string): number | undefined;
-  encode(
-    text: string,
-    opts: { add_special_tokens: boolean },
-  ): { ids: number[] };
+  encode(text: string, opts: { add_special_tokens: boolean }): { ids: number[] };
   decode(ids: number[], opts: { skip_special_tokens: boolean }): string;
 };
 
@@ -49,27 +40,18 @@ export const MAX_INPUT_TOKENS = 1024;
 
 export function int64Tensor(ids: number[], TensorCtor: TensorConstructor): OrtTensor {
   return new TensorCtor(
-    "int64",
+    'int64',
     BigInt64Array.from(ids, (id) => BigInt(id)),
     [1, ids.length],
   );
 }
 
 export function boolTensor(value: boolean, TensorCtor: TensorConstructor): OrtTensor {
-  return new TensorCtor("bool", Uint8Array.from([value ? 1 : 0]), [1]);
+  return new TensorCtor('bool', Uint8Array.from([value ? 1 : 0]), [1]);
 }
 
-export function emptyPastTensor(
-  numHeads: number,
-  headDim: number,
-  TensorCtor: TensorConstructor,
-): OrtTensor {
-  return new TensorCtor("float32", new Float32Array(0), [
-    1,
-    numHeads,
-    0,
-    headDim,
-  ]);
+export function emptyPastTensor(numHeads: number, headDim: number, TensorCtor: TensorConstructor): OrtTensor {
+  return new TensorCtor('float32', new Float32Array(0), [1, numHeads, 0, headDim]);
 }
 
 export function buildEmptyPastFeeds(
@@ -80,26 +62,10 @@ export function buildEmptyPastFeeds(
 ): Record<string, OrtTensor> {
   const feeds: Record<string, OrtTensor> = {};
   for (let i = 0; i < numLayers; i++) {
-    feeds[`past_key_values.${i}.decoder.key`] = emptyPastTensor(
-      numHeads,
-      headDim,
-      TensorCtor,
-    );
-    feeds[`past_key_values.${i}.decoder.value`] = emptyPastTensor(
-      numHeads,
-      headDim,
-      TensorCtor,
-    );
-    feeds[`past_key_values.${i}.encoder.key`] = emptyPastTensor(
-      numHeads,
-      headDim,
-      TensorCtor,
-    );
-    feeds[`past_key_values.${i}.encoder.value`] = emptyPastTensor(
-      numHeads,
-      headDim,
-      TensorCtor,
-    );
+    feeds[`past_key_values.${i}.decoder.key`] = emptyPastTensor(numHeads, headDim, TensorCtor);
+    feeds[`past_key_values.${i}.decoder.value`] = emptyPastTensor(numHeads, headDim, TensorCtor);
+    feeds[`past_key_values.${i}.encoder.key`] = emptyPastTensor(numHeads, headDim, TensorCtor);
+    feeds[`past_key_values.${i}.encoder.value`] = emptyPastTensor(numHeads, headDim, TensorCtor);
   }
   return feeds;
 }
@@ -120,10 +86,8 @@ export function updatePastFeeds(
 ): Record<string, OrtTensor> {
   const next: Record<string, OrtTensor> = {};
   for (let i = 0; i < numLayers; i++) {
-    next[`past_key_values.${i}.decoder.key`] =
-      decoderOutputs[`present.${i}.decoder.key`];
-    next[`past_key_values.${i}.decoder.value`] =
-      decoderOutputs[`present.${i}.decoder.value`];
+    next[`past_key_values.${i}.decoder.key`] = decoderOutputs[`present.${i}.decoder.key`];
+    next[`past_key_values.${i}.decoder.value`] = decoderOutputs[`present.${i}.decoder.value`];
 
     const encKey = decoderOutputs[`present.${i}.encoder.key`];
     const encVal = decoderOutputs[`present.${i}.encoder.value`];
@@ -133,12 +97,7 @@ export function updatePastFeeds(
     if (isValidKvCache(encKey)) {
       next[`past_key_values.${i}.encoder.key`] = encKey;
       next[`past_key_values.${i}.encoder.value`] = encVal;
-    } else if (
-      useCacheBranch &&
-      pastEncKey &&
-      pastEncVal &&
-      isValidKvCache(pastEncKey)
-    ) {
+    } else if (useCacheBranch && pastEncKey && pastEncVal && isValidKvCache(pastEncKey)) {
       next[`past_key_values.${i}.encoder.key`] = pastEncKey;
       next[`past_key_values.${i}.encoder.value`] = pastEncVal;
     } else {
@@ -164,9 +123,7 @@ export type TranslateParams = {
 };
 
 /** Cancelled runs return null so callers can re-queue without treating it as failure. */
-export async function translateText(
-  params: TranslateParams,
-): Promise<string | null> {
+export async function translateText(params: TranslateParams): Promise<string | null> {
   const {
     text,
     srcLang,
@@ -181,7 +138,7 @@ export async function translateText(
   } = params;
 
   const trimmed = text.trim();
-  if (!trimmed) return "";
+  if (!trimmed) return '';
 
   if (shouldCancel?.()) return null;
 
@@ -189,8 +146,8 @@ export async function translateText(
   const tgtLangId = tokenizer.token_to_id(tgtLang);
   if (srcLangId === undefined || tgtLangId === undefined) {
     throw new TranslatorError({
-      code: "LANGUAGE_UNSUPPORTED",
-      stage: "tokenizer.load",
+      code: 'LANGUAGE_UNSUPPORTED',
+      stage: 'tokenizer.load',
       message: `Idioma no soportado: ${srcLang} -> ${tgtLang}`,
       recoverable: false,
       context: { srcLang, tgtLang },
@@ -198,12 +155,11 @@ export async function translateText(
   }
 
   const encoded = tokenizer.encode(trimmed, { add_special_tokens: false });
-  const maxTextTokens =
-    (modelConfig.max_position_embeddings ?? MAX_INPUT_TOKENS) - 2;
+  const maxTextTokens = (modelConfig.max_position_embeddings ?? MAX_INPUT_TOKENS) - 2;
   if (encoded.ids.length > maxTextTokens) {
     throw new TranslatorError({
-      code: "INPUT_TOO_LONG",
-      stage: "encode.run",
+      code: 'INPUT_TOO_LONG',
+      stage: 'encode.run',
       message: `Entrada demasiado larga (${encoded.ids.length} tokens, máx ${maxTextTokens})`,
       recoverable: false,
       context: { tokens: encoded.ids.length, maxTokens: maxTextTokens },
@@ -223,7 +179,7 @@ export async function translateText(
       attention_mask: int64Tensor(attentionMask, TensorCtor),
     });
   } catch (err) {
-    throw wrapTranslateError(err, "encode.run", "ENCODE_FAILED");
+    throw wrapTranslateError(err, 'encode.run', 'ENCODE_FAILED');
   }
 
   if (shouldCancel?.()) return null;
@@ -249,7 +205,7 @@ export async function translateText(
         ...pastFeeds,
       });
     } catch (err) {
-      throw wrapTranslateError(err, "decode.run", "DECODE_FAILED", { step });
+      throw wrapTranslateError(err, 'decode.run', 'DECODE_FAILED', { step });
     }
 
     if (shouldCancel?.()) return null;
@@ -269,42 +225,32 @@ export async function translateText(
     // token budget on it.
     const loopPeriod = detectLoopPeriod(generatedIds, TRANSLATION_GUARDS);
     if (loopPeriod !== null) {
-      generatedIds.length = Math.max(
-        0,
-        generatedIds.length - loopPeriod * TRANSLATION_GUARDS.loopRepeats,
-      );
+      generatedIds.length = Math.max(0, generatedIds.length - loopPeriod * TRANSLATION_GUARDS.loopRepeats);
       break;
     }
 
-    pastFeeds = updatePastFeeds(
-      pastFeeds,
-      decoderOutputs as Record<string, OrtTensor>,
-      numLayers,
-      useCacheBranch,
-    );
+    pastFeeds = updatePastFeeds(pastFeeds, decoderOutputs as Record<string, OrtTensor>, numLayers, useCacheBranch);
     decoderInputIds = [nextTokenId];
     useCacheBranch = true;
   }
 
   if (generatedIds.length === 0) {
     throw new TranslatorError({
-      code: "DECODE_EMPTY",
-      stage: "decode.output",
-      message: "El decoder no generó tokens",
+      code: 'DECODE_EMPTY',
+      stage: 'decode.output',
+      message: 'El decoder no generó tokens',
       recoverable: true,
       context: { srcLang, tgtLang },
     });
   }
 
-  return tokenizer
-    .decode(generatedIds, { skip_special_tokens: true })
-    .trim();
+  return tokenizer.decode(generatedIds, { skip_special_tokens: true }).trim();
 }
 
 function wrapTranslateError(
   err: unknown,
-  stage: "encode.run" | "decode.run",
-  code: "ENCODE_FAILED" | "DECODE_FAILED",
+  stage: 'encode.run' | 'decode.run',
+  code: 'ENCODE_FAILED' | 'DECODE_FAILED',
   context?: Record<string, string | number | boolean>,
 ): TranslatorError {
   return wrapUnknownError(err, stage, code, true, context);

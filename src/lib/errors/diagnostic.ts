@@ -16,7 +16,7 @@
  * for anyone reading logs or issue reports. Add new codes instead.
  */
 
-export type DiagnosticDomain = "model" | "whisper" | "translator" | "engine";
+export type DiagnosticDomain = 'model' | 'whisper' | 'translator' | 'engine';
 
 export type DiagnosticContext = Record<string, string | number | boolean>;
 
@@ -38,30 +38,24 @@ export type DiagnosticSnapshot = {
 };
 
 function formatContext(context?: DiagnosticContext): string {
-  if (!context) return "";
+  if (!context) return '';
   const entries = Object.entries(context);
-  if (entries.length === 0) return "";
-  return ` (${entries.map(([k, v]) => `${k}=${v}`).join(", ")})`;
+  if (entries.length === 0) return '';
+  return ` (${entries.map(([k, v]) => `${k}=${v}`).join(', ')})`;
 }
 
 /**
  * Base class for all typed Puente errors. Subclasses narrow `code` and `stage`
  * to their own domain unions so an invalid pair fails at compile time.
  */
-export abstract class DiagnosticError<
-  TCode extends string = string,
-  TStage extends string = string,
-> extends Error {
+export abstract class DiagnosticError<TCode extends string = string, TStage extends string = string> extends Error {
   readonly domain: DiagnosticDomain;
   readonly code: TCode;
   readonly stage: TStage;
   readonly recoverable: boolean;
   readonly context?: DiagnosticContext;
 
-  protected constructor(
-    domain: DiagnosticDomain,
-    info: DiagnosticInfo<TCode, TStage>,
-  ) {
+  protected constructor(domain: DiagnosticDomain, info: DiagnosticInfo<TCode, TStage>) {
     super(info.message);
     this.domain = domain;
     this.code = info.code;
@@ -99,7 +93,7 @@ export function isDiagnosticError(err: unknown): err is DiagnosticError {
 /** Message of any thrown value, without assuming it is an `Error`. */
 export function causeMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
-  if (typeof err === "string") return err;
+  if (typeof err === 'string') return err;
   try {
     return JSON.stringify(err);
   } catch {
@@ -109,9 +103,7 @@ export function causeMessage(err: unknown): string {
 
 /** Native allocation failures surface with wildly different wording per runtime. */
 export function looksLikeOutOfMemory(message: string): boolean {
-  return /out of memory|\bOOM\b|bad_alloc|failed to allocate|cannot allocate|allocation failed/i.test(
-    message,
-  );
+  return /out of memory|\bOOM\b|bad_alloc|failed to allocate|cannot allocate|allocation failed/i.test(message);
 }
 
 /** Filesystem-full failures, likewise. */
@@ -131,7 +123,5 @@ export function looksLikeMissingNativeModule(message: string): boolean {
 
 /** ORT session.release() already ran; further run() calls fail with this wording. */
 export function looksLikeReleasedSession(message: string): boolean {
-  return /session is released|session was released|ya fue liberado/i.test(
-    message,
-  );
+  return /session is released|session was released|ya fue liberado/i.test(message);
 }

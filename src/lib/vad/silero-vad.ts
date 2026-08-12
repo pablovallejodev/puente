@@ -26,11 +26,11 @@
  * biases the first frames of the next one.
  */
 
-import { Tensor } from "onnxruntime-react-native";
-import type { InferenceSession } from "onnxruntime-react-native";
+import { Tensor } from 'onnxruntime-react-native';
+import type { InferenceSession } from 'onnxruntime-react-native';
 
-import { EngineError, wrapEngineError } from "@/lib/engine-errors";
-import { createOrtSession, releaseOrtSession } from "@/lib/ort/session";
+import { EngineError, wrapEngineError } from '@/lib/engine-errors';
+import { createOrtSession, releaseOrtSession } from '@/lib/ort/session';
 
 export const SILERO_SAMPLE_RATE = 16000;
 
@@ -49,28 +49,21 @@ export class SileroVad {
   ) {
     this.session = session;
     this.state = SileroVad.emptyState();
-    this.sampleRate = new Tensor(
-      "int64",
-      BigInt64Array.from([BigInt(SILERO_SAMPLE_RATE)]),
-      [],
-    );
+    this.sampleRate = new Tensor('int64', BigInt64Array.from([BigInt(SILERO_SAMPLE_RATE)]), []);
   }
 
   private static emptyState(): Tensor {
-    return new Tensor("float32", new Float32Array(STATE_SIZE), STATE_DIMS);
+    return new Tensor('float32', new Float32Array(STATE_SIZE), STATE_DIMS);
   }
 
-  static async create(
-    modelPath: string,
-    frameSamples: number,
-  ): Promise<SileroVad> {
+  static async create(modelPath: string, frameSamples: number): Promise<SileroVad> {
     try {
-      const { session } = await createOrtSession(modelPath, "aux", {
-        label: "silero-vad",
+      const { session } = await createOrtSession(modelPath, 'aux', {
+        label: 'silero-vad',
       });
       return new SileroVad(session, frameSamples);
     } catch (err) {
-      throw wrapEngineError(err, "vad.load", "VAD_INIT_FAILED", false, {
+      throw wrapEngineError(err, 'vad.load', 'VAD_INIT_FAILED', false, {
         modelPath,
       });
     }
@@ -92,9 +85,9 @@ export class SileroVad {
     const session = this.session;
     if (!session) {
       throw new EngineError({
-        code: "ENGINE_DISPOSED",
-        stage: "vad.run",
-        message: "El detector de voz ya fue liberado",
+        code: 'ENGINE_DISPOSED',
+        stage: 'vad.run',
+        message: 'El detector de voz ya fue liberado',
         recoverable: true,
       });
     }
@@ -108,7 +101,7 @@ export class SileroVad {
 
     try {
       const outputs = await session.run({
-        input: new Tensor("float32", samples, [1, this.frameSamples]),
+        input: new Tensor('float32', samples, [1, this.frameSamples]),
         state: this.state,
         sr: this.sampleRate,
       });
@@ -116,7 +109,7 @@ export class SileroVad {
       const probability = (outputs.output as Tensor).data as Float32Array;
       return probability[0] ?? 0;
     } catch (err) {
-      throw wrapEngineError(err, "vad.run", "VAD_RUN_FAILED", true);
+      throw wrapEngineError(err, 'vad.run', 'VAD_RUN_FAILED', true);
     }
   }
 

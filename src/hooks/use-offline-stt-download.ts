@@ -2,19 +2,13 @@
  * Offline STT availability: true once any transcription model — whichever
  * engine runs it — is selected and installed through the model catalog.
  */
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo } from 'react';
 
-import type { SttErrorCode } from "@/lib/stt-errors";
-import { useModelCatalog } from "@/contexts/model-catalog-context";
+import type { SttErrorCode } from '@/lib/stt-errors';
+import { useModelCatalog } from '@/contexts/model-catalog-context';
 
 export type SttDownloadStatus =
-  | "idle"
-  | "checking"
-  | "not_installed"
-  | "downloading"
-  | "installed"
-  | "scheduled"
-  | "error";
+  'idle' | 'checking' | 'not_installed' | 'downloading' | 'installed' | 'scheduled' | 'error';
 
 export type SttDownloadState = {
   status: SttDownloadStatus;
@@ -27,16 +21,15 @@ export function useOfflineSttDownload() {
 
   const asrReady =
     !!selected.asr &&
-    (getModelState(selected.asr).status === "selected" ||
-      getModelState(selected.asr).status === "installed");
+    (getModelState(selected.asr).status === 'selected' || getModelState(selected.asr).status === 'installed');
 
   const getDownloadState = useCallback(
     (_locale: string): SttDownloadState => {
-      if (asrReady) return { status: "installed" };
+      if (asrReady) return { status: 'installed' };
       return {
-        status: "not_installed",
-        code: "STT_OFFLINE_MODELS_MISSING",
-        error: "Descarga un modelo de transcripción en Ajustes de modelos",
+        status: 'not_installed',
+        code: 'STT_OFFLINE_MODELS_MISSING',
+        error: 'Descarga un modelo de transcripción en Ajustes de modelos',
       };
     },
     [asrReady],
@@ -65,13 +58,6 @@ export function useOfflineSttDownload() {
       isLocaleDownloadable,
       onDeviceSttAvailable: asrReady,
     }),
-    [
-      getDownloadState,
-      downloadSttModel,
-      refreshInstalledLocales,
-      checkLocale,
-      isLocaleDownloadable,
-      asrReady,
-    ],
+    [getDownloadState, downloadSttModel, refreshInstalledLocales, checkLocale, isLocaleDownloadable, asrReady],
   );
 }
