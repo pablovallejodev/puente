@@ -48,24 +48,3 @@ export default function RootLayout() {
     </ModelCatalogProvider>
   );
 }
-
-/*
-
-NO BORRES ESTO QUE ME SIRVE DE REFERENCIA
-
-rm -r ./android && rm -r ./ios
-
-
-npx expo install --check
-npx expo install --fix
-npx expo-doctor --verbose
-
-
-npx expo prebuild --clean
-pnpm start --reset-cache
-pnpm start --reset-cache --tunnel
-
-eas build -p android --profile development
-eas build -p android --profile preview
-eas build -p android --profile preview --local
-*/
