@@ -1,12 +1,9 @@
 import {
   ActivityIndicator,
-  LayoutAnimation,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  UIManager,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -32,20 +29,12 @@ import { useModelCatalog, type ModelUiState } from '@/contexts/model-catalog-con
 import { StatusBarComponent } from '@/utils/statusbar';
 import { theme } from '@/constants/theme';
 
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
-
 function installProgress(state: ModelUiState): number {
   if (state.status === 'installed' || state.status === 'selected') return 1;
   if (state.status === 'downloading' || state.status === 'paused') {
     return state.progress;
   }
   return 0;
-}
-
-function animateLayout() {
-  LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
 }
 
 export default function ConfiguracionComponent() {
@@ -107,7 +96,6 @@ export default function ConfiguracionComponent() {
         (mtState.status === 'installed' || mtState.status === 'selected');
       if (activeMode === mode.id && pairReady) return;
       if (busyModeId === mode.id) return;
-      animateLayout();
       setCustomExpanded(false);
       setBusyModeId(mode.id);
       clearError();
@@ -148,7 +136,6 @@ export default function ConfiguracionComponent() {
     // Active custom pair already shows the slots; tap is a no-op collapse/open
     // only when exploring before a non-preset pair is chosen.
     if (activeMode === 'personalizado') return;
-    animateLayout();
     setCustomExpanded((v) => !v);
   }, [activeMode]);
 
