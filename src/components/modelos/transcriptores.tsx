@@ -8,7 +8,7 @@ import { ModelCard } from '@/components/modelos/model-card';
 import { defaultCompanionPeakBytes, getModelSpec } from '@/constants/model-catalog';
 import { STANDARD_HORIZONTAL_PADDING } from '@/constants/ui';
 import { useModelCatalog } from '@/contexts/model-catalog-context';
-import { StatusBarDarkComponent } from '@/utils/statusbar';
+import { StatusBarComponent } from '@/utils/statusbar';
 import { theme } from '@/constants/theme';
 
 export default function TranscriptoresComponent() {
@@ -23,7 +23,7 @@ export default function TranscriptoresComponent() {
   if (booting) {
     return (
       <SafeAreaView style={styles.safeArea}>
-        <StatusBarDarkComponent />
+        <StatusBarComponent />
         <View style={styles.boot}>
           <ActivityIndicator size="large" color={theme.colors.text} />
           <Text style={styles.bootText}>Comprobando modelos…</Text>
@@ -34,7 +34,7 @@ export default function TranscriptoresComponent() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBarDarkComponent />
+      <StatusBarComponent />
       <StandardHeadComponent titleText="Transcriptores" loading={false} onBack={() => router.back()} />
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         {lastError ? (

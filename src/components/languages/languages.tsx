@@ -10,7 +10,7 @@ import { getDeviceLocaleTag } from '@/constants/languages';
 import { getRecommendedLanguages, type TraductorLanguage } from '@/constants/traductor-languages';
 import { blockedLanguageIdsForSlot, occupiedLanguageIds, type LanguagePickerSlot } from '@/lib/blocked-language-ids';
 import { getTraductorLanguageDisplayName, resolveUiLocale, type UiLocale } from '@/lib/language-display-name';
-import { StatusBarDarkComponent } from '@/utils/statusbar';
+import { StatusBarComponent } from '@/utils/statusbar';
 import { theme } from '@/constants/theme';
 
 function parseSlot(raw: string | undefined): LanguagePickerSlot {
@@ -142,7 +142,7 @@ export default function LanguagesComponent() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBarDarkComponent />
+      <StatusBarComponent />
       <StandardHeadComponent onBack={() => router.back()} titleText="Escoge un idioma" loading={false} />
 
       <SectionList

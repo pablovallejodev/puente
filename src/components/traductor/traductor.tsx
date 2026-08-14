@@ -23,7 +23,7 @@ import { readMicPaused, writeMicPaused } from '@/lib/model-preferences';
 import { resolveSpeechDisableMode } from '@/lib/speech-disable-mode';
 import { resolveTranslationTarget } from '@/lib/traductor-target';
 import { STANDARD_HORIZONTAL_PADDING } from '@/constants/ui';
-import { StatusBarDarkComponent } from '@/utils/statusbar';
+import { StatusBarComponent } from '@/utils/statusbar';
 import { theme } from '@/constants/theme';
 
 const directionArrowIcon = require('@/assets/icons/arrows/white/right.png');
@@ -304,7 +304,7 @@ export default function TraductorComponent() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBarDarkComponent />
+      <StatusBarComponent />
       <ChatHeadComponent titleText="Traductor" onSettingsPress={() => router.push('/modelos' as Href)} />
 
       <View style={styles.statusRow}>

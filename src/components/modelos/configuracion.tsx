@@ -29,7 +29,7 @@ import {
 } from '@/constants/model-catalog';
 import { STANDARD_HORIZONTAL_PADDING } from '@/constants/ui';
 import { useModelCatalog, type ModelUiState } from '@/contexts/model-catalog-context';
-import { StatusBarDarkComponent } from '@/utils/statusbar';
+import { StatusBarComponent } from '@/utils/statusbar';
 import { theme } from '@/constants/theme';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -160,7 +160,7 @@ export default function ConfiguracionComponent() {
   if (booting) {
     return (
       <SafeAreaView style={styles.safeArea}>
-        <StatusBarDarkComponent />
+        <StatusBarComponent />
         <View style={styles.boot}>
           <ActivityIndicator size="large" color={theme.colors.text} />
           <Text style={styles.bootText}>Comprobando modelos…</Text>
@@ -171,7 +171,7 @@ export default function ConfiguracionComponent() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBarDarkComponent />
+      <StatusBarComponent />
       {isSetupFlow ? (
         <ChatHeadComponent titleText="Configuración inicial" />
       ) : (
