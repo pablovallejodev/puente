@@ -41,7 +41,6 @@ const config: ExpoConfig = {
     './plugins/with-large-heap',
     './plugins/with-ort-sherpa-packaging',
     ['@kesha-antonov/react-native-background-downloader', { skipMmkvDependency: true }],
-    'expo-router',
     [
       'expo-splash-screen',
       {
@@ -76,6 +75,8 @@ const config: ExpoConfig = {
     // Native GGUF runtime (llama.cpp). Without this plugin the TurboModule is
     // not linked and every llama catalog entry fails with ENGINE_MODULE_UNAVAILABLE.
     'llama.rn',
+    "expo-asset",
+    "expo-image",
   ],
   experiments: {
     typedRoutes: true,
