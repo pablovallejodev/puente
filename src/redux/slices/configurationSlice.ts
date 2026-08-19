@@ -10,16 +10,10 @@ const configurationSlice = createSlice({
   initialState,
   reducers: {
     endInitialConfiguration: (state) => {
-
-      if(!state.initialConfiguration) state.initialConfiguration = true;
-
+      if (!state.initialConfiguration) state.initialConfiguration = true;
     },
   },
 });
 
 export default configurationSlice.reducer;
-export const { 
-  
-  endInitialConfiguration,
-
- } = configurationSlice.actions;
+export const { endInitialConfiguration } = configurationSlice.actions;

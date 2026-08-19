@@ -1,7 +1,7 @@
 export interface ConfigurationStateType {
-    initialConfiguration: boolean;
-};
+  initialConfiguration: boolean;
+}
 
 export interface RootState {
   configuration: ConfigurationStateType;
-};
+}
