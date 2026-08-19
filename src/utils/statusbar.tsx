@@ -2,18 +2,9 @@ import React from "react"
 import { StatusBar } from "react-native";
 
 export const StatusBarHiddenComponent = React.memo(() =>
-    <StatusBar
-        hidden={true}
-        backgroundColor={"white"}
-        translucent
-    />
+    <StatusBar hidden />
 );
 
 export const StatusBarComponent = React.memo(() =>
-    <StatusBar
-        hidden={false}
-        barStyle="dark-content"
-        backgroundColor={"white"}
-        translucent
-    />
+    <StatusBar barStyle="dark-content" />
 );
