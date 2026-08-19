@@ -222,7 +222,8 @@ function testModesAndPairBudget(): void {
   assert.equal(getModelSpec('whisper-small-q'), undefined);
   assert.equal(getModelSpec('whisper-large-v3-turbo-q'), undefined);
 
-  assert.equal(PAIR_BUDGET_FRACTION, 0.35);
+  //TODO aplicar este 0.65 en guidance.ts (l 17) y aqui esto en una env para centralizar
+  assert.equal(PAIR_BUDGET_FRACTION, 0.65);
   assert.equal(pairBudgetBytes(8 * GB), 8 * GB * PAIR_BUDGET_FRACTION);
   assert.equal(pairBudgetBytes(null), null);
   assert.equal(pairBudgetBytes(0), null);
