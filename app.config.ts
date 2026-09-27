@@ -21,7 +21,7 @@ const config: ExpoConfig = {
   android: {
     adaptiveIcon: {
       foregroundImage: './assets/icon.png',
-      backgroundColor: '#F2F6D0',
+      backgroundColor: '#FFFFFF',
     },
     permissions: [
       'android.permission.INTERNET',
@@ -44,7 +44,7 @@ const config: ExpoConfig = {
     [
       'expo-splash-screen',
       {
-        backgroundColor: '#F2F6D0',
+        backgroundColor: '#FFFFFF',
         android: {
           image: './assets/icon.png',
           imageWidth: 76,

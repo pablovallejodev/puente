@@ -27,7 +27,7 @@ export function LanguageFlag({ language, size = 22, style }: LanguageFlagProps) 
 
 const styles = StyleSheet.create({
   flag: {
-    borderRadius: 3,
+    borderRadius: theme.radius.sm,
     overflow: 'hidden',
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: theme.colors.hairline,

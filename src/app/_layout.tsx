@@ -1,5 +1,5 @@
 import { Stack } from 'expo-router';
-import { Mulish_500Medium, Mulish_800ExtraBold, Mulish_900Black } from '@expo-google-fonts/mulish';
+import { Mulish_400Regular, Mulish_700Bold, Mulish_800ExtraBold } from '@expo-google-fonts/mulish';
 import { useEffect } from 'react';
 import * as SplashScreen from 'expo-splash-screen';
 import { useFonts } from 'expo-font';
@@ -9,9 +9,9 @@ import { TraductorSessionProvider } from '@/contexts/traductor-session-context';
 
 export default function RootLayout() {
   const [loaded, error] = useFonts({
-    Mulish_500Medium,
+    Mulish_400Regular,
+    Mulish_700Bold,
     Mulish_800ExtraBold,
-    Mulish_900Black,
   });
 
   useEffect(() => {
