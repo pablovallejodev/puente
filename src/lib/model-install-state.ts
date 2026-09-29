@@ -12,6 +12,7 @@ import { ModelError } from '@/lib/model-errors';
  * truncated or substituted file, not measurement noise.
  */
 function sizeMatches(expected: number, actual: number): boolean {
+  if (actual <= 0) return false;
   const slack = Math.max(4096, Math.floor(expected * 0.01));
   return Math.abs(expected - actual) <= slack;
 }

@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import * as Device from 'expo-device';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 
@@ -92,6 +92,9 @@ export function ModelCatalogProvider({ children }: { children: ReactNode }) {
   const [selected, setSelected] = useState<ModelPreferences>(NO_SELECTION);
   const [states, setStates] = useState<Record<string, ModelUiState>>(emptyStates);
   const [lastError, setLastError] = useState<ModelError | null>(null);
+  const pairOperationRef = useRef(0);
+  const selectionQueueRef = useRef(Promise.resolve());
+  const refreshRequestRef = useRef(0);
 
   const deviceModelName = Device.modelName;
   const totalMemoryBytes = Device.totalMemory;
@@ -107,6 +110,7 @@ export function ModelCatalogProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refresh = useCallback(async () => {
+    const request = ++refreshRequestRef.current;
     const prefs = await readModelPreferences();
     const chosen = new Set([prefs.asr, prefs.mt].filter((id): id is string => id != null));
     const next = emptyStates();
@@ -125,10 +129,84 @@ export function ModelCatalogProvider({ children }: { children: ReactNode }) {
         progress: installed ? 1 : 0,
       };
     }
+    if (refreshRequestRef.current !== request) return;
     setSelected(prefs);
     setStates(next);
     setReady(true);
   }, []);
+
+  useEffect(() => {
+    const active = Object.values(states).some((s) => s.status === 'downloading');
+    if (active) void activateKeepAwakeAsync(KEEP_AWAKE_TAG);
+    else void deactivateKeepAwake(KEEP_AWAKE_TAG);
+    return () => {
+      void deactivateKeepAwake(KEEP_AWAKE_TAG);
+    };
+  }, [states]);
+
+  const isReady = useMemo(() => {
+    const usable = (id: string | null) => {
+      if (!id) return false;
+      const status = states[id]?.status;
+      return status === 'installed' || status === 'selected';
+    };
+    return usable(selected.asr) && usable(selected.mt);
+  }, [selected, states]);
+
+  const getModelState = useCallback(
+    (modelId: string): ModelUiState => states[modelId] ?? { status: 'not_installed', progress: 0 },
+    [states],
+  );
+
+  /** Resolve a spec or raise the error the UI already knows how to show. */
+  const requireSpec = useCallback((modelId: string) => {
+    const spec = getModelSpec(modelId);
+    if (!spec) {
+      const err = new ModelError({
+        code: 'MODEL_UNKNOWN_ID',
+        stage: 'catalog.resolve',
+        message: `Modelo desconocido: ${modelId}`,
+        recoverable: false,
+        context: { modelId },
+      });
+      setLastError(err);
+      throw err;
+    }
+    return spec;
+  }, []);
+
+  const applySelection = useCallback(
+    async (task: SelectableTask, modelId: string, pairOperation?: number, onlyIfEmpty = false): Promise<boolean> => {
+      const write = selectionQueueRef.current.then(async () => {
+        const prefs = await readModelPreferences();
+        if (pairOperation != null && pairOperationRef.current !== pairOperation) return false;
+        if (onlyIfEmpty && prefs[task]) return false;
+        if (onlyIfEmpty) pairOperationRef.current += 1;
+        const changed = prefs[task] !== modelId;
+        await setSelectedModelId(task, modelId);
+        if (changed) resetEngineForTask(task);
+        setSelected((prev) => (prev[task] === modelId ? prev : { ...prev, [task]: modelId }));
+        return true;
+      });
+      selectionQueueRef.current = write.then(
+        () => undefined,
+        () => undefined,
+      );
+      return write;
+    },
+    [],
+  );
+
+  const maybeAutoSelect = useCallback(
+    async (modelId: string, pairOperation = pairOperationRef.current) => {
+      const spec = getModelSpec(modelId);
+      if (!spec || spec.task === 'vad') return;
+      // The empty-task check and the invalidation happen inside the selection
+      // queue so a concurrent preset cannot win after this check.
+      await applySelection(spec.task, modelId, pairOperation, true);
+    },
+    [applySelection],
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -136,21 +214,12 @@ export function ModelCatalogProvider({ children }: { children: ReactNode }) {
       try {
         await refresh();
         if (!mounted) return;
+        const reattachPairOperation = pairOperationRef.current;
         const snapshots = await reattachModelDownloads({
           onProgress: applyProgress,
           onComplete: async (modelId, selectOnComplete) => {
             if (!mounted) return;
-            if (selectOnComplete) {
-              const spec = getModelSpec(modelId);
-              if (spec && spec.task !== 'vad') {
-                const prefs = await readModelPreferences();
-                if (!prefs[spec.task]) {
-                  await setSelectedModelId(spec.task, modelId);
-                  resetEngineForTask(spec.task);
-                  setSelected((prev) => (prev[spec.task] === modelId ? prev : { ...prev, [spec.task]: modelId }));
-                }
-              }
-            }
+            if (selectOnComplete) await maybeAutoSelect(modelId, reattachPairOperation);
             await refresh();
           },
           onPaused: (modelId, progress) => {
@@ -200,68 +269,11 @@ export function ModelCatalogProvider({ children }: { children: ReactNode }) {
     return () => {
       mounted = false;
     };
-  }, [applyProgress, refresh]);
-
-  useEffect(() => {
-    const active = Object.values(states).some((s) => s.status === 'downloading');
-    if (active) void activateKeepAwakeAsync(KEEP_AWAKE_TAG);
-    else void deactivateKeepAwake(KEEP_AWAKE_TAG);
-    return () => {
-      void deactivateKeepAwake(KEEP_AWAKE_TAG);
-    };
-  }, [states]);
-
-  const isReady = useMemo(() => {
-    const usable = (id: string | null) => {
-      if (!id) return false;
-      const status = states[id]?.status;
-      return status === 'installed' || status === 'selected';
-    };
-    return usable(selected.asr) && usable(selected.mt);
-  }, [selected, states]);
-
-  const getModelState = useCallback(
-    (modelId: string): ModelUiState => states[modelId] ?? { status: 'not_installed', progress: 0 },
-    [states],
-  );
-
-  /** Resolve a spec or raise the error the UI already knows how to show. */
-  const requireSpec = useCallback((modelId: string) => {
-    const spec = getModelSpec(modelId);
-    if (!spec) {
-      const err = new ModelError({
-        code: 'MODEL_UNKNOWN_ID',
-        stage: 'catalog.resolve',
-        message: `Modelo desconocido: ${modelId}`,
-        recoverable: false,
-        context: { modelId },
-      });
-      setLastError(err);
-      throw err;
-    }
-    return spec;
-  }, []);
-
-  const applySelection = useCallback(async (task: SelectableTask, modelId: string) => {
-    const prefs = await readModelPreferences();
-    const changed = prefs[task] !== modelId;
-    await setSelectedModelId(task, modelId);
-    if (changed) resetEngineForTask(task);
-    setSelected((prev) => (prev[task] === modelId ? prev : { ...prev, [task]: modelId }));
-  }, []);
-
-  const maybeAutoSelect = useCallback(
-    async (modelId: string) => {
-      const spec = getModelSpec(modelId);
-      if (!spec || spec.task === 'vad') return;
-      const prefs = await readModelPreferences();
-      if (!prefs[spec.task]) await applySelection(spec.task, modelId);
-    },
-    [applySelection],
-  );
+  }, [applyProgress, maybeAutoSelect, refresh]);
 
   const download = useCallback(
-    async (modelId: string) => {
+    async (modelId: string, autoSelect = true) => {
+      const pairOperation = autoSelect ? pairOperationRef.current : undefined;
       requireSpec(modelId);
 
       setLastError(null);
@@ -274,8 +286,8 @@ export function ModelCatalogProvider({ children }: { children: ReactNode }) {
       }));
 
       try {
-        await downloadModel(modelId, applyProgress);
-        await maybeAutoSelect(modelId);
+        await downloadModel(modelId, applyProgress, { selectOnComplete: autoSelect });
+        if (autoSelect) await maybeAutoSelect(modelId, pairOperation);
         await refresh();
       } catch (err) {
         if (isPausedError(err)) {
@@ -335,8 +347,8 @@ export function ModelCatalogProvider({ children }: { children: ReactNode }) {
     }));
   }, []);
 
-  const select = useCallback(
-    async (modelId: string) => {
+  const selectModel = useCallback(
+    async (modelId: string, pairOperation?: number): Promise<boolean> => {
       const spec = requireSpec(modelId);
       if (spec.task === 'vad') {
         const err = new ModelError({
@@ -363,9 +375,11 @@ export function ModelCatalogProvider({ children }: { children: ReactNode }) {
       }
 
       try {
-        await applySelection(spec.task, modelId);
+        const applied = await applySelection(spec.task, modelId, pairOperation);
+        if (!applied) return false;
         setLastError(null);
         await refresh();
+        return true;
       } catch (err) {
         const modelErr = isModelError(err)
           ? err
@@ -379,13 +393,28 @@ export function ModelCatalogProvider({ children }: { children: ReactNode }) {
     [applySelection, refresh, requireSpec],
   );
 
+  const select = useCallback(
+    async (modelId: string) => {
+      pairOperationRef.current += 1;
+      await selectModel(modelId);
+    },
+    [selectModel],
+  );
+
   const applyModelPair = useCallback(
     async (asrId: string, mtId: string) => {
+      const pairOperation = ++pairOperationRef.current;
       setLastError(null);
       try {
-        for (const modelId of [asrId, mtId]) {
-          if (!(await isModelInstalled(modelId))) await download(modelId);
-          await select(modelId);
+        const modelIds = [...new Set([asrId, mtId])];
+        for (const modelId of modelIds) {
+          if (pairOperationRef.current !== pairOperation) return;
+          if (!(await isModelInstalled(modelId))) await download(modelId, false);
+          if (pairOperationRef.current !== pairOperation) return;
+        }
+        for (const modelId of modelIds) {
+          if (pairOperationRef.current !== pairOperation) return;
+          if (!(await selectModel(modelId, pairOperation))) return;
         }
       } catch (err) {
         if (isPausedError(err)) {
@@ -396,7 +425,7 @@ export function ModelCatalogProvider({ children }: { children: ReactNode }) {
         throw err;
       }
     },
-    [download, select],
+    [download, selectModel],
   );
 
   const value = useMemo<ModelCatalogContextValue>(

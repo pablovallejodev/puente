@@ -1,20 +1,21 @@
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, type Href } from 'expo-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ChatHeadComponent, StandardHeadComponent } from '@/components/basics/headers';
 import {
   exceedsPairBudget,
   formatBytes,
   getModelSpec,
-  modePairPeakBytes,
-  pairBudgetBytes,
+  ASR_MODELS,
+  MT_MODELS,
   pairPeakRamBytes,
   PRESET_MODES,
   presetModePeakBytes,
   resolveActiveMode,
   SILERO_VAD_MODEL_ID,
+  type ModelSpec,
   type PresetMode,
 } from '@/constants/model-catalog';
 import { STANDARD_HORIZONTAL_PADDING } from '@/constants/ui';
@@ -38,99 +39,73 @@ export default function ConfiguracionComponent() {
     lastError,
     clearError,
     download,
-    pauseDownload,
     applyModelPair,
     getModelState,
     selected,
   } = useModelCatalog();
 
   const [isSetupFlow] = useState(() => !isReady);
-  const [busyModeId, setBusyModeId] = useState<string | null>(null);
-  const [customExpanded, setCustomExpanded] = useState(false);
-  const sileroKickoff = useRef(false);
+  const [targetPair, setTargetPair] = useState<{ asrId: string; mtId: string } | null>(null);
+  const presetRequestRef = useRef(0);
 
-  const selectedAsr = selected.asr ? getModelSpec(selected.asr) : undefined;
-  const selectedMt = selected.mt ? getModelSpec(selected.mt) : undefined;
+  const displayedAsrId = targetPair?.asrId ?? selected.asr;
+  const displayedMtId = targetPair?.mtId ?? selected.mt;
+  const displayedAsr = displayedAsrId ? getModelSpec(displayedAsrId) : undefined;
+  const displayedMt = displayedMtId ? getModelSpec(displayedMtId) : undefined;
   const activeMode = resolveActiveMode(selected.asr, selected.mt);
 
   const pairPeak =
-    selectedAsr && selectedMt ? pairPeakRamBytes(selectedAsr.peakRamBytes, selectedMt.peakRamBytes) : null;
-  const pairBudget = pairBudgetBytes(totalMemoryBytes);
+    displayedAsr && displayedMt ? pairPeakRamBytes(displayedAsr.peakRamBytes, displayedMt.peakRamBytes) : null;
   const showRamPressure =
-    selectedAsr != null &&
-    selectedMt != null &&
-    exceedsPairBudget(selectedAsr.peakRamBytes, selectedMt.peakRamBytes, totalMemoryBytes);
+    displayedAsr != null &&
+    displayedMt != null &&
+    exceedsPairBudget(displayedAsr.peakRamBytes, displayedMt.peakRamBytes, totalMemoryBytes);
 
   const ramPhoneLabel = totalMemoryBytes != null ? `${(totalMemoryBytes / (1024 * 1024 * 1024)).toFixed(1)} GB` : '—';
   const ramModeLabel = pairPeak != null ? `~${formatBytes(pairPeak)}` : '—';
-  const budgetRatio = pairPeak != null && pairBudget != null && pairBudget > 0 ? Math.min(pairPeak / pairBudget, 1) : 0;
-
-  const customRamLabel = useMemo(() => {
-    if (!selected.asr || !selected.mt) return null;
-    return `~${formatBytes(modePairPeakBytes(selected.asr, selected.mt))} RAM`;
-  }, [selected.asr, selected.mt]);
+  const ramRatio =
+    pairPeak != null && totalMemoryBytes != null && totalMemoryBytes > 0 ? Math.min(pairPeak / totalMemoryBytes, 1) : 0;
 
   useEffect(() => {
-    if (booting || sileroKickoff.current) return;
-    const status = getModelState(SILERO_VAD_MODEL_ID).status;
-    if (status !== 'not_installed') return;
-    sileroKickoff.current = true;
+    if (booting || !isReady) return;
+    const pairDownloading = [...ASR_MODELS, ...MT_MODELS].some(
+      (model) => getModelState(model.id).status === 'downloading',
+    );
+    if (pairDownloading) return;
+
+    const vadState = getModelState(SILERO_VAD_MODEL_ID);
+    if (vadState.error || (vadState.status !== 'not_installed' && vadState.status !== 'paused')) return;
     void download(SILERO_VAD_MODEL_ID).catch(() => {
       clearError();
     });
-  }, [booting, download, getModelState, clearError]);
+  }, [booting, clearError, download, getModelState, isReady]);
+
+  const openTranscribers = useCallback(() => {
+    setTargetPair(null);
+    router.push('/modelos/transcriptores' as Href);
+  }, []);
+
+  const openTranslators = useCallback(() => {
+    setTargetPair(null);
+    router.push('/modelos/traductores' as Href);
+  }, []);
 
   const onPreset = useCallback(
-    async (mode: PresetMode) => {
-      const asrState = getModelState(mode.asrId);
-      const mtState = getModelState(mode.mtId);
-      const pairReady =
-        (asrState.status === 'installed' || asrState.status === 'selected') &&
-        (mtState.status === 'installed' || mtState.status === 'selected');
-      if (activeMode === mode.id && pairReady) return;
-      if (busyModeId === mode.id) return;
-      setCustomExpanded(false);
-      setBusyModeId(mode.id);
+    (mode: PresetMode) => {
+      const request = ++presetRequestRef.current;
+      setTargetPair({ asrId: mode.asrId, mtId: mode.mtId });
       clearError();
-      try {
-        await applyModelPair(mode.asrId, mode.mtId);
-      } catch {
-        /* paused or lastError — busy cleared in finally */
-      } finally {
-        setBusyModeId(null);
-      }
+      void applyModelPair(mode.asrId, mode.mtId)
+        .then(() => {
+          if (presetRequestRef.current !== request) return;
+          setTargetPair((current) => (current?.asrId === mode.asrId && current.mtId === mode.mtId ? null : current));
+        })
+        .catch(() => {
+          /* paused or lastError — keep the target visible for retry */
+        });
     },
-    [activeMode, applyModelPair, busyModeId, clearError, getModelState],
+    [applyModelPair, clearError],
   );
-
-  const onPauseMode = useCallback(
-    async (mode: PresetMode) => {
-      const asrState = getModelState(mode.asrId);
-      const mtState = getModelState(mode.mtId);
-      try {
-        if (asrState.status === 'downloading') {
-          await pauseDownload(mode.asrId);
-        }
-        if (mtState.status === 'downloading') {
-          await pauseDownload(mode.mtId);
-        }
-      } catch {
-        /* lastError */
-      } finally {
-        if (busyModeId === mode.id) setBusyModeId(null);
-      }
-    },
-    [busyModeId, getModelState, pauseDownload],
-  );
-
-  const showCustomSlots = activeMode === 'personalizado' || customExpanded;
-
-  const onToggleCustom = useCallback(() => {
-    // Active custom pair already shows the slots; tap is a no-op collapse/open
-    // only when exploring before a non-preset pair is chosen.
-    if (activeMode === 'personalizado') return;
-    setCustomExpanded((v) => !v);
-  }, [activeMode]);
 
   const goTraductor = useCallback(() => {
     if (!isReady) return;
@@ -159,31 +134,39 @@ export default function ConfiguracionComponent() {
       )}
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
-        <View style={styles.ramHero}>
-          <Text style={styles.heroEyebrow}>TU DISPOSITIVO</Text>
-          <View style={styles.ramRow}>
-            <View style={styles.ramMetric}>
-              <Text style={styles.ramLabel}>RAM del teléfono</Text>
-              <Text style={styles.ramValue}>{ramPhoneLabel}</Text>
-            </View>
-            <View style={styles.ramMetric}>
-              <Text style={styles.ramLabel}>RAM del modo</Text>
-              <Text style={styles.ramValue}>{ramModeLabel}</Text>
-            </View>
+        <View style={styles.ramSummary} accessibilityLabel={`Pareja ${ramModeLabel} de ${ramPhoneLabel}`}>
+          <View style={styles.ramSummaryRow}>
+            <Text style={styles.ramSummaryValue}>{ramModeLabel}</Text>
+            <Text style={styles.ramSummaryTotal}>{ramPhoneLabel}</Text>
           </View>
-          {pairPeak != null && pairBudget != null ? (
+          {pairPeak != null && totalMemoryBytes != null ? (
             <View style={styles.barTrack}>
               <View
                 style={[
                   styles.barFill,
                   showRamPressure && styles.barFillWarn,
-                  { width: `${Math.round(budgetRatio * 100)}%` },
+                  { width: `${Math.round(ramRatio * 100)}%` },
                 ]}
               />
             </View>
           ) : (
             <Text style={styles.ramHint}>Elige un modo para continuar</Text>
           )}
+        </View>
+
+        <View style={styles.modelCards}>
+          <ModelProgressCard
+            title="Transcriptor"
+            spec={displayedAsr}
+            state={displayedAsrId ? getModelState(displayedAsrId) : undefined}
+            onPress={openTranscribers}
+          />
+          <ModelProgressCard
+            title="Traductor"
+            spec={displayedMt}
+            state={displayedMtId ? getModelState(displayedMtId) : undefined}
+            onPress={openTranslators}
+          />
         </View>
 
         {showRamPressure ? (
@@ -203,24 +186,14 @@ export default function ConfiguracionComponent() {
         <View style={styles.modes}>
           {PRESET_MODES.map((mode) => {
             const selectedMode = activeMode === mode.id;
-            const busy = busyModeId === mode.id;
-            const asrState = getModelState(mode.asrId);
-            const mtState = getModelState(mode.mtId);
-            const modeDownloading = asrState.status === 'downloading' || mtState.status === 'downloading';
-            const modePaused = !modeDownloading && (asrState.status === 'paused' || mtState.status === 'paused');
-            const pct = Math.round(((installProgress(asrState) + installProgress(mtState)) / 2) * 100);
             return (
               <Pressable
                 key={mode.id}
                 style={[styles.modeButton, selectedMode && styles.modeButtonSelected]}
-                onPress={() => {
-                  if (modeDownloading) return;
-                  void onPreset(mode);
-                }}
+                onPress={() => onPreset(mode)}
                 accessibilityRole="button"
                 accessibilityState={{
                   selected: selectedMode,
-                  busy: modeDownloading && busy,
                 }}
               >
                 <View style={styles.modeTextCol}>
@@ -232,73 +205,23 @@ export default function ConfiguracionComponent() {
                       {mode.subtitle}
                     </Text>
                   ) : null}
-                  {busy ? (
-                    <>
-                      <Text style={[styles.modeBusy, selectedMode && styles.modeBusySelected]}>
-                        {pct < 100 ? `Descargando… ${pct}%` : 'Seleccionando…'}
-                      </Text>
-                      {pct < 100 ? (
-                        <Text style={[styles.modeHint, selectedMode && styles.modeHintSelected]}>
-                          Puedes salir de la app; la descarga continúa.
-                        </Text>
-                      ) : null}
-                    </>
-                  ) : null}
-                  {modePaused ? (
-                    <Text style={[styles.modeBusy, selectedMode && styles.modeBusySelected]}>Pausada</Text>
-                  ) : null}
                 </View>
-                {modeDownloading && busy ? (
-                  <Pressable
-                    style={[styles.pauseChip, selectedMode && styles.pauseChipSelected]}
-                    onPress={() => void onPauseMode(mode)}
-                    hitSlop={8}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Pausar descarga de ${mode.label}`}
-                  >
-                    <Text style={[styles.pauseChipText, selectedMode && styles.pauseChipTextSelected]}>Pausar</Text>
-                  </Pressable>
-                ) : (
-                  <Text style={[styles.modeRam, selectedMode && styles.modeRamSelected]}>
-                    ~{formatBytes(presetModePeakBytes(mode))} RAM
-                  </Text>
-                )}
+                <Text style={[styles.modeRam, selectedMode && styles.modeRamSelected]}>
+                  ~{formatBytes(presetModePeakBytes(mode))}
+                </Text>
               </Pressable>
             );
           })}
 
-          <View>
-            <Pressable
-              style={[styles.modeButton, activeMode === 'personalizado' && styles.modeButtonSelected]}
-              onPress={onToggleCustom}
-              accessibilityRole="button"
-              accessibilityState={{
-                selected: activeMode === 'personalizado',
-                expanded: showCustomSlots,
-              }}
-            >
-              <Text style={[styles.modeLabel, activeMode === 'personalizado' && styles.modeLabelSelected]}>
-                {activeMode === 'personalizado' ? '✓ Personalizado' : 'Personalizado'}
-              </Text>
-              <Text style={[styles.modeRam, activeMode === 'personalizado' && styles.modeRamSelected]}>
-                {customRamLabel ?? '—'}
-              </Text>
-            </Pressable>
-
-            {showCustomSlots ? (
-              <View style={styles.customRow}>
-                <CustomSlot
-                  title="Transcriptor"
-                  label={selectedAsr?.shortLabel ?? selectedAsr?.label}
-                  onPress={() => router.push('/modelos/transcriptores' as Href)}
-                />
-                <CustomSlot
-                  title="Traductor"
-                  label={selectedMt?.shortLabel ?? selectedMt?.label}
-                  onPress={() => router.push('/modelos/traductores' as Href)}
-                />
-              </View>
-            ) : null}
+          <View
+            style={[styles.modeButton, activeMode === 'personalizado' && styles.modeButtonSelected]}
+            accessible
+            accessibilityRole="text"
+            accessibilityState={{ selected: activeMode === 'personalizado' }}
+          >
+            <Text style={[styles.modeLabel, activeMode === 'personalizado' && styles.modeLabelSelected]}>
+              {activeMode === 'personalizado' ? '✓ Personalizado' : 'Personalizado'}
+            </Text>
           </View>
         </View>
 
@@ -318,17 +241,49 @@ export default function ConfiguracionComponent() {
   );
 }
 
-function CustomSlot({ title, label, onPress }: { title: string; label?: string; onPress: () => void }) {
-  const filled = label != null;
+function ModelProgressCard({
+  title,
+  spec,
+  state,
+  onPress,
+}: {
+  title: string;
+  spec?: ModelSpec;
+  state?: ModelUiState;
+  onPress: () => void;
+}) {
+  const progress = Math.round(Math.max(0, Math.min(1, state ? installProgress(state) : 0)) * 100);
+  const status =
+    state?.status === 'downloading'
+      ? `Descargando… ${progress}%`
+      : state?.status === 'paused'
+        ? `Pausado · ${progress}%`
+        : state?.status === 'selected'
+          ? 'En uso · 100%'
+          : state?.status === 'installed'
+            ? 'Disponible · 100%'
+            : 'Pendiente · 0%';
+
   return (
     <Pressable
-      style={[styles.slot, filled ? styles.slotFilled : styles.slotEmpty]}
+      style={styles.modelCard}
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={`${title}: ${label ?? 'Seleccionar'}`}
+      accessibilityLabel={`${title}: ${spec?.label ?? 'Seleccionar modelo'}. ${status}`}
     >
-      <Text style={styles.slotTitle}>{title}</Text>
-      <Text style={[styles.slotValue, !filled && styles.slotValueEmpty]}>{label ?? 'Seleccionar'}</Text>
+      <View style={styles.modelCardHeader}>
+        <View style={styles.modelCardText}>
+          <Text style={styles.modelCardTitle}>{title}</Text>
+          <Text style={styles.modelCardModel} numberOfLines={1}>
+            {spec?.shortLabel ?? spec?.label ?? 'Seleccionar modelo'}
+          </Text>
+        </View>
+        <Text style={styles.modelCardProgress}>{progress}%</Text>
+      </View>
+      <View style={styles.modelCardTrack}>
+        <View style={[styles.modelCardFill, { width: `${progress}%` }]} />
+      </View>
+      <Text style={styles.modelCardStatus}>{status}</Text>
     </Pressable>
   );
 }
@@ -357,44 +312,29 @@ const styles = StyleSheet.create({
     paddingBottom: theme.spacing.xl,
     flexGrow: 1,
   },
-  ramHero: {
+  ramSummary: {
     marginTop: theme.spacing.md,
-    padding: theme.spacing.lg,
-    borderRadius: theme.radius.xl,
-    backgroundColor: theme.colors.surfaceStone,
-    borderWidth: 1,
-    borderColor: theme.colors.hairline,
   },
-  heroEyebrow: {
-    fontFamily: theme.font.heading,
-    fontSize: theme.type.micro,
-    letterSpacing: 1.4,
-    color: theme.colors.textMuted,
-  },
-  ramRow: {
+  ramSummaryRow: {
     flexDirection: 'row',
-    gap: theme.spacing.md,
-    marginTop: theme.spacing.md,
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
   },
-  ramMetric: {
-    flex: 1,
+  ramSummaryValue: {
+    fontFamily: theme.font.heading,
+    fontSize: theme.type.body,
+    color: theme.colors.text,
   },
-  ramLabel: {
+  ramSummaryTotal: {
     fontFamily: theme.font.body,
     fontSize: theme.type.caption,
     color: theme.colors.textMuted,
   },
-  ramValue: {
-    fontFamily: theme.font.heading,
-    fontSize: theme.type.title,
-    color: theme.colors.text,
-    marginTop: theme.spacing.xs,
-  },
   barTrack: {
-    marginTop: theme.spacing.md,
+    marginTop: theme.spacing.sm,
     height: 6,
     borderRadius: theme.radius.pill,
-    backgroundColor: theme.colors.background,
+    backgroundColor: theme.colors.hairline,
     overflow: 'hidden',
   },
   barFill: {
@@ -406,7 +346,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.error,
   },
   ramHint: {
-    marginTop: theme.spacing.md,
+    marginTop: theme.spacing.sm,
     fontFamily: theme.font.body,
     fontSize: theme.type.caption,
     color: theme.colors.textMuted,
@@ -439,6 +379,65 @@ const styles = StyleSheet.create({
     fontSize: theme.type.caption,
     color: theme.colors.error,
   },
+  modelCards: {
+    flexDirection: 'row',
+    gap: theme.spacing.sm,
+    marginTop: theme.spacing.lg,
+  },
+  modelCard: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 96,
+    padding: theme.spacing.md,
+    borderRadius: theme.radius.lg,
+    borderWidth: 1,
+    borderColor: theme.colors.hairline,
+    backgroundColor: theme.colors.surface,
+  },
+  modelCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: theme.spacing.sm,
+  },
+  modelCardText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  modelCardTitle: {
+    fontFamily: theme.font.heading,
+    fontSize: theme.type.caption,
+    color: theme.colors.textMuted,
+  },
+  modelCardModel: {
+    fontFamily: theme.font.heading,
+    fontSize: theme.type.body,
+    color: theme.colors.text,
+    marginTop: theme.spacing.xs,
+  },
+  modelCardProgress: {
+    fontFamily: theme.font.heading,
+    fontSize: theme.type.caption,
+    color: theme.colors.text,
+  },
+  modelCardTrack: {
+    height: 4,
+    marginTop: theme.spacing.sm,
+    borderRadius: theme.radius.pill,
+    backgroundColor: theme.colors.hairline,
+    overflow: 'hidden',
+  },
+  modelCardFill: {
+    height: '100%',
+    borderRadius: theme.radius.pill,
+    backgroundColor: theme.colors.action,
+  },
+  modelCardStatus: {
+    fontFamily: theme.font.body,
+    fontSize: theme.type.micro,
+    color: theme.colors.textMuted,
+    marginTop: theme.spacing.xs,
+  },
   modes: {
     marginTop: theme.spacing.xl,
     gap: theme.spacing.sm,
@@ -460,9 +459,6 @@ const styles = StyleSheet.create({
   modeButtonSelected: {
     backgroundColor: theme.colors.action,
     borderColor: theme.colors.action,
-  },
-  modeButtonDimmed: {
-    opacity: 0.5,
   },
   modeTextCol: {
     flex: 1,
@@ -486,25 +482,6 @@ const styles = StyleSheet.create({
     color: theme.colors.onAction,
     opacity: 0.85,
   },
-  modeBusy: {
-    fontFamily: theme.font.body,
-    fontSize: theme.type.caption,
-    color: theme.colors.textMuted,
-    marginTop: 4,
-  },
-  modeBusySelected: {
-    color: theme.colors.onAction,
-  },
-  modeHint: {
-    fontFamily: theme.font.body,
-    fontSize: theme.type.micro,
-    color: theme.colors.textMuted,
-    marginTop: 2,
-  },
-  modeHintSelected: {
-    color: theme.colors.onAction,
-    opacity: 0.8,
-  },
   modeRam: {
     fontFamily: theme.font.body,
     fontSize: theme.type.caption,
@@ -514,64 +491,6 @@ const styles = StyleSheet.create({
   modeRamSelected: {
     color: theme.colors.onAction,
     opacity: 0.9,
-  },
-  pauseChip: {
-    flexShrink: 0,
-    borderWidth: 1,
-    borderColor: theme.colors.hairline,
-    borderRadius: theme.radius.md,
-    paddingVertical: theme.spacing.sm,
-    paddingHorizontal: theme.spacing.md,
-    backgroundColor: theme.colors.background,
-  },
-  pauseChipSelected: {
-    borderColor: theme.colors.onAction,
-    backgroundColor: 'transparent',
-  },
-  pauseChipText: {
-    fontFamily: theme.font.heading,
-    fontSize: theme.type.caption,
-    color: theme.colors.text,
-  },
-  pauseChipTextSelected: {
-    color: theme.colors.onAction,
-  },
-  customRow: {
-    flexDirection: 'row',
-    gap: theme.spacing.sm,
-    marginTop: theme.spacing.sm,
-  },
-  slot: {
-    flex: 1,
-    minHeight: 72,
-    borderRadius: theme.radius.md,
-    borderWidth: 1.5,
-    paddingVertical: theme.spacing.ml,
-    paddingHorizontal: theme.spacing.md,
-    justifyContent: 'center',
-  },
-  slotEmpty: {
-    borderColor: theme.colors.hairline,
-    backgroundColor: theme.colors.background,
-  },
-  slotFilled: {
-    borderColor: theme.colors.success,
-    backgroundColor: theme.colors.surface,
-  },
-  slotTitle: {
-    fontFamily: theme.font.heading,
-    fontSize: theme.type.micro,
-    letterSpacing: 0.8,
-    color: theme.colors.textMuted,
-    marginBottom: theme.spacing.xs,
-  },
-  slotValue: {
-    fontFamily: theme.font.heading,
-    fontSize: theme.type.body,
-    color: theme.colors.text,
-  },
-  slotValueEmpty: {
-    color: theme.colors.textMuted,
   },
   gateFooter: {
     fontFamily: theme.font.body,
