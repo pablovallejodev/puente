@@ -8,7 +8,7 @@
 
 Traducción de voz en tiempo real. Sin internet. Gratis. Código abierto.
 
-[![Licencia MIT](https://img.shields.io/badge/licencia-MIT-71697A)](LICENSE)
+[![Licencia AGPL-3.0-only](https://img.shields.io/badge/licencia-AGPL--3.0--only-71697A)](LICENSE)
 [![Expo](https://img.shields.io/badge/Expo-SDK%2056-4A4452)](puente/package.json)
 
 Puente procesa la voz en el teléfono con **Whisper ONNX** (STT on-device,

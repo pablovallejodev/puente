@@ -3,6 +3,7 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "packageManager": "pnpm@12.6.0",
+  "license": "AGPL-3.0-only",
   "scripts": {
     "clear": "rm -r ./android && rm -r ./ios",
     "rebuild": "npx expo prebuild --clean",
