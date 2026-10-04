@@ -1,7 +1,7 @@
 # Puente
 
 <p align="center">
-  <img src="puente/assets/icon.png" width="180" alt="Puente romano entre vegetación, símbolo de Puente" />
+  <img src="/assets/icon.png" width="180" alt="Puente romano entre vegetación, símbolo de Puente" />
 </p>
 
 > **Lo que une civilizaciones.**
