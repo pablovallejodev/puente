@@ -15,9 +15,6 @@ Puente procesa la voz en el teléfono con **Whisper ONNX** (STT on-device,
 tiny/base/small) y traduce con **NLLB-200 ONNX** (600M Q8). El audio no sale del
 dispositivo ni se guarda.
 
-La identidad, la voz y las reglas de diseño están documentadas en
-[`BRAND.md`](BRAND.md).
-
 ## Cómo funciona
 
 **Idioma input** por defecto = **Universal** (Whisper detecta el idioma y lo pasa a NLLB). Override opcional a un idioma fijo. **Idioma base** inicial = locale del teléfono.
@@ -30,12 +27,6 @@ Los modelos **no van empaquetados** en el APK: el usuario los descarga desde Hug
 encontrado un problema o propón un cambio pequeño y concreto. La futura
 traducción de la interfaz será una buena puerta de entrada para la comunidad.
 
-## Proyectos relacionados
-
-[RTranslator](https://github.com/niedev/RTranslator) demostró el valor de la
-traducción local y en tiempo real, y es trabajo previo relevante para este
-espacio. Puente comparte ese objetivo desde una implementación y una identidad
-propias.
 
 ## Desarrollo
 
