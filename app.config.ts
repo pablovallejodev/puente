@@ -54,6 +54,7 @@ const config: ExpoConfig = {
     [
       'expo-audio',
       {
+        enableBackgroundPlayback: false,
         microphonePermission:
           'Puente uses the microphone continuously while Traductor is open to listen and translate your speech in real time. Audio is processed on device and is not saved.',
       },
