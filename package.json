@@ -2,7 +2,7 @@
   "name": "puente",
   "main": "expo-router/entry",
   "version": "1.0.2",
-  "packageManager": "pnpm@12.6.0",
+  "packageManager": "pnpm@12.9.0",
   "license": "AGPL-3.0-only",
   "scripts": {
     "clear": "rm -r ./android && rm -r ./ios",
